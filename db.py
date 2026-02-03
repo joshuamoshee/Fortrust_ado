@@ -346,3 +346,11 @@ def save_full_report(case_id: str, report_md: str):
         WHERE case_id = ?
         """, (report_md, now, case_id))
         conn.commit()
+
+# Add this to db.py
+def update_case_payload(case_id, new_payload):
+    with get_conn() as conn:
+        # Convert dict to json string
+        json_str = json.dumps(new_payload)
+        conn.execute("UPDATE cases SET raw_json = ? WHERE case_id = ?", (json_str, case_id))
+        conn.commit()

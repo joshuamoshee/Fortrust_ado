@@ -6,6 +6,28 @@ def money(x):
         return f"{float(x):,.0f}"
     except Exception:
         return str(x)
+    
+def split_list(s):
+    return [x.strip() for x in (s or "").split(",") if x.strip()]
+
+def major_fit_from_text(text: str):
+    t = (text or "").lower()
+    # crude mapping; expand later
+    if any(k in t for k in ["software", "data", "ai", "cyber", "it"]): return "IT"
+    if any(k in t for k in ["business", "finance", "account", "consult"]): return "Business"
+    if any(k in t for k in ["design", "animation", "ui", "ux", "media"]): return "Design"
+    if any(k in t for k in ["nurse", "doctor", "medicine", "health"]): return "Health"
+    return "Other"
+
+def salary_block(p):
+    # safe formatting: show if exists
+    def g(k):
+        return p.get(k, None)
+    return {
+        "id": (g("salary_id_low"), g("salary_id_med"), g("salary_id_high")),
+        "dest": (g("salary_dest_low"), g("salary_dest_med"), g("salary_dest_high")),
+    }
+
 
 def make_internal_report(student: dict, programs_df: pd.DataFrame) -> str:
     ranked = rank_programs(student, programs_df)

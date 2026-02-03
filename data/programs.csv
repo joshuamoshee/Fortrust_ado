@@ -1,6 +1,11 @@
 country,city,institution,level,category,program_name,tuition_per_year,living_per_year,duration_years,intake_months,ielts_min,gpa_min,visa_risk,scholarship_level,vibe
-New Zealand,Auckland,AUT,Bachelor,IT,Bachelor of Computer and Information Sciences,32000,14000,3,"Feb,Jul",6.5,2.8,Low,Low,Fast-paced
-New Zealand,Auckland,Unitec,Diploma,IT,Diploma in Information Technology,14000,12000,2,"Feb,Jul",6.0,2.3,Medium,Medium,Practical
-New Zealand,Christchurch,Ara Institute,Diploma,Design,Diploma in Design,16000,10000,2,"Feb,Jul",6.0,2.3,Low,Medium,Calm
-UK,Manchester,University of Manchester,Bachelor,Business,BSc Management,29500,13000,3,"Sep",6.5,3.0,Low,Low,Prestigious
-UK,London,University of Greenwich,Bachelor,Business,BSc Business Management,17000,15000,3,"Sep,Jan",6.0,2.5,Medium,Medium,Affordable-ish
+USA,Phoenix,Arizona State University,Bachelor,General,Undergraduate Degree,37202,19140,4,"Aug,Jan",6.5,3.0,Low,High,Innovation
+USA,Los Angeles,UCLA,Bachelor,Arts,Undergraduate General,53502,22500,4,"Sep",7.0,3.9,Low,Low,Famous
+USA,Los Angeles,USC,Bachelor,Business,Undergraduate Degree,69904,20000,4,"Aug",7.0,3.8,Low,Medium,Prestigious
+USA,Atlanta,Georgia Tech,Bachelor,STEM,Bachelor of Engineering,31370,14960,4,"Aug",7.0,4.0,Low,Low,Tech-Focused
+USA,Seattle,Univ. of Washington,Bachelor,General,Undergraduate Degree,45111,20859,4,"Sep",6.5,3.8,Low,Low,Public/Research
+USA,Santa Monica,Santa Monica College,Bachelor,Pathway,Associate Degree (Transfer),11232,20000,2,"Aug,Feb",6.0,2.0,Low,N/A,Community College
+UK,London,King's College London,Bachelor,IT,BSc Computer Science,31000,16000,3,"Sep",6.5,3.5,Low,Low,Prestigious
+UK,Manchester,Manchester Met,Bachelor,IT,BSc Software Engineering,18500,12000,3,"Sep",6.0,2.8,Low,Medium,Modern
+Canada,Toronto,Seneca College,Diploma,IT,Computer Programming,16000,14000,2,"Jan,Sep",6.0,2.5,Low,High,Practical
+Germany,Berlin,IU Applied Sciences,Bachelor,IT,BSc Computer Science,5000,12000,3,"Apr,Oct",6.0,2.5,Low,Medium,Affordable
