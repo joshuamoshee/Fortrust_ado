@@ -1,0 +1,6 @@
+country,city,institution,level,category,program_name,tuition_per_year,living_per_year,duration_years,intake_months,ielts_min,gpa_min,visa_risk,scholarship_level,vibe
+New Zealand,Auckland,AUT,Bachelor,IT,Bachelor of Computer and Information Sciences,32000,14000,3,"Feb,Jul",6.5,2.8,Low,Low,Fast-paced
+New Zealand,Auckland,Unitec,Diploma,IT,Diploma in Information Technology,14000,12000,2,"Feb,Jul",6.0,2.3,Medium,Medium,Practical
+New Zealand,Christchurch,Ara Institute,Diploma,Design,Diploma in Design,16000,10000,2,"Feb,Jul",6.0,2.3,Low,Medium,Calm
+UK,Manchester,University of Manchester,Bachelor,Business,BSc Management,29500,13000,3,"Sep",6.5,3.0,Low,Low,Prestigious
+UK,London,University of Greenwich,Bachelor,Business,BSc Business Management,17000,15000,3,"Sep,Jan",6.0,2.5,Medium,Medium,Affordable-ish
