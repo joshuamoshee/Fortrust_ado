@@ -18,13 +18,14 @@ from db import (
     list_users,
     assign_case,
     list_cases_advanced,
+    list_cases_filtered,          # <--- ADDED THIS FIXED YOUR ERROR
     get_audit_for_case,
     log_event,
     log_contact_attempt,
     mark_contacted,
     save_full_report,
-    update_case_payload,            # <--- MAKE SURE THIS EXISTS IN db.py
-    update_case_status_and_payload  # <--- MAKE SURE THIS EXISTS IN db.py
+    update_case_payload,          
+    update_case_status_and_payload
 )
 from report import make_counsellor_brief
 
