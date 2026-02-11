@@ -1,11 +1,79 @@
 country,city,institution,level,category,program_name,tuition_per_year,living_per_year,duration_years,intake_months,ielts_min,gpa_min,visa_risk,scholarship_level,vibe
-USA,Phoenix,Arizona State University,Bachelor,General,Undergraduate Degree,37202,19140,4,"Aug,Jan",6.5,3.0,Low,High,Innovation
-USA,Los Angeles,UCLA,Bachelor,Arts,Undergraduate General,53502,22500,4,"Sep",7.0,3.9,Low,Low,Famous
-USA,Los Angeles,USC,Bachelor,Business,Undergraduate Degree,69904,20000,4,"Aug",7.0,3.8,Low,Medium,Prestigious
-USA,Atlanta,Georgia Tech,Bachelor,STEM,Bachelor of Engineering,31370,14960,4,"Aug",7.0,4.0,Low,Low,Tech-Focused
-USA,Seattle,Univ. of Washington,Bachelor,General,Undergraduate Degree,45111,20859,4,"Sep",6.5,3.8,Low,Low,Public/Research
-USA,Santa Monica,Santa Monica College,Bachelor,Pathway,Associate Degree (Transfer),11232,20000,2,"Aug,Feb",6.0,2.0,Low,N/A,Community College
-UK,London,King's College London,Bachelor,IT,BSc Computer Science,31000,16000,3,"Sep",6.5,3.5,Low,Low,Prestigious
-UK,Manchester,Manchester Met,Bachelor,IT,BSc Software Engineering,18500,12000,3,"Sep",6.0,2.8,Low,Medium,Modern
+USA,Los Angeles,UCLA,Bachelor,Arts,Undergraduate General,53502,22500,4,Sep,7.0,3.9,Low,Low,Famous
+USA,Los Angeles,USC,Bachelor,Business,Undergraduate Degree,69904,20000,4,Aug,7.0,3.8,Low,Medium,Prestigious
+USA,Atlanta,Georgia Tech,Bachelor,STEM,Bachelor of Engineering,31370,14960,4,Aug,7.0,4.0,Low,Low,Tech-Focused
+USA,Seattle,Univ. of Washington,Bachelor,General,Undergraduate Degree,45111,20859,4,Sep,6.5,3.8,Low,Low,Public/Research
+USA,Santa Monica,Santa Monica College,Bachelor,Pathway,Associate Degree (Transfer),11232,20000,2,"Aug,Feb",6.0,2.0,Low,,Community College
+UK,London,King's College London,Bachelor,IT,BSc Computer Science,31000,16000,3,Sep,6.5,3.5,Low,Low,Prestigious
+UK,Manchester,Manchester Met,Bachelor,IT,BSc Software Engineering,18500,12000,3,Sep,6.0,2.8,Low,Medium,Modern
 Canada,Toronto,Seneca College,Diploma,IT,Computer Programming,16000,14000,2,"Jan,Sep",6.0,2.5,Low,High,Practical
 Germany,Berlin,IU Applied Sciences,Bachelor,IT,BSc Computer Science,5000,12000,3,"Apr,Oct",6.0,2.5,Low,Medium,Affordable
+Australia,Multiple,Australian National University,Bachelor,Business,Bachelor of Business,33591,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Australian National University,Bachelor,IT,Bachelor of Information Tech,32786,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Bond University,Bachelor,Business,Bachelor of Business,39082,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Bond University,Bachelor,IT,Bachelor of Information Tech,34689,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Charles Darwin University,Bachelor,Business,Bachelor of Business,32671,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Charles Darwin University,Bachelor,IT,Bachelor of Information Tech,38624,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Curtin University,Bachelor,Business,Bachelor of Business,35960,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Curtin University,Bachelor,IT,Bachelor of Information Tech,39161,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Deakin University,Bachelor,Business,Bachelor of Business,38127,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Deakin University,Bachelor,IT,Bachelor of Information Tech,33053,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Griffith University,Bachelor,Business,Bachelor of Business,32417,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Griffith University,Bachelor,IT,Bachelor of Information Tech,36448,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,James Cook University,Bachelor,Business,Bachelor of Business,36322,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,James Cook University,Bachelor,IT,Bachelor of Information Tech,33146,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,La Trobe University,Bachelor,Business,Bachelor of Business,37484,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,La Trobe University,Bachelor,IT,Bachelor of Information Tech,33436,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Macquarie University,Bachelor,Business,Bachelor of Business,33800,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Macquarie University,Bachelor,IT,Bachelor of Information Tech,37585,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Monash University,Bachelor,Business,Bachelor of Business,30444,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Monash University,Bachelor,IT,Bachelor of Information Tech,41904,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Queensland University of Technology,Bachelor,Business,Bachelor of Business,47479,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,Queensland University of Technology,Bachelor,IT,Bachelor of Information Tech,47426,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,RMIT University,Bachelor,Business,Bachelor of Business,33722,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,RMIT University,Bachelor,IT,Bachelor of Information Tech,41120,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Swinburne University of Technology,Bachelor,Business,Bachelor of Business,46709,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,Swinburne University of Technology,Bachelor,IT,Bachelor of Information Tech,50977,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Adelaide,Bachelor,Business,Bachelor of Business,45085,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Adelaide,Bachelor,IT,Bachelor of Information Tech,50829,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Melbourne,Bachelor,Business,Bachelor of Business,50103,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Melbourne,Bachelor,IT,Bachelor of Information Tech,50082,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of New South Wales,Bachelor,Business,Bachelor of Business,45142,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of New South Wales,Bachelor,IT,Bachelor of Information Tech,47067,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Queensland,Bachelor,Business,Bachelor of Business,45510,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Queensland,Bachelor,IT,Bachelor of Information Tech,49945,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Sydney,Bachelor,Business,Bachelor of Business,46444,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Sydney,Bachelor,IT,Bachelor of Information Tech,50669,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Technology Sydney,Bachelor,Business,Bachelor of Business,45464,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Technology Sydney,Bachelor,IT,Bachelor of Information Tech,51141,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Western Australia,Bachelor,Business,Bachelor of Business,50681,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Western Australia,Bachelor,IT,Bachelor of Information Tech,47565,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Wollongong,Bachelor,Business,Bachelor of Business,51099,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,University of Wollongong,Bachelor,IT,Bachelor of Information Tech,52808,30000,3,"Feb,Jul",6.5,3.2,Low,Medium,Prestigious
+Australia,Multiple,Western Sydney University,Bachelor,Business,Bachelor of Business,31345,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+Australia,Multiple,Western Sydney University,Bachelor,IT,Bachelor of Information Tech,36901,28000,3,"Feb,Jul",6.0,2.8,Low,Medium,Modern/Practical
+USA,USA,Arizona State University,Bachelor,General,Undergraduate Degree,39039,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,California State University Fresno,Bachelor,General,Undergraduate Degree,38020,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,Colorado State University,Bachelor,General,Undergraduate Degree,36066,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,De Paul University,Bachelor,General,Undergraduate Degree,60568,22000,4,"Aug,Jan",7.0,3.5,Low,High,Elite Private
+USA,USA,Florida Atlantic University,Bachelor,General,Undergraduate Degree,35654,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,George Mason University,Bachelor,General,Undergraduate Degree,37412,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,Georgia Institute of Technology,Bachelor,General,Undergraduate Degree,37596,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,Iowa State University,Bachelor,General,Undergraduate Degree,41088,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,Louisiana State University,Bachelor,General,Undergraduate Degree,36988,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,Oregon State University,Bachelor,General,Undergraduate Degree,33457,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,San Francisco State University,Bachelor,General,Undergraduate Degree,39286,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,Texas A&M University,Bachelor,General,Undergraduate Degree,43446,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,The Ohio State University,Bachelor,General,Undergraduate Degree,37048,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,UC Berkeley,Bachelor,General,Undergraduate Degree,32390,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,UC Davis,Bachelor,General,Undergraduate Degree,39478,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,UC Irvine,Bachelor,General,Undergraduate Degree,32261,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,UCLA,Bachelor,General,Undergraduate Degree,42510,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,University of Arizona,Bachelor,General,Undergraduate Degree,44759,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,University of Kansas,Bachelor,General,Undergraduate Degree,34064,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,University of Massachusetts Boston,Bachelor,General,Undergraduate Degree,36455,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,University of Michigan,Bachelor,General,Undergraduate Degree,38380,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,University of Southern California,Bachelor,General,Undergraduate Degree,63032,22000,4,"Aug,Jan",7.0,3.5,Low,High,Elite Private
+USA,USA,University of Washington,Bachelor,General,Undergraduate Degree,33090,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,University of Wisconsin-Madison,Bachelor,General,Undergraduate Degree,33479,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
+USA,USA,Virginia Tech,Bachelor,General,Undergraduate Degree,35110,20000,4,"Aug,Jan",6.5,3.0,Low,Low,Public Ivy
