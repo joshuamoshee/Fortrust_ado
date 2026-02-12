@@ -1,127 +1,87 @@
 import json
+import os
+from openai import OpenAI
 
-def generate_abigail_report(student_name, payload, top_programs):
+# ------------------------------------------------------------------
+# CONFIGURATION
+# ------------------------------------------------------------------
+# Get your key from: https://platform.openai.com/api-keys
+API_KEY = "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" 
+
+def generate_abigail_content(student_name, payload, top_programs):
     """
-    Generates a strategic report matching the 'Abigail M' PDF format.
-    Now 'Smart-Linked' to Counsellor Interview Data.
+    Connects to an LLM (GPT-4) to write a unique, strategic report.
+    Returns a Dictionary of content sections (not just flat text).
     """
     
-    # 1. Extract Data
-    scores = payload.get("algo_result", {})
+    # 1. Prepare the Context for the AI
+    c_data = payload.get("counsellor_data", {})
     q_data = payload.get("qualification_data", {})
-    c_data = payload.get("counsellor_data", {}) # <--- NEW: Read Counsellor Notes
+    scores = payload.get("algo_result", {})
     
-    finance_score = scores.get('scores', {}).get('financial', 0)
+    # If API Key is missing, fallback to the old template (Simulation)
+    if API_KEY == "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":
+        return _simulation_fallback(student_name, payload, top_programs)
+
+    # 2. Construct the Prompt
+    client = OpenAI(api_key=API_KEY)
     
-    # 2. Determine "Cognitive Profile" (Simulated from Q1/Q2)
-    profile_type = "The Strategic-Analytical Thinker"
-    if q_data.get("q_action") == "DREAMER":
-        profile_type = "The Visionary Explorer (Needs Structure)"
-    elif q_data.get("q_anchor") == "PRACTICAL":
-        profile_type = "The Pragmatic Executor (High ROI Focused)"
-
-    # 3. Determine the "Focus University"
-    # Logic: If Counsellor entered a specific target, use that. Otherwise use the Algorithm's top pick.
-    manual_target = c_data.get("target_uni")
-    manual_program = c_data.get("target_program", "Selected Major")
+    system_prompt = """
+    You are a Senior Education Strategist at Fortrust. You are writing a confidential internal strategy document for a counsellor.
+    Tone: Professional, Insightful, Strategic, and Direct.
+    Structure the output as a JSON object with keys: "executive_summary", "cognitive_profile", "recommendation_1", "recommendation_2", "roadmap".
+    """
     
-    if manual_target:
-        # User has a specific dream school
-        focus_uni_name = manual_target
-        focus_uni_loc = c_data.get("branch", "Overseas") # Placeholder logic
-        focus_reason = "Specifically requested by student during interview."
-        match_score = "N/A (Manual Selection)"
-    else:
-        # Use Algorithm
-        if top_programs:
-            focus_uni_name = top_programs[0]['institution']
-            focus_uni_loc = top_programs[0]['country']
-            focus_reason = "Matched based on Budget & GPA."
-            match_score = "9.2/10"
-        else:
-            focus_uni_name = "Generic University"
-            focus_uni_loc = "Global"
-            focus_reason = "General recommendation."
-            match_score = "8.0/10"
+    user_prompt = f"""
+    Student: {student_name}
+    Score: {scores.get('score', 0)} ({scores.get('status', 'Unknown')})
+    Profile: {json.dumps(q_data)}
+    Counsellor Notes: {json.dumps(c_data)}
+    Top University Matches: {json.dumps(top_programs[:2])}
+    
+    Task:
+    1. Analyze their "Cognitive Profile" based on their "Action" (Dreamer/Doer) and "Anchor" (Practical/Emotional).
+    2. Write an "Executive Summary" (3 sentences max).
+    3. Analyze the #1 University Match (Why this fits their budget/goals).
+    4. Create a 5-Year Roadmap (Year 1 to Year 5).
+    """
 
-    # 4. Build the Report (Markdown)
-    report = f"""
-# 🎓 STRATEGIC ROADMAP: {student_name.upper()}
-**Profile Type:** {profile_type}  
-**Ref:** FORTRUST-AI-{scores.get('score', 0)}  
-**Date:** {json.dumps(payload.get('intake', '2025/2026')).replace('"', '')}
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o", # Or "gpt-3.5-turbo" for cheaper costs
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        return _simulation_fallback(student_name, payload, top_programs, error=str(e))
 
----
-
-## 1. EXECUTIVE SUMMARY
-**{student_name}** has been assessed with a Qualification Score of **{scores.get('score', 0)}/100** ({scores.get('status', 'Unclassified')}).
-
-* **Financial Health:** {c_data.get('budget_discussion', 'Not Discussed')}
-* **Academic Interest:** {manual_program}
-* **Counsellor Verdict:** {_get_counsellor_verdict(scores.get('score', 0))}
-
-**Strategic Direction:** The student is targeting **{focus_uni_name}**. The primary challenge will be {_get_challenge(q_data)}. 
-We recommend the **"Direct Entry"** pathway provided documents are submitted by **October**.
-
----
-
-## 2. TARGET UNIVERSITY ANALYSIS
-
-### 🏛 Option 1: {focus_uni_name} ({focus_uni_loc})
-* **Program:** {manual_program}
-* **Selection Reason:** {focus_reason}
-
-| **Metric** | **Analysis** | **Score** |
-| :--- | :--- | :--- |
-| **Cognitive Fit** | Curriculum matches {profile_type} learning style. | **{match_score}** |
-| **Budget Fit** | {c_data.get('budget_discussion', 'Neutral')} | **High** |
-| **ROI Speed** | Estimated break-even: 3.5 years after grad. | **High** |
-
-> **💡 AI Strategy Tip:** Since the student identified as a **{q_data.get('q_action', 'Student')}**, we recommend focusing the Personal Statement on {_get_ps_tip(q_data)}.
-
----
-
-## 3. ALTERNATIVE RECOMMENDATIONS (Algorithm)
-If **{focus_uni_name}** is unavailable, here are the best data-backed alternatives:
-
-"""
-    # Loop through algorithm matches (Top 2), skipping if it duplicates the manual target
-    count = 0
-    for prog in top_programs:
-        if count >= 2: break
-        if manual_target and manual_target.lower() in prog['institution'].lower(): continue
-        
-        report += f"""* **{prog['institution']} ({prog['country']})** - {prog['program_name']} (${prog['tuition_per_year']:,.0f}/yr)\n"""
-        count += 1
-
-    report += """
----
-
-## 4. 5-YEAR FUTURE-PROOFING ROADMAP
-| Phase | Focus | Action Item |
-| :--- | :--- | :--- |
-| **Year 1 (Prep)** | Language & Portfolio | Finalize IELTS. Start a 'Passion Project' related to major. |
-| **Year 2 (Uni)** | Adaptation | Join 1 Professional Club (Networking). Maintain GPA > 3.0. |
-| **Year 3 (Work)** | Internships | Apply for Summer Internships in local industry. |
-| **Year 4 (Grad)** | Post-Study Visa | Apply for Graduate Visa immediately. |
-| **Year 5 (Career)** | ROI | Target Junior Role salary range ($55k - $65k). |
-
----
-**Disclaimer:** This roadmap is generated based on current profiling data. External visa policies may change.
-"""
-    return report
-
-# --- Helper Functions ---
-def _get_counsellor_verdict(score):
-    if score >= 75: return "Highly Qualified. Priority processing recommended."
-    if score >= 45: return "Qualified but requires Nurturing (Budget/Docs)."
-    return "High Risk. Requires substantial document/financial review."
-
-def _get_challenge(q_data):
-    if q_data.get('q_english') == "UNTESTED": return "meeting English entry requirements on time"
-    if q_data.get('q_liquid') == "NOT_LIQUID": return "demonstrating financial liquidity for the visa"
-    return "maintaining GPA during the final semester"
-
-def _get_ps_tip(q_data):
-    if q_data.get('q_action') == "DOER": return "concrete achievements and leadership roles"
-    return "future vision and adaptability to new environments"
+def _simulation_fallback(student_name, payload, programs, error=None):
+    """Fallback generator if no API key is present."""
+    # This ensures your app works even without paying OpenAI right now
+    c_data = payload.get("counsellor_data", {})
+    
+    target = c_data.get("target_uni", programs[0]['institution'] if programs else "Generic Uni")
+    major = c_data.get("target_program", "Selected Major")
+    
+    return {
+        "cognitive_profile": "The Pragmatic Executor",
+        "executive_summary": f"{student_name} is a strong candidate with a clear focus on {major}. The primary challenge is financial liquidity, but the academic profile is solid.",
+        "recommendation_1": {
+            "name": target,
+            "why": "Best ROI for the stated budget.",
+            "metrics": {"fit": "9/10", "roi": "High", "risk": "Low"}
+        },
+        "roadmap": [
+            {"phase": "Year 1", "action": "Finalize IELTS & Visa"},
+            {"phase": "Year 2", "action": "Maintain GPA > 3.0"},
+            {"phase": "Year 3", "action": "Internship"},
+            {"phase": "Year 4", "action": "Grad Visa"},
+            {"phase": "Year 5", "action": "Junior Role ($60k)"}
+        ],
+        "is_simulation": True,
+        "error_msg": error
+    }

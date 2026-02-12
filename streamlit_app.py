@@ -3,9 +3,10 @@ import json
 import uuid
 import datetime as dt
 import pandas as pd
-from ai_report import generate_abigail_report
 from scoring import calculate_lead_score
 from engine import rank_programs
+from ai_report import generate_abigail_content
+from pdf_generator import create_pdf
 from db import (
     init_db,
     insert_case,
@@ -402,27 +403,51 @@ else:
                         update_case_status_and_payload(case_id, result['status'], payload)
                         rerun()
 
-            # --- 4. REPORT GENERATION ---
+            # --- 4. REPORT GENERATION (SECURE & VISUAL) ---
             st.markdown("---")
-            st.subheader("📄 AI Strategy Roadmap")
-            if st.button("Generate Strategy Roadmap"):
-                programs_df = pd.read_csv("data/programs.csv")
-                engine_payload = {
-                    "finance": {"annual_budget": payload.get("finance", {}).get("annual_budget", 50000)},
-                    "major_choices": payload.get("major_choices", ["General"]),
-                    "destinations": [payload.get("destination_1"), payload.get("destination_2")],
-                    "gpa": "3.0", 
-                    "english": "IELTS"
-                }
-                top_programs = rank_programs(engine_payload, programs_df)
-                full_md = generate_abigail_report(student_name, payload, top_programs)
-                save_full_report(case_id, full_md)
-                st.success("Report Generated!")
-                rerun()
+            st.subheader("📄 Strategy Roadmap (Internal Only)")
             
-            if len(row) > 9 and row[9]:
-                with st.expander("View Generated Report", expanded=True):
-                    st.markdown(row[9])
+            col_rep1, col_rep2 = st.columns([1, 2])
+            
+            with col_rep1:
+                if st.button("Generate Strategy PDF"):
+                    # 1. Gather Data
+                    programs_df = pd.read_csv("data/programs.csv")
+                    engine_payload = {
+                        "finance": {"annual_budget": payload.get("finance", {}).get("annual_budget", 50000)},
+                        "major_choices": payload.get("major_choices", ["General"]),
+                        "destinations": [payload.get("destination_1"), payload.get("destination_2")],
+                        "gpa": "3.0", 
+                        "english": "IELTS"
+                    }
+                    top_programs = rank_programs(engine_payload, programs_df)
+                    
+                    # 2. Call "Real AI" to get content
+                    with st.spinner("Consulting AI Engine..."):
+                        content_data = generate_abigail_content(student_name, payload, top_programs)
+                    
+                    # 3. Generate PDF
+                    pdf_file = create_pdf(student_name, content_data)
+                    
+                    # 4. Read PDF binary for download
+                    with open(pdf_file, "rb") as f:
+                        pdf_bytes = f.read()
+                    
+                    # 5. Save state so download button appears
+                    st.session_state['generated_pdf'] = pdf_bytes
+                    st.session_state['generated_pdf_name'] = pdf_file
+                    
+                    st.success("PDF Generated Successfully!")
+
+            with col_rep2:
+                if 'generated_pdf' in st.session_state:
+                    st.download_button(
+                        label="📥 Download Confidential PDF",
+                        data=st.session_state['generated_pdf'],
+                        file_name=st.session_state['generated_pdf_name'],
+                        mime='application/pdf'
+                    )
+                    st.warning("⚠️ This report is for Counsellor use only. Do not share directly with students.")
 
     # --- ADMIN ---
     elif tab == "Admin Panel":
