@@ -3,10 +3,10 @@ import json
 import uuid
 import datetime as dt
 import pandas as pd
-from scoring import calculate_lead_score
-from engine import rank_programs
 from ai_report import generate_abigail_content
 from pdf_generator import create_pdf
+from scoring import calculate_lead_score
+from engine import rank_programs
 from db import (
     init_db,
     insert_case,
@@ -278,10 +278,10 @@ else:
         with right:
             st.title(f"{student_name}")
             
-            # --- 1. STUDENT INTAKE REPORT (GOOGLE DOC STYLE) ---
+            # --- 1. STUDENT INTAKE REPORT ---
             with st.container():
-                st.markdown("### 📄 Student Intake Summary (Original Data)")
-                with st.expander("View Full Student Profile", expanded=False):
+                st.markdown("### 📄 Student Intake Summary")
+                with st.expander("View Student Profile", expanded=False):
                     ir1, ir2 = st.columns(2)
                     with ir1:
                         st.markdown(f"**Full Name:** {student_name}")
@@ -294,8 +294,8 @@ else:
                         budget = payload.get("finance", {}).get("annual_budget", 0)
                         
                         st.markdown(f"**Interested Countries:** {dests if dests else 'Not Selected'}")
-                        st.markdown(f"**Interested Lesson/Major:** {majors if majors else 'Not Selected'}")
-                        st.markdown(f"**Intake Target:** {payload.get('intake', 'Not Stated')}")
+                        st.markdown(f"**Interested Major:** {majors if majors else 'Not Selected'}")
+                        st.markdown(f"**Intake:** {payload.get('intake', 'Not Stated')}")
                         st.markdown(f"**Self-Declared Budget:** ${budget:,.0f}")
                 st.divider()
 
@@ -325,11 +325,10 @@ else:
                         assign_case(case_id, aid)
                         rerun()
 
-            # --- 2. DATA OPSIONAL (EXPANDED WITH SCHOOL/BUDGET) ---
-            st.subheader("📝 2. Counsellor Interview (Expanded)")
+            # --- 2. COUNSELLOR INTERVIEW ---
+            st.subheader("📝 2. Counsellor Interview")
             with st.expander("Interview Form: Schools & Pricing", expanded=True):
                 with st.form("optional_data_form"):
-                    
                     st.markdown("**Basic Info**")
                     c_col1, c_col2 = st.columns(2)
                     with c_col1:
@@ -345,8 +344,8 @@ else:
                     st.markdown("**🎓 Specific School & Budget Preferences**")
                     c_col3, c_col4 = st.columns(2)
                     with c_col3:
-                        target_uni = st.text_input("Specific Target University (if any)", value=c_data.get("target_uni", ""), placeholder="e.g. Monash, UNSW")
-                        target_program = st.text_input("Confirmed Major Interest", value=c_data.get("target_program", ""), placeholder="e.g. Bachelor of Business")
+                        target_uni = st.text_input("Specific Target University", value=c_data.get("target_uni", ""), placeholder="e.g. Monash")
+                        target_program = st.text_input("Confirmed Major Interest", value=c_data.get("target_program", ""), placeholder="e.g. Business")
                     with c_col4:
                         budget_discussion = st.selectbox("Budget Status", 
                             ["Unknown", "Budget Fits Target", "Budget Tight (Need Scholarship)", "Budget Too Low (Survival Mode)"],
@@ -355,18 +354,46 @@ else:
                         max_tuition = st.number_input("Confirmed Max Tuition (per year)", min_value=0, value=int(c_data.get("max_tuition", 0)))
 
                     if st.form_submit_button("💾 Save Counsellor Notes"):
-                        payload["counsellor_data"] = {
-                            "city": city, "school": school, "grade": grade,
-                            "branch": branch, "need_test": need_test, "need_lang": need_lang,
-                            "target_uni": target_uni, "target_program": target_program,
-                            "budget_discussion": budget_discussion, "max_tuition": max_tuition
-                        }
+                        payload["counsellor_data"]["city"] = city
+                        payload["counsellor_data"]["school"] = school
+                        payload["counsellor_data"]["grade"] = grade
+                        payload["counsellor_data"]["branch"] = branch
+                        payload["counsellor_data"]["need_test"] = need_test
+                        payload["counsellor_data"]["need_lang"] = need_lang
+                        payload["counsellor_data"]["target_uni"] = target_uni
+                        payload["counsellor_data"]["target_program"] = target_program
+                        payload["counsellor_data"]["budget_discussion"] = budget_discussion
+                        payload["counsellor_data"]["max_tuition"] = max_tuition
+                        
                         update_case_payload(case_id, payload)
                         st.success("Notes Saved.")
                         rerun()
 
-            # --- 3. QUALIFICATION ---
-            st.subheader("🔍 3. Lead Qualification (Score)")
+            # --- 3. DEEP PROFILING (NEW FOR AI) ---
+            st.subheader("📝 3. Deep Profiling (For AI Analysis)")
+            with st.expander("Psychometric & Parent Interview", expanded=True):
+                with st.form("deep_profile_form"):
+                    st.markdown("**Psychometric / Personality Insights**")
+                    st.caption("Paste summary of IQ, Aptitude, or Personality tests here for the AI to analyze 'Superpowers'.")
+                    personality_notes = st.text_area("Personality/IQ Notes", 
+                        value=payload.get("counsellor_data", {}).get("personality_notes", ""),
+                        placeholder="e.g. High Logic, Low Stress Tolerance. Visual learner. ENFP profile.")
+                    
+                    st.markdown("**Family Dynamics**")
+                    parents_pref = st.text_input("Parents' Preferred Major/Career", 
+                        value=payload.get("counsellor_data", {}).get("parents_pref", ""),
+                        placeholder="e.g. Medicine or Accounting")
+                    
+                    if st.form_submit_button("💾 Save Deep Profile"):
+                        if "counsellor_data" not in payload: payload["counsellor_data"] = {}
+                        payload["counsellor_data"]["personality_notes"] = personality_notes
+                        payload["counsellor_data"]["parents_pref"] = parents_pref
+                        update_case_payload(case_id, payload)
+                        st.success("Deep Profile Updated")
+                        rerun()
+
+            # --- 4. LEAD QUALIFICATION ---
+            st.subheader("🔍 4. Lead Qualification")
             q_data = payload.get("qualification_data", {})
             algo_res = payload.get("algo_result", {})
             if algo_res:
@@ -403,7 +430,7 @@ else:
                         update_case_status_and_payload(case_id, result['status'], payload)
                         rerun()
 
-            # --- 4. REPORT GENERATION (SECURE & VISUAL) ---
+            # --- 5. REPORT GENERATION ---
             st.markdown("---")
             st.subheader("📄 Strategy Roadmap (Internal Only)")
             
