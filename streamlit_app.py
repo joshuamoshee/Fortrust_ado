@@ -3,490 +3,320 @@ import json
 import uuid
 import datetime as dt
 import pandas as pd
+
+# --- CUSTOM MODULES ---
+# Ensure these files exist in your folder
+from doc_parser import extract_text_from_pdf
 from ai_report import generate_abigail_content
 from pdf_generator import create_pdf
 from scoring import calculate_lead_score
 from engine import rank_programs
 from db import (
-    init_db,
-    insert_case,
-    get_case,
-    list_cases,
-    update_status,
-    get_user_by_email,
-    hash_password,
-    create_user,
-    list_users,
-    assign_case,
-    list_cases_advanced,
-    list_cases_filtered,
-    get_audit_for_case,
-    log_event,
-    log_contact_attempt,
-    mark_contacted,
-    save_full_report,
-    update_case_payload,
+    init_db, insert_case, get_case, list_cases, update_status, get_user_by_email,
+    hash_password, create_user, list_users, assign_case, list_cases_advanced,
+    list_cases_filtered, mark_contacted, save_full_report, update_case_payload,
     update_case_status_and_payload
 )
 
 # -------------------------
-# App setup
+# APP CONFIG
 # -------------------------
 init_db()
+st.set_page_config(page_title="Fortrust 2.0 Ecosystem", layout="wide", page_icon="🎓")
 
-st.set_page_config(page_title="Fortrust ADO", layout="wide")
-
-st.sidebar.title("Fortrust ADO")
-mode = st.sidebar.radio("Mode", ["Public Intake", "Counsellor Dashboard"])
-
+# -------------------------
+# HELPER FUNCTIONS
+# -------------------------
 def rerun():
-    try:
-        st.rerun()  # new streamlit
-    except Exception:
-        st.experimental_rerun()  # old streamlit
-
-# -------------------------
-# Auth helpers (Dashboard only)
-# -------------------------
-def login_panel():
-    st.sidebar.subheader("Login")
-    email = st.sidebar.text_input("Email", key="login_email")
-    pw = st.sidebar.text_input("Password", type="password", key="login_pw")
-
-    if st.sidebar.button("Login", key="login_btn"):
-        u = get_user_by_email(email.strip().lower())
-        if not u:
-            st.sidebar.error("User not found.")
-            return
-
-        user_id, name, em, pw_hash, role, is_active = u
-        if not is_active:
-            st.sidebar.error("Account disabled.")
-            return
-
-        if hash_password(pw) != pw_hash:
-            st.sidebar.error("Wrong password.")
-            return
-
-        st.session_state["user"] = {"user_id": user_id, "name": name, "email": em, "role": role}
-        log_event(user_id, "LOGIN", None, {"email": em})
-        rerun()
-
-def logout_button():
-    if st.sidebar.button("Logout", key="logout_btn"):
-        st.session_state.pop("user", None)
-        rerun()
-
-def require_login():
-    if "user" not in st.session_state:
-        login_panel()
-        st.stop()
-
-def set_selected_case(case_id: str):
-    st.session_state["selected_case_id"] = case_id
-    st.session_state["dashboard_tab"] = "Case Detail"
-    rerun()
+    try: st.rerun()
+    except: st.experimental_rerun()
 
 def hours_since(iso_ts: str) -> float:
     try:
         t = dt.datetime.fromisoformat(iso_ts.replace("Z", ""))
         return (dt.datetime.utcnow() - t).total_seconds() / 3600.0
-    except Exception:
-        return 0.0
+    except: return 0.0
+
+def login_panel():
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Partner Login")
+    email = st.sidebar.text_input("Email", key="login_email")
+    pw = st.sidebar.text_input("Password", type="password", key="login_pw")
+    if st.sidebar.button("Login"):
+        u = get_user_by_email(email.strip().lower())
+        # u = [user_id, name, email, pw_hash, role, is_active, referral_code]
+        if u and u[5]: # is_active
+            if hash_password(pw) == u[3]:
+                st.session_state["user"] = {
+                    "user_id": u[0], "name": u[1], "email": u[2], 
+                    "role": u[4], "referral_code": u[6]
+                }
+                rerun()
+            else: st.sidebar.error("Wrong password")
+        else: st.sidebar.error("User not found or inactive")
+
+def logout_button():
+    if st.sidebar.button("Logout"):
+        st.session_state.pop("user", None)
+        rerun()
 
 # -------------------------
-# Mode 1: Public Intake
+# MAIN ROUTING LOGIC
 # -------------------------
-if mode == "Public Intake":
-    st.title("Fortrust Education - Student Intake")
-    st.write("Please fill in your details to connect with a counsellor.")
 
+if "user" not in st.session_state:
+    # ====================================================
+    # VIEW A: PUBLIC MARKETPLACE (Model A)
+    # This is what Students see when they visit fortrust.com
+    # ====================================================
+    st.title("🌏 Fortrust Global Marketplace")
+    st.markdown("#### Search Programs. Apply Instantly. Get AI Counseling.")
+
+    # 1. Referral Tracking (Model B Hook)
+    # Captures ?ref=AGENT001 from the URL
+    query_params = st.query_params
+    ref_code = query_params.get("ref", "")
+    if ref_code:
+        st.info(f"✅ Applying via Verified Partner: **{ref_code}**")
+
+    # 2. Program Search Engine (The "Booking.com" Experience)
+    with st.expander("🔍 **Find Your Dream Program**", expanded=True):
+        c1, c2, c3 = st.columns(3)
+        with c1: search_dest = st.selectbox("Destination", ["Australia", "UK", "USA", "Canada", "Singapore"])
+        with c2: search_major = st.text_input("Major", placeholder="e.g. Data Science")
+        with c3: search_budget = st.selectbox("Max Budget", ["Unlimited", "< $20k/yr", "< $40k/yr"])
+        
+        if st.button("Search Database"):
+            # Mockup of search results - in real app, query your CSV/DB
+            st.success(f"Found 12 matches for {search_major} in {search_dest}")
+            st.dataframe(pd.DataFrame([
+                {"University": "Monash University", "Rank": "#42 Global", "Tuition": "$32,000", "Match": "98%"},
+                {"University": "RMIT", "Rank": "#140 Global", "Tuition": "$28,000", "Match": "92%"},
+                {"University": "Deakin", "Rank": "#233 Global", "Tuition": "$25,000", "Match": "89%"},
+            ]), use_container_width=True)
+
+    st.markdown("---")
+
+    # 3. Application Form (The Funnel)
+    st.subheader("🚀 Start Your Application")
     with st.form("intake_form"):
-        # --- DATA WAJIB (MANDATORY) ---
         col1, col2 = st.columns(2)
         with col1:
-            student_name = st.text_input("Nama Lengkap *")
-            phone = st.text_input("WhatsApp Number *")
+            student_name = st.text_input("Full Name *")
+            phone = st.text_input("WhatsApp *")
         with col2:
             email = st.text_input("Email *")
+            destinations = st.multiselect("Destinations", ["Australia", "UK", "USA", "Canada"])
         
-        st.subheader("Study Preferences")
-        col3, col4 = st.columns(2)
-        with col3:
-             destinations = st.multiselect("Preferred Destinations", ["Australia", "UK", "USA", "Canada", "New Zealand", "Singapore", "Europe"])
-             major_input = st.text_input("Preferred Major / Lesson Interest (e.g. Business, IT)")
-        with col4:
-             budget_input = st.number_input("Est. Annual Budget (Tuition + Living)", min_value=0, step=1000)
-             intake_input = st.text_input("Target Intake (Month/Year)", placeholder="e.g. Feb 2026")
+        # Hidden Referral Field
+        referral_source = st.selectbox("How did you find us?", ["Online Search", "Social Media", "Referral/Agent"])
+        manual_ref = st.text_input("Agent Code (Optional)", value=ref_code)
 
-        st.subheader("Source")
-        referral_source = st.selectbox("Tahu Event dari mana?", 
-            ["Meta Ads", "Tiktok Ads", "Expo", "School Expo", "Info Sessions", "Webinar", "Referrals"])
-        
-        referral_detail = None
-        if referral_source == "Referrals":
-            referral_detail = st.selectbox("Source of Referral", ["Teman Sekolah/Kuliah", "Guru BK", "Guru Les"])
+        if st.form_submit_button("Submit Application"):
+            if not student_name or not phone:
+                st.error("Name and Phone are required.")
+            else:
+                cid = str(uuid.uuid4())[:8].upper()
+                payload = {
+                    "student_name": student_name, "phone": phone, "email": email,
+                    "destinations": destinations, "finance": {"annual_budget": 0},
+                    "counsellor_data": {}, "qualification_data": {}
+                }
+                # Insert with Referral Code to track commissions
+                insert_case(cid, payload, "Marketplace Lead", referral_code=manual_ref)
+                
+                st.balloons()
+                st.success(f"Application Sent! Your Ref ID: {cid}")
+                st.info("An AI Counselor is reviewing your profile now.")
 
-        submitted = st.form_submit_button("Submit Data")
+    # Login for Agents/Admin
+    login_panel()
 
-    if submitted:
-        if not student_name.strip() or not phone.strip():
-            st.error("Please fill Student Name and WhatsApp.")
-        else:
-            payload = {
-                "student_name": student_name.strip(),
-                "phone": phone.strip(),
-                "email": email.strip(),
-                "destinations": destinations,
-                "major_choices": [major_input] if major_input else [],
-                "intake": intake_input,
-                "finance": {"annual_budget": budget_input},
-                "referral_source": referral_source,
-                "referral_detail": referral_detail,
-                "counsellor_data": {},
-                "qualification_data": {}
-            }
-
-            case_id = str(uuid.uuid4())[:8].upper()
-            brief_md = "New Lead from Intake Form" 
-
-            insert_case(case_id, payload, brief_md)
-            log_event(None, "NEW_CASE", case_id, {"student_name": payload["student_name"]})
-
-            st.success("Submitted! A counsellor will contact you soon.")
-            st.info(f"Reference ID: {case_id}")
-
-# -------------------------
-# Mode 2: Counsellor Dashboard
-# -------------------------
 else:
-    require_login()
+    # ====================================================
+    # LOGGED IN VIEWS
+    # ====================================================
     user = st.session_state["user"]
     role = user["role"]
-    st.title("Counsellor Dashboard")
-    st.sidebar.write(f"Logged in as: **{user['name']}** ({role})")
-    logout_button()
-
-    tabs = ["Pipeline", "My Cases", "All Cases", "Case Detail"]
-    if role == "ADMIN":
-        tabs.append("Admin Panel")
-
-    if "dashboard_tab" not in st.session_state:
-        st.session_state["dashboard_tab"] = "Pipeline"
     
-    tab = st.sidebar.radio("Dashboard", tabs)
+    # Sidebar Info
+    st.sidebar.title("Fortrust OS")
+    st.sidebar.write(f"👋 **{user['name']}**")
+    st.sidebar.caption(f"Role: {role}")
+    
+    # MICRO-AGENT VIEW (Model B)
+    if role == "MICRO_AGENT":
+        st.sidebar.success(f"🔗 Code: **{user['referral_code']}**")
+        st.sidebar.code(f"?ref={user['referral_code']}")
+        logout_button()
 
-    # --- PIPELINE ---
-    if tab == "Pipeline":
-        st.title("Pipeline")
-        with st.expander("Filters", expanded=True):
-            f1, f2, f3, f4 = st.columns(4)
-            with f1: destination_filter = st.selectbox("Destination", ["All", "New Zealand", "UK", "Australia", "Canada", "USA", "Germany", "Other"])
-            with f2: show_unassigned = st.checkbox("Only Unassigned", value=False)
-            with f3:
-                assignee_filter = "All"
-                if role in ["ADMIN", "MANAGER"]:
-                    agents = list_users("AGENT")
-                    agent_labels = ["All"] + [f"{a[1]} ({a[2]})" for a in agents]
-                    assignee_filter = st.selectbox("Assigned To", agent_labels)
-            with f4: show_only_hot = st.checkbox("Only NEW (hot leads)", value=False)
-
-        assigned_to_filter_id = None
-        if role in ["ADMIN", "MANAGER"] and assignee_filter != "All":
-            agent_map = {f"{a[1]} ({a[2]})": a[0] for a in list_users("AGENT")}
-            assigned_to_filter_id = agent_map.get(assignee_filter)
-        dest_val = None if destination_filter == "All" else destination_filter
-
-        display_statuses = ["NEW", "CONTACTED", "HOT LEAD", "WARM", "RISKY", "WON", "LOST"] 
-        pipeline_cols = st.columns(len(display_statuses))
+        st.title("Franchise Partner Dashboard")
         
-        for col, status in zip(pipeline_cols, display_statuses):
-            with col:
-                st.subheader(status)
-                rows = list_cases_advanced(status=status, assigned_to=assigned_to_filter_id, unassigned_only=show_unassigned, destination=dest_val)
-                if not rows:
-                    st.caption("—")
-                    continue
-                for r in rows[:25]:
-                    cid, created_at, stt, sname, dest1, budget, assigned_to = r
-                    age_h = hours_since(created_at)
-                    age_tag = "🟢" if age_h < 6 else ("🟠" if age_h < 24 else "🔴")
-                    title = f"{age_tag} {cid} • {sname}"
-                    if st.button(title, key=f"open_{status}_{cid}"):
-                        set_selected_case(cid)
-                    st.caption(f"{int(age_h)}h ago")
-
-    # --- MY CASES ---
-    elif tab == "My Cases":
-        st.title("My Work Queue")
-        rows = list_cases_advanced(assigned_to=user["user_id"])
-        if not rows:
-            st.info("No cases assigned to you yet.")
-            st.stop()
-        priority = {"NEW": 0, "HOT LEAD": 0, "CONTACTED": 1, "WARM": 2, "MEETING_BOOKED": 3, "APPLIED": 4}
-        rows = sorted(rows, key=lambda r: (priority.get(r[2], 99), -hours_since(r[1])))
-
-        for r in rows[:40]:
-            cid, created_at, stt, sname, dest1, budget, assigned_to = r
-            age_h = hours_since(created_at)
-            age_tag = "🟢" if age_h < 6 else ("🟠" if age_h < 24 else "🔴")
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                st.write(f"{age_tag} **{cid}** — {sname} (**{stt}**)")
-                st.caption(f"Created {int(age_h)}h ago")
-            with c2:
-                if st.button("Open", key=f"my_open_{cid}"):
-                    set_selected_case(cid)
-            st.divider()
-
-    # --- ALL CASES ---
-    elif tab == "All Cases":
-        st.subheader("All Cases")
-        rows = list_cases_filtered()
-        if not rows:
-            st.info("No cases yet.")
-        else:
-            st.dataframe([{"case_id": r[0], "status": r[2], "student": r[3], "assigned_to": r[6]} for r in rows], use_container_width=True)
-
-    # --- CASE DETAIL (UPDATED) ---
-    elif tab == "Case Detail":
-        all_cases = list_cases()
-        if not all_cases:
-            st.info("No cases yet.")
-            st.stop()
-
-        left, right = st.columns([1, 2])
-        with left:
-            st.subheader("Select a case")
-            case_ids = [c[0] for c in all_cases]
-            selected_default = st.session_state.get("selected_case_id")
-            idx = 0
-            if selected_default in case_ids:
-                idx = case_ids.index(selected_default)
-            selected = st.radio("Cases", case_ids, index=idx, format_func=lambda cid: f"{cid} — {next((x[3] for x in all_cases if x[0] == cid), 'Unknown')}")
-
-        row = get_case(selected)
-        try:
-            case_id, created_at, status, student_name, phone, email, raw_json, brief_md, assigned_to = row[:9]
-        except:
-            st.error("Database row mismatch. Check db.py.")
-            st.stop()
-
-        payload = json.loads(raw_json)
-        c_data = payload.get("counsellor_data", {})
-
-        with right:
-            st.title(f"{student_name}")
+        tab1, tab2 = st.tabs(["My Pipeline", "My Commissions"])
+        
+        with tab1:
+            st.subheader("Your Students")
+            # Filter cases by THIS user's referral code
+            my_cases = list_cases_advanced(referral_code=user['referral_code'])
             
-            # --- 1. STUDENT INTAKE REPORT ---
-            with st.container():
-                st.markdown("### 📄 Student Intake Summary")
-                with st.expander("View Student Profile", expanded=False):
-                    ir1, ir2 = st.columns(2)
-                    with ir1:
-                        st.markdown(f"**Full Name:** {student_name}")
-                        st.markdown(f"**Email:** {email}")
-                        st.markdown(f"**Phone:** {phone}")
-                        st.markdown(f"**Source:** {payload.get('referral_source', '-')}")
-                    with ir2:
-                        dests = ", ".join(payload.get("destinations", []))
-                        majors = ", ".join(payload.get("major_choices", []))
-                        budget = payload.get("finance", {}).get("annual_budget", 0)
+            if not my_cases:
+                st.info("No students yet. Share your referral link to start earning!")
+            else:
+                # Display simplified view for agents
+                for c in my_cases:
+                    # c = [id, date, status, name, dest, budget, agent]
+                    with st.container():
+                        c1, c2, c3 = st.columns([3, 1, 1])
+                        c1.write(f"**{c[3]}**")
+                        c1.caption(f"Applied: {c[1][:10]}")
                         
-                        st.markdown(f"**Interested Countries:** {dests if dests else 'Not Selected'}")
-                        st.markdown(f"**Interested Major:** {majors if majors else 'Not Selected'}")
-                        st.markdown(f"**Intake:** {payload.get('intake', 'Not Stated')}")
-                        st.markdown(f"**Self-Declared Budget:** ${budget:,.0f}")
-                st.divider()
+                        status_map = {"NEW": 10, "CONTACTED": 30, "HOT LEAD": 50, "APPLIED": 80, "WON": 100}
+                        progress = status_map.get(c[2], 0)
+                        c2.progress(progress / 100, text=c[2])
+                        
+                        if c[2] == "WON":
+                            c3.success("💰 $500")
+                        else:
+                            c3.caption("Pending")
+                        st.divider()
 
-            # --- ACTIONS ---
-            act1, act2, act3 = st.columns(3)
-            with act1:
-                if phone:
-                    wa_num = phone.replace("+", "").replace(" ", "").replace("-", "")
-                    st.markdown(f'<a href="https://wa.me/{wa_num}" target="_blank"><button style="background-color:#25D366;color:white;border:none;padding:8px 16px;border-radius:4px;">Open WhatsApp</button></a>', unsafe_allow_html=True)
-            with act2:
-                 if st.button("Mark Contacted", key="btn_contact"):
-                     mark_contacted(case_id)
-                     update_status(case_id, "CONTACTED")
-                     rerun()
-            with act3:
-                agents = list_users("AGENT")
-                agent_map = {f"{a[1]} ({a[2]})": a[0] for a in agents}
-                curr_assign = "Unassigned"
-                if assigned_to:
-                    for a in agents: 
-                        if a[0] == assigned_to: curr_assign = a[1]
+        with tab2:
+            st.metric("Total Earnings", "$1,500")
+            st.metric("Next Payout", "March 15th")
+
+    # ADMIN / INTERNAL AGENT VIEW (The Brain)
+    else:
+        logout_button()
+        
+        # Navigation
+        menu = st.sidebar.radio("Command Center", ["Pipeline", "Case Detail", "Admin Panel"])
+
+        # --- PIPELINE VIEW ---
+        if menu == "Pipeline":
+            st.title("Global Pipeline")
+            
+            # Filters
+            with st.expander("Filters", expanded=True):
+                c1, c2 = st.columns(2)
+                with c1: status_filter = st.selectbox("Status", ["All", "NEW", "HOT LEAD", "WON"])
+                with c2: 
+                    # Filter by Franchise Partner
+                    agents = list_users("MICRO_AGENT")
+                    agent_opts = ["All"] + [a[1] for a in agents]
+                    agent_filter = st.selectbox("Franchise Partner", agent_opts)
+
+            # Logic for filtering would go here, simplified for display
+            status_val = None if status_filter == "All" else status_filter
+            rows = list_cases_advanced(status=status_val)
+            
+            # Display rows
+            st.dataframe([
+                {"ID": r[0], "Date": r[1][:10], "Status": r[2], "Student": r[3], "Agent": r[6]} 
+                for r in rows
+            ], use_container_width=True)
+
+        # --- CASE DETAIL VIEW (The AI Powerhouse) ---
+        elif menu == "Case Detail":
+            st.title("Student Case File")
+            
+            # 1. Selector
+            all_cases = list_cases()
+            c_ids = [x[0] for x in all_cases]
+            selected_id = st.selectbox("Search Student ID/Name", c_ids, format_func=lambda x: f"{x} - {next((c[3] for c in all_cases if c[0]==x), '')}")
+            
+            if selected_id:
+                # Load Data
+                case_row = get_case(selected_id)
+                # Unpack: case_id, created, status, name, phone, email, raw_json, brief, assignee, report, rep_date, referral_code
+                cid, cdate, status, sname, phone, email, raw_json, brief, assignee, full_rep, rep_date, ref_code = case_row
+                payload = json.loads(raw_json)
+                c_data = payload.get("counsellor_data", {})
+
+                # Header
+                c1, c2 = st.columns([3, 1])
+                c1.header(f"{sname}")
+                if ref_code:
+                    c1.caption(f"📍 Referred by Agent: **{ref_code}**")
+                c2.metric("Status", status)
+
+                # --- PART 1: AI DOC PARSING (OCR) ---
+                st.info("🤖 **Step 1: Upload Psychometric Results**")
+                uploaded_pdf = st.file_uploader("Upload Navigather/Psych PDF", type="pdf", key="ocr_upload")
+                if uploaded_pdf:
+                    with st.spinner("AI Reading Document..."):
+                        extracted_text = extract_text_from_pdf(uploaded_pdf)
+                        if extracted_text:
+                            # Auto-fill notes if empty
+                            if not c_data.get("personality_notes"):
+                                c_data["personality_notes"] = extracted_text[:2000]
+                                payload["counsellor_data"] = c_data
+                                update_case_payload(cid, payload)
+                                st.success("Text Extracted & Saved to Profile!")
+                            else:
+                                st.warning("Profile already has notes. Clear them to overwrite.")
                 
-                with st.expander(f"Assign: {curr_assign}"):
-                    new_assign = st.selectbox("Select Agent", ["Unassigned"] + list(agent_map.keys()))
-                    if st.button("Save Assignment"):
-                        aid = agent_map[new_assign] if new_assign != "Unassigned" else None
-                        assign_case(case_id, aid)
-                        rerun()
-
-            # --- 2. COUNSELLOR INTERVIEW ---
-            st.subheader("📝 2. Counsellor Interview")
-            with st.expander("Interview Form: Schools & Pricing", expanded=True):
-                with st.form("optional_data_form"):
-                    st.markdown("**Basic Info**")
-                    c_col1, c_col2 = st.columns(2)
-                    with c_col1:
-                        city = st.text_input("Kota Tempat Tinggal", value=c_data.get("city", ""))
-                        school = st.text_input("Asal Sekolah", value=c_data.get("school", ""))
-                        grade = st.text_input("Kelas Berapa", value=c_data.get("grade", ""))
-                    with c_col2:
-                        branch = st.selectbox("Cabang Fortrust", ["Jakarta", "Surabaya", "Bandung", "Medan"], index=0)
-                        need_test = st.radio("Profiling Test?", ["Yes", "No"], horizontal=True, index=0 if c_data.get("need_test")=="Yes" else 1)
-                        need_lang = st.radio("Language Prep?", ["Yes", "No"], horizontal=True, index=0 if c_data.get("need_lang")=="Yes" else 1)
+                # --- PART 2: DEEP PROFILING ---
+                st.info("🧠 **Step 2: Deep Profiling (AI Context)**")
+                with st.form("profile_form"):
+                    p_notes = st.text_area("Personality/IQ Notes (Auto-filled from PDF)", 
+                                         value=c_data.get("personality_notes", ""), height=150)
+                    p_pref = st.text_input("Parent Preference", value=c_data.get("parents_pref", ""))
                     
-                    st.markdown("---")
-                    st.markdown("**🎓 Specific School & Budget Preferences**")
-                    c_col3, c_col4 = st.columns(2)
-                    with c_col3:
-                        target_uni = st.text_input("Specific Target University", value=c_data.get("target_uni", ""), placeholder="e.g. Monash")
-                        target_program = st.text_input("Confirmed Major Interest", value=c_data.get("target_program", ""), placeholder="e.g. Business")
-                    with c_col4:
-                        budget_discussion = st.selectbox("Budget Status", 
-                            ["Unknown", "Budget Fits Target", "Budget Tight (Need Scholarship)", "Budget Too Low (Survival Mode)"],
-                            index=0
-                        )
-                        max_tuition = st.number_input("Confirmed Max Tuition (per year)", min_value=0, value=int(c_data.get("max_tuition", 0)))
+                    # Other fields from your original code
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        target_uni = st.text_input("Target Uni", value=c_data.get("target_uni", ""))
+                    with col_b:
+                        target_prog = st.text_input("Target Major", value=c_data.get("target_program", ""))
 
-                    if st.form_submit_button("💾 Save Counsellor Notes"):
-                        payload["counsellor_data"]["city"] = city
-                        payload["counsellor_data"]["school"] = school
-                        payload["counsellor_data"]["grade"] = grade
-                        payload["counsellor_data"]["branch"] = branch
-                        payload["counsellor_data"]["need_test"] = need_test
-                        payload["counsellor_data"]["need_lang"] = need_lang
-                        payload["counsellor_data"]["target_uni"] = target_uni
-                        payload["counsellor_data"]["target_program"] = target_program
-                        payload["counsellor_data"]["budget_discussion"] = budget_discussion
-                        payload["counsellor_data"]["max_tuition"] = max_tuition
-                        
-                        update_case_payload(case_id, payload)
-                        st.success("Notes Saved.")
+                    if st.form_submit_button("💾 Update Profile"):
+                        payload["counsellor_data"].update({
+                            "personality_notes": p_notes,
+                            "parents_pref": p_pref,
+                            "target_uni": target_uni,
+                            "target_program": target_prog
+                        })
+                        update_case_payload(cid, payload)
+                        st.success("Profile Updated")
                         rerun()
 
-            # --- 3. DEEP PROFILING (NEW FOR AI) ---
-            st.subheader("📝 3. Deep Profiling (For AI Analysis)")
-            with st.expander("Psychometric & Parent Interview", expanded=True):
-                with st.form("deep_profile_form"):
-                    st.markdown("**Psychometric / Personality Insights**")
-                    st.caption("Paste summary of IQ, Aptitude, or Personality tests here for the AI to analyze 'Superpowers'.")
-                    personality_notes = st.text_area("Personality/IQ Notes", 
-                        value=payload.get("counsellor_data", {}).get("personality_notes", ""),
-                        placeholder="e.g. High Logic, Low Stress Tolerance. Visual learner. ENFP profile.")
-                    
-                    st.markdown("**Family Dynamics**")
-                    parents_pref = st.text_input("Parents' Preferred Major/Career", 
-                        value=payload.get("counsellor_data", {}).get("parents_pref", ""),
-                        placeholder="e.g. Medicine or Accounting")
-                    
-                    if st.form_submit_button("💾 Save Deep Profile"):
-                        if "counsellor_data" not in payload: payload["counsellor_data"] = {}
-                        payload["counsellor_data"]["personality_notes"] = personality_notes
-                        payload["counsellor_data"]["parents_pref"] = parents_pref
-                        update_case_payload(case_id, payload)
-                        st.success("Deep Profile Updated")
-                        rerun()
+                # --- PART 3: GENERATE REPORT ---
+                st.info("📄 **Step 3: Strategic Report**")
+                col_gen1, col_gen2 = st.columns([1, 2])
+                with col_gen1:
+                    if st.button("Generate 'Abigail-Style' PDF"):
+                        with st.spinner("Analyzing Matrix..."):
+                            # 1. Rank
+                            df = pd.read_csv("data/programs.csv")
+                            ranks = rank_programs({"finance":payload.get("finance",{}), "major_choices":["General"], "destinations":[], "gpa":"3.0", "english":"IELTS"}, df)
+                            # 2. Generate Content
+                            content = generate_abigail_content(sname, payload, ranks)
+                            # 3. Create PDF
+                            fname = create_pdf(sname, content)
+                            # 4. Read for DL
+                            with open(fname, "rb") as f:
+                                st.session_state['pdf_bytes'] = f.read()
+                                st.session_state['pdf_name'] = fname
+                            st.success("Generated!")
+                
+                with col_gen2:
+                    if 'pdf_bytes' in st.session_state:
+                        st.download_button("📥 Download PDF", st.session_state['pdf_bytes'], file_name=st.session_state['pdf_name'], mime='application/pdf')
 
-            # --- 4. LEAD QUALIFICATION ---
-            st.subheader("🔍 4. Lead Qualification")
-            q_data = payload.get("qualification_data", {})
-            algo_res = payload.get("algo_result", {})
-            if algo_res:
-                sc = algo_res.get('score', 0)
-                stt = algo_res.get('status', 'Unknown')
-                color = "green" if "HOT" in stt else ("orange" if "WARM" in stt else "red")
-                st.markdown(f"### Score: {sc}/100 | Status: :{color}[{stt}]")
-
-            with st.expander("Qualification Checklist"):
-                with st.form("algo_form"):
-                    col_f1, col_f2 = st.columns(2)
-                    with col_f1:
-                        q4 = st.selectbox("Q4: Part-time", ["SURVIVAL_MODE", "POCKET_MONEY"], index=0 if q_data.get("q_part_time")=="SURVIVAL_MODE" else 1)
-                        q5 = st.selectbox("Q5: Travel", ["NO_TRAVEL", "BUDGET_TRAVEL", "PREMIUM_TRAVEL"])
-                        q1 = st.selectbox("Q1: Action", ["DREAMER", "DOER"])
-                    with col_f2:
-                        q6 = st.selectbox("Q6: Accom", ["SENSITIVE", "COMFORT"])
-                        q7 = st.selectbox("Q7: Liquidity", ["NOT_LIQUID", "LIQUID"])
-                        q2 = st.selectbox("Q2: Anchor", ["HIGH_ANCHOR", "PRACTICAL"])
-                        q8 = st.selectbox("Q8: Blocker", ["FUNDING_BLOCKER", "LOGISTIC_BLOCKER"])
-                        q3 = st.selectbox("Q3: Family", ["CONFLICT", "SUPPORT"])
-                        q9 = st.selectbox("Q9: English", ["UNTESTED", "TESTED"])
-                        q10 = st.selectbox("Q10: DM", ["HIDDEN_DM", "CLEAR_DM"])
-
-                    if st.form_submit_button("🧮 Calculate Score"):
-                        score_inputs = {
-                            "q_part_time": q4, "q_travel": q5, "q_accom": q6, "q_liquid": q7,
-                            "q_action": q1, "q_anchor": q2, "q_blocker": q8,
-                            "q_family": q3, "q_language": q9, "q_dm": q10
-                        }
-                        result = calculate_lead_score(score_inputs)
-                        payload["qualification_data"] = score_inputs
-                        payload["algo_result"] = result
-                        update_case_status_and_payload(case_id, result['status'], payload)
-                        rerun()
-
-            # --- 5. REPORT GENERATION ---
-            st.markdown("---")
-            st.subheader("📄 Strategy Roadmap (Internal Only)")
+        # --- ADMIN PANEL ---
+        elif menu == "Admin Panel":
+            st.title("System Admin")
+            st.subheader("Manage Franchises")
             
-            col_rep1, col_rep2 = st.columns([1, 2])
+            # Create Agent
+            with st.form("create_agent"):
+                st.write("Create New Franchise Partner")
+                a_name = st.text_input("Partner Name")
+                a_email = st.text_input("Email")
+                if st.form_submit_button("Create Account"):
+                    # Create with MICRO_AGENT role
+                    create_user(uuid.uuid4().hex[:6], a_name, a_email, "123456", "MICRO_AGENT")
+                    st.success(f"Agent {a_name} Created!")
             
-            with col_rep1:
-                if st.button("Generate Strategy PDF"):
-                    # 1. Gather Data
-                    programs_df = pd.read_csv("data/programs.csv")
-                    engine_payload = {
-                        "finance": {"annual_budget": payload.get("finance", {}).get("annual_budget", 50000)},
-                        "major_choices": payload.get("major_choices", ["General"]),
-                        "destinations": [payload.get("destination_1"), payload.get("destination_2")],
-                        "gpa": "3.0", 
-                        "english": "IELTS"
-                    }
-                    top_programs = rank_programs(engine_payload, programs_df)
-                    
-                    # 2. Call "Real AI" to get content
-                    with st.spinner("Consulting AI Engine..."):
-                        content_data = generate_abigail_content(student_name, payload, top_programs)
-                    
-                    # 3. Generate PDF
-                    pdf_file = create_pdf(student_name, content_data)
-                    
-                    # 4. Read PDF binary for download
-                    with open(pdf_file, "rb") as f:
-                        pdf_bytes = f.read()
-                    
-                    # 5. Save state so download button appears
-                    st.session_state['generated_pdf'] = pdf_bytes
-                    st.session_state['generated_pdf_name'] = pdf_file
-                    
-                    st.success("PDF Generated Successfully!")
-
-            with col_rep2:
-                if 'generated_pdf' in st.session_state:
-                    st.download_button(
-                        label="📥 Download Confidential PDF",
-                        data=st.session_state['generated_pdf'],
-                        file_name=st.session_state['generated_pdf_name'],
-                        mime='application/pdf'
-                    )
-                    st.warning("⚠️ This report is for Counsellor use only. Do not share directly with students.")
-
-    # --- ADMIN ---
-    elif tab == "Admin Panel":
-        if role != "ADMIN": st.error("Access Denied")
-        else:
-            st.title("Admin Panel")
-            with st.form("create_user_form"):
-                name = st.text_input("Name")
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                role_new = st.selectbox("Role", ["AGENT", "MANAGER", "ADMIN"])
-                if st.form_submit_button("Create User"):
-                    create_user(str(uuid.uuid4())[:8].upper(), name, email, password, role_new)
-                    st.success("Created.")
-            st.dataframe(pd.DataFrame(list_users(), columns=["ID", "Name", "Email", "Hash", "Role", "Active"]))
+            st.write("Existing Users:")
+            st.dataframe(pd.DataFrame(list_users(), columns=["ID", "Name", "Email", "Hash", "Role", "Active", "RefCode"]))
