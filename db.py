@@ -261,3 +261,15 @@ def update_case_status_and_payload(case_id: str, status: str, new_payload: dict)
     with get_conn() as conn:
         conn.execute("UPDATE cases SET status = ?, raw_json = ? WHERE case_id = ?", (status, json.dumps(new_payload, ensure_ascii=False), case_id))
         conn.commit()
+
+def update_user_role(user_id: str, new_role: str):
+    """Allows Master Admin to change a user's role"""
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET role=? WHERE user_id=?", (new_role, user_id))
+        conn.commit()
+
+def update_case_agent(case_id: str, agent_code: str):
+    """Allows Master Admin to re-assign a student to a different agent/referral code"""
+    with get_conn() as conn:
+        conn.execute("UPDATE cases SET referral_code=? WHERE case_id=?", (agent_code, case_id))
+        conn.commit()

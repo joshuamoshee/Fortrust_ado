@@ -6,7 +6,12 @@ import pandas as pd
 
 # --- CUSTOM MODULES ---
 # Ensure these files exist in your folder
-from doc_parser import extract_text_from_pdf
+try:
+    from doc_parser import extract_text_from_pdf
+except ImportError:
+    # Fallback prevents crash if file is missing
+    def extract_text_from_pdf(f): return "Error: doc_parser.py not found."
+
 from ai_report import generate_abigail_content
 from pdf_generator import create_pdf
 from scoring import calculate_lead_score
@@ -36,6 +41,16 @@ def hours_since(iso_ts: str) -> float:
         t = dt.datetime.fromisoformat(iso_ts.replace("Z", ""))
         return (dt.datetime.utcnow() - t).total_seconds() / 3600.0
     except: return 0.0
+
+def get_query_param(key):
+    """Safe method to get URL params on ANY Streamlit version"""
+    try:
+        # New Streamlit (1.30+)
+        return st.query_params.get(key, "")
+    except AttributeError:
+        # Old Streamlit (<1.30)
+        params = st.experimental_get_query_params()
+        return params.get(key, [""])[0]
 
 def login_panel():
     st.sidebar.markdown("---")
@@ -67,19 +82,17 @@ def logout_button():
 if "user" not in st.session_state:
     # ====================================================
     # VIEW A: PUBLIC MARKETPLACE (Model A)
-    # This is what Students see when they visit fortrust.com
     # ====================================================
     st.title("🌏 Fortrust Global Marketplace")
     st.markdown("#### Search Programs. Apply Instantly. Get AI Counseling.")
 
-    # 1. Referral Tracking (Model B Hook)
-    # Captures ?ref=AGENT001 from the URL
-    query_params = st.query_params
-    ref_code = query_params.get("ref", "")
+    # 1. Referral Tracking (FIXED FOR ALL VERSIONS)
+    ref_code = get_query_param("ref")
+    
     if ref_code:
         st.info(f"✅ Applying via Verified Partner: **{ref_code}**")
 
-    # 2. Program Search Engine (The "Booking.com" Experience)
+    # 2. Program Search Engine
     with st.expander("🔍 **Find Your Dream Program**", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1: search_dest = st.selectbox("Destination", ["Australia", "UK", "USA", "Canada", "Singapore"])
@@ -87,7 +100,6 @@ if "user" not in st.session_state:
         with c3: search_budget = st.selectbox("Max Budget", ["Unlimited", "< $20k/yr", "< $40k/yr"])
         
         if st.button("Search Database"):
-            # Mockup of search results - in real app, query your CSV/DB
             st.success(f"Found 12 matches for {search_major} in {search_dest}")
             st.dataframe(pd.DataFrame([
                 {"University": "Monash University", "Rank": "#42 Global", "Tuition": "$32,000", "Match": "98%"},
@@ -97,41 +109,50 @@ if "user" not in st.session_state:
 
     st.markdown("---")
 
-    # 3. Application Form (The Funnel)
+    # 3. Application Form (Data Wajib)
     st.subheader("🚀 Start Your Application")
     with st.form("intake_form"):
         col1, col2 = st.columns(2)
         with col1:
-            student_name = st.text_input("Full Name *")
-            phone = st.text_input("WhatsApp *")
-        with col2:
+            student_name = st.text_input("Nama Lengkap *")
+            phone = st.text_input("WhatsApp Number *")
             email = st.text_input("Email *")
-            destinations = st.multiselect("Destinations", ["Australia", "UK", "USA", "Canada"])
+        with col2:
+            # Dropdown exactly as requested
+            referral_source = st.selectbox("Tahu event/info dari mana? *", [
+                "Pilih sumber...", "Meta Ads", "Tiktok Ads", "Expo", 
+                "School Expo", "Info Sessions", "Webinar", "Referrals"
+            ])
+            
+            # Sub-dropdown if Referrals is chosen
+            referral_detail = ""
+            if referral_source == "Referrals":
+                referral_detail = st.selectbox("Source of Referrals:", [
+                    "Teman Sekolah/Kuliah", "Guru BK", "Guru Les"
+                ])
+                
+            destinations = st.multiselect("Preferred Destinations", ["Australia", "UK", "USA", "Canada", "Singapore"])
         
-        # Hidden Referral Field
-        referral_source = st.selectbox("How did you find us?", ["Online Search", "Social Media", "Referral/Agent"])
-        manual_ref = st.text_input("Agent Code (Optional)", value=ref_code)
+        # Hidden Agent Code
+        manual_ref = st.text_input("Agent/Referral Code (Optional)", value=ref_code)
 
-        if st.form_submit_button("Submit Application"):
-            if not student_name or not phone:
-                st.error("Name and Phone are required.")
+        if st.form_submit_button("Submit Data"):
+            if not student_name or not phone or referral_source == "Pilih sumber...":
+                st.error("Nama, WA, dan Sumber Info wajib diisi.")
             else:
                 cid = str(uuid.uuid4())[:8].upper()
                 payload = {
                     "student_name": student_name, "phone": phone, "email": email,
-                    "destinations": destinations, "finance": {"annual_budget": 0},
+                    "destinations": destinations, 
+                    "referral_source": referral_source,
+                    "referral_detail": referral_detail,
                     "counsellor_data": {}, "qualification_data": {}
                 }
-                # Insert with Referral Code to track commissions
-                insert_case(cid, payload, "Marketplace Lead", referral_code=manual_ref)
+                insert_case(cid, payload, "New Lead", referral_code=manual_ref)
                 
                 st.balloons()
-                st.success(f"Application Sent! Your Ref ID: {cid}")
-                st.info("An AI Counselor is reviewing your profile now.")
-
-    # Login for Agents/Admin
-    login_panel()
-
+                st.success(f"Data Submitted! Your Ref ID: {cid}")
+                st.info("Tim Counsellor kami akan segera menghubungi Anda.")
 else:
     # ====================================================
     # LOGGED IN VIEWS
@@ -139,7 +160,6 @@ else:
     user = st.session_state["user"]
     role = user["role"]
     
-    # Sidebar Info
     st.sidebar.title("Fortrust OS")
     st.sidebar.write(f"👋 **{user['name']}**")
     st.sidebar.caption(f"Role: {role}")
@@ -156,15 +176,12 @@ else:
         
         with tab1:
             st.subheader("Your Students")
-            # Filter cases by THIS user's referral code
             my_cases = list_cases_advanced(referral_code=user['referral_code'])
             
             if not my_cases:
                 st.info("No students yet. Share your referral link to start earning!")
             else:
-                # Display simplified view for agents
                 for c in my_cases:
-                    # c = [id, date, status, name, dest, budget, agent]
                     with st.container():
                         c1, c2, c3 = st.columns([3, 1, 1])
                         c1.write(f"**{c[3]}**")
@@ -187,113 +204,96 @@ else:
     # ADMIN / INTERNAL AGENT VIEW (The Brain)
     else:
         logout_button()
-        
-        # Navigation
         menu = st.sidebar.radio("Command Center", ["Pipeline", "Case Detail", "Admin Panel"])
 
-        # --- PIPELINE VIEW ---
+        # --- PIPELINE ---
         if menu == "Pipeline":
             st.title("Global Pipeline")
-            
-            # Filters
             with st.expander("Filters", expanded=True):
                 c1, c2 = st.columns(2)
-                with c1: status_filter = st.selectbox("Status", ["All", "NEW", "HOT LEAD", "WON"])
+                
+                # UPDATED STATUSES HERE:
+                client_statuses = ["All", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"]
+                with c1: status_filter = st.selectbox("Status", client_statuses)
+                
                 with c2: 
-                    # Filter by Franchise Partner
-                    agents = list_users("MICRO_AGENT")
+                    agents = list_users() # Show all users so Master Admin can filter
                     agent_opts = ["All"] + [a[1] for a in agents]
-                    agent_filter = st.selectbox("Franchise Partner", agent_opts)
+                    agent_filter = st.selectbox("Filter by Agent/Counsellor", agent_opts)
 
-            # Logic for filtering would go here, simplified for display
             status_val = None if status_filter == "All" else status_filter
             rows = list_cases_advanced(status=status_val)
             
-            # Display rows
             st.dataframe([
                 {"ID": r[0], "Date": r[1][:10], "Status": r[2], "Student": r[3], "Agent": r[6]} 
                 for r in rows
             ], use_container_width=True)
 
-        # --- CASE DETAIL VIEW (The AI Powerhouse) ---
+        # --- CASE DETAIL (The Brain) ---
         elif menu == "Case Detail":
             st.title("Student Case File")
             
-            # 1. Selector
             all_cases = list_cases()
             c_ids = [x[0] for x in all_cases]
             selected_id = st.selectbox("Search Student ID/Name", c_ids, format_func=lambda x: f"{x} - {next((c[3] for c in all_cases if c[0]==x), '')}")
             
             if selected_id:
-                # Load Data
                 case_row = get_case(selected_id)
-                # Unpack: case_id, created, status, name, phone, email, raw_json, brief, assignee, report, rep_date, referral_code
                 cid, cdate, status, sname, phone, email, raw_json, brief, assignee, full_rep, rep_date, ref_code = case_row
                 payload = json.loads(raw_json)
                 c_data = payload.get("counsellor_data", {})
 
-                # Header
                 c1, c2 = st.columns([3, 1])
                 c1.header(f"{sname}")
-                if ref_code:
-                    c1.caption(f"📍 Referred by Agent: **{ref_code}**")
+                if ref_code: c1.caption(f"📍 Referred by Agent: **{ref_code}**")
                 c2.metric("Status", status)
 
-                # --- PART 1: AI DOC PARSING (OCR) ---
+                # --- 1. OCR ---
                 st.info("🤖 **Step 1: Upload Psychometric Results**")
                 uploaded_pdf = st.file_uploader("Upload Navigather/Psych PDF", type="pdf", key="ocr_upload")
                 if uploaded_pdf:
                     with st.spinner("AI Reading Document..."):
                         extracted_text = extract_text_from_pdf(uploaded_pdf)
                         if extracted_text:
-                            # Auto-fill notes if empty
                             if not c_data.get("personality_notes"):
                                 c_data["personality_notes"] = extracted_text[:2000]
                                 payload["counsellor_data"] = c_data
                                 update_case_payload(cid, payload)
                                 st.success("Text Extracted & Saved to Profile!")
-                            else:
-                                st.warning("Profile already has notes. Clear them to overwrite.")
+                            else: st.warning("Notes already exist. Clear manually to overwrite.")
                 
-                # --- PART 2: DEEP PROFILING ---
-                st.info("🧠 **Step 2: Deep Profiling (AI Context)**")
-                with st.form("profile_form"):
-                    p_notes = st.text_area("Personality/IQ Notes (Auto-filled from PDF)", 
-                                         value=c_data.get("personality_notes", ""), height=150)
-                    p_pref = st.text_input("Parent Preference", value=c_data.get("parents_pref", ""))
-                    
-                    # Other fields from your original code
+                # --- PART 2: DATA OPSIONAL (Counsellor Input) ---
+                st.info("📝 **Step 2: Data Opsional (Konsultasi Awal)**")
+                with st.form("optional_data_form"):
                     col_a, col_b = st.columns(2)
-                    with col_a:
-                        target_uni = st.text_input("Target Uni", value=c_data.get("target_uni", ""))
-                    with col_b:
-                        target_prog = st.text_input("Target Major", value=c_data.get("target_program", ""))
+                    with col_a: 
+                        kota = st.text_input("Kota Tempat Tinggal", value=c_data.get("kota", ""))
+                        asal_sekolah = st.text_input("Asal Sekolah", value=c_data.get("asal_sekolah", ""))
+                        kelas = st.text_input("Sekarang kelas berapa?", value=c_data.get("kelas", ""))
+                    with col_b: 
+                        cabang = st.selectbox("Cabang Fortrust Terdekat", ["Pusat/Jakarta", "Surabaya", "Bandung", "Medan", "Lainnya"])
+                        need_profiling = st.radio("Need Profiling Test?", ["Yes", "No"], horizontal=True)
+                        need_language = st.radio("Need Language Preparation?", ["Yes", "No"], horizontal=True)
 
-                    if st.form_submit_button("💾 Update Profile"):
+                    if st.form_submit_button("💾 Save Data Opsional"):
                         payload["counsellor_data"].update({
-                            "personality_notes": p_notes,
-                            "parents_pref": p_pref,
-                            "target_uni": target_uni,
-                            "target_program": target_prog
+                            "kota": kota, "asal_sekolah": asal_sekolah, "kelas": kelas,
+                            "cabang": cabang, "need_profiling": need_profiling, "need_language": need_language
                         })
                         update_case_payload(cid, payload)
-                        st.success("Profile Updated")
+                        st.success("Data Opsional Updated")
                         rerun()
 
-                # --- PART 3: GENERATE REPORT ---
+                # --- 3. GENERATE REPORT ---
                 st.info("📄 **Step 3: Strategic Report**")
                 col_gen1, col_gen2 = st.columns([1, 2])
                 with col_gen1:
                     if st.button("Generate 'Abigail-Style' PDF"):
                         with st.spinner("Analyzing Matrix..."):
-                            # 1. Rank
                             df = pd.read_csv("data/programs.csv")
                             ranks = rank_programs({"finance":payload.get("finance",{}), "major_choices":["General"], "destinations":[], "gpa":"3.0", "english":"IELTS"}, df)
-                            # 2. Generate Content
                             content = generate_abigail_content(sname, payload, ranks)
-                            # 3. Create PDF
                             fname = create_pdf(sname, content)
-                            # 4. Read for DL
                             with open(fname, "rb") as f:
                                 st.session_state['pdf_bytes'] = f.read()
                                 st.session_state['pdf_name'] = fname
@@ -304,19 +304,99 @@ else:
                         st.download_button("📥 Download PDF", st.session_state['pdf_bytes'], file_name=st.session_state['pdf_name'], mime='application/pdf')
 
         # --- ADMIN PANEL ---
+        # --- MASTER ADMIN PANEL ---
         elif menu == "Admin Panel":
-            st.title("System Admin")
-            st.subheader("Manage Franchises")
+            st.title("👑 Master Admin Dashboard")
             
-            # Create Agent
-            with st.form("create_agent"):
-                st.write("Create New Franchise Partner")
-                a_name = st.text_input("Partner Name")
-                a_email = st.text_input("Email")
-                if st.form_submit_button("Create Account"):
-                    # Create with MICRO_AGENT role
-                    create_user(uuid.uuid4().hex[:6], a_name, a_email, "123456", "MICRO_AGENT")
-                    st.success(f"Agent {a_name} Created!")
+            # --- 1. ANALYTICS & GRAPHICS (Siapa yang tertinggi) ---
+            st.subheader("📊 Agent Leaderboard & Analytics")
             
-            st.write("Existing Users:")
-            st.dataframe(pd.DataFrame(list_users(), columns=["ID", "Name", "Email", "Hash", "Role", "Active", "RefCode"]))
+            all_cases = list_cases_advanced()
+            if all_cases:
+                # Convert to DataFrame for easy charting
+                # Columns: case_id, created_at, status, student_name, dest1, budget, assigned_to, referral_code
+                # Note: If your list_cases_advanced doesn't return referral_code in pos 7, adjust accordingly. 
+                # For safety, let's pull raw data:
+                import sqlite3
+                conn = sqlite3.connect("data/fortrust.db")
+                df_cases = pd.read_sql_query("SELECT case_id, status, referral_code FROM cases", conn)
+                
+                if not df_cases.empty and 'referral_code' in df_cases.columns:
+                    # Filter by Status matching client requests
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("Qualified Leads", len(df_cases[df_cases['status'] == 'QUALIFIED LEADS']))
+                    c2.metric("Consulting Process", len(df_cases[df_cases['status'] == 'CONSULTING PROCESS']))
+                    c3.metric("Uni Application", len(df_cases[df_cases['status'] == 'UNI APPLICATION']))
+                    c4.metric("Visa", len(df_cases[df_cases['status'] == 'VISA']))
+                    c5.metric("Completed (Business)", len(df_cases[df_cases['status'] == 'COMPLETED']))
+
+                    st.markdown("**Top Performing Agents (Total Students)**")
+                    # Group by agent code
+                    agent_counts = df_cases['referral_code'].value_counts().reset_index()
+                    agent_counts.columns = ['Agent Code', 'Total Students']
+                    # Clean up empty codes
+                    agent_counts = agent_counts[agent_counts['Agent Code'] != ""]
+                    agent_counts = agent_counts.dropna()
+                    
+                    if not agent_counts.empty:
+                        st.bar_chart(data=agent_counts.set_index('Agent Code'))
+                    else:
+                        st.info("No agent data to chart yet.")
+            else:
+                st.info("No data available for analytics.")
+
+            st.divider()
+
+            # --- 2. ROLE MANAGEMENT (Create & Edit) ---
+            st.subheader("👥 User & Role Management")
+            
+            tab_create, tab_edit = st.tabs(["Create New User", "Edit Existing User"])
+            
+            roles_list = ["AGENT", "MICRO_AGENT", "COUNSELLOR", "ADMIN", "MASTER_ADMIN"]
+
+            with tab_create:
+                with st.form("create_agent"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        a_name = st.text_input("Full Name")
+                        a_email = st.text_input("Email")
+                    with c2:
+                        password = st.text_input("Password", type="password")
+                        role_new = st.selectbox("Assign Role", roles_list)
+                    
+                    if st.form_submit_button("➕ Create Account"):
+                        create_user(uuid.uuid4().hex[:6].upper(), a_name, a_email, password, role_new)
+                        st.success(f"User {a_name} Created as {role_new}!")
+                        rerun()
+
+            with tab_edit:
+                users = list_users()
+                df_users = pd.DataFrame(users, columns=["ID", "Name", "Email", "Hash", "Role", "Active", "RefCode"])
+                st.dataframe(df_users[["ID", "Name", "Email", "Role", "RefCode"]], use_container_width=True)
+                
+                with st.form("edit_role_form"):
+                    st.write("Change User Role")
+                    user_to_edit = st.selectbox("Select User", df_users['ID'].tolist(), format_func=lambda x: f"{x} - {df_users[df_users['ID']==x]['Name'].values[0]}")
+                    new_role_val = st.selectbox("New Role", roles_list)
+                    
+                    if st.form_submit_button("💾 Update Role"):
+                        from db import update_user_role # Ensure it's imported
+                        update_user_role(user_to_edit, new_role_val)
+                        st.success("Role Updated Successfully!")
+                        rerun()
+
+            st.divider()
+
+            # --- 3. DATA ASSIGNMENT (Transfer Students) ---
+            st.subheader("🔄 Transfer Student to New Agent/Counsellor")
+            with st.form("transfer_student"):
+                all_c = list_cases()
+                if all_c:
+                    student_to_move = st.selectbox("Select Student", [c[0] for c in all_c], format_func=lambda x: f"{x} - {next((c[3] for c in all_c if c[0]==x), '')}")
+                    new_agent_code = st.selectbox("Assign to Agent/Counsellor Code", df_users['RefCode'].dropna().tolist())
+                    
+                    if st.form_submit_button("Transfer Data"):
+                        from db import update_case_agent
+                        update_case_agent(student_to_move, new_agent_code)
+                        st.success(f"Student transferred to {new_agent_code}!")
+                        rerun()
