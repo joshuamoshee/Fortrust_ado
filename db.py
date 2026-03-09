@@ -273,3 +273,16 @@ def update_case_agent(case_id: str, agent_code: str):
     with get_conn() as conn:
         conn.execute("UPDATE cases SET referral_code=? WHERE case_id=?", (agent_code, case_id))
         conn.commit()
+
+def delete_case(case_id: str):
+    """Permanently deletes a student lead and their logs."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM cases WHERE case_id = ?", (case_id,))
+        conn.execute("DELETE FROM audit_log WHERE case_id = ?", (case_id,))
+        conn.commit()
+
+def delete_user(user_id: str):
+    """Permanently deletes an agent/user from the system."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        conn.commit()

@@ -95,7 +95,7 @@ def generate_abigail_content(student_name, payload, top_programs):
         
         # Initialize Gemini 1.5 Pro
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-pro",
+            model_name="gemini-1.5-flash",
             system_instruction=system_prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.4, # Low temp keeps it analytical
@@ -137,3 +137,62 @@ def _simulation_fallback(student_name):
             {"pathway": "Medicine", "fit": "High IQ", "friction": "Extreme Stress Environment", "score": "3/10"}
         ]
     }
+
+def extract_programs_from_brochure(text):
+    """
+    Reads a raw university PDF brochure and extracts structured program data.
+    """
+    if not API_KEY or API_KEY == "GEMINI_API_KEYE":
+        print("Extraction Error: Gemini API Key is missing or invalid.")
+        return []
+
+    system_prompt = """
+    You are an expert Data Extraction AI for a global education database.
+    Your job is to read messy university brochures and extract program details.
+    
+    Extract a list of programs. For each program, provide EXACTLY these JSON keys:
+    - country (string, e.g., "Australia", "UK", "USA")
+    - city (string, e.g., "Melbourne", "London")
+    - institution (string, e.g., "Monash University")
+    - level (string: "Bachelor", "Master", "Diploma", "Certificate")
+    - category (string: "Business", "IT", "Engineering", "Arts", "Health", "General")
+    - program_name (string, e.g., "Bachelor of Data Science")
+    - tuition_per_year (integer, numeric only)
+    - living_per_year (integer, numeric only, estimate 20000 if not stated)
+    - duration_years (float, e.g., 3.0 or 4.0)
+    - intake_months (string, e.g., "Feb,Jul")
+    - ielts_min (float, e.g., 6.0 or 6.5)
+    - gpa_min (float, e.g., 2.5 or 3.0)
+    - visa_risk (string: "Low", "Medium", "High")
+    - scholarship_level (string: "Low", "Medium", "High")
+    - vibe (string, short 1-word description)
+    
+    Return ONLY a valid JSON array of objects. No markdown formatting, no ```json tags, no explanations. Just the raw array [ { ... } ].
+    """
+    
+    try:
+        genai.configure(api_key=API_KEY)
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=system_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1, 
+            )
+        )
+        response = model.generate_content(text)
+        
+        # --- BULLETPROOF JSON CLEANUP ---
+        raw_output = response.text.strip()
+        # Remove markdown code blocks if Gemini accidentally includes them
+        if raw_output.startswith("```json"):
+            raw_output = raw_output[7:]
+        if raw_output.startswith("```"):
+            raw_output = raw_output[3:]
+        if raw_output.endswith("```"):
+            raw_output = raw_output[:-3]
+            
+        return json.loads(raw_output.strip())
+        
+    except Exception as e:
+        print(f"Extraction Error: {e}") # This will print the exact error in your terminal
+        return []
