@@ -84,7 +84,7 @@ if "user" not in st.session_state:
     if ref_code:
         st.info(f"✅ Applying via Verified Partner: **{ref_code}**")
 
-    # 2. Application Form (Data Wajib) - NO SEARCH BAR HERE ANYMORE
+    # 2. Application Form
     st.subheader("🚀 Start Your Application")
     with st.form("intake_form"):
         col1, col2 = st.columns(2)
@@ -106,19 +106,38 @@ if "user" not in st.session_state:
                 
             destinations = st.multiselect("Preferred Destinations", ["Australia", "UK", "USA", "Canada", "Singapore"])
         
-        manual_ref = st.text_input("Agent/Referral Code (Optional)", value=ref_code)
+        st.markdown("---")
+        st.markdown("**🏢 Khusus Internal / Agent (Opsional)**")
+        c_branch1, c_branch2, c_branch3 = st.columns(3)
+        with c_branch1:
+            list_kantor = [
+                "Pilih Cabang...", "Jakarta - Sudirman", "Jakarta - Kelapa Gading", "Jakarta - PIK", 
+                "Tangerang - Gading Serpong", "Bandung", "Surabaya", 
+                "Semarang", "Bali", "Medan", "Makassar", "Pusat / Head Office", "Lainnya"
+            ]
+            kantor = st.selectbox("Kantor (Branch)", list_kantor)
+        with c_branch2:
+            nama_agent = st.text_input("Nama Agent")
+        with c_branch3:
+            manual_ref = st.text_input("Agent/Referral Code (Opsional)", value=ref_code, help="Bisa dikosongkan jika lupa.")
 
         if st.form_submit_button("Submit Data"):
             if not student_name or not phone or referral_source == "Pilih sumber...":
                 st.error("Nama, WA, dan Sumber Info wajib diisi.")
             else:
                 cid = str(uuid.uuid4())[:8].upper()
+                
+                # Bundle the optional branch and agent info
+                c_data = {}
+                if kantor != "Pilih Cabang...": c_data["kantor"] = kantor
+                if nama_agent: c_data["nama_agent"] = nama_agent
+                
                 payload = {
                     "student_name": student_name, "phone": phone, "email": email,
                     "destinations": destinations, 
                     "referral_source": referral_source,
                     "referral_detail": referral_detail,
-                    "counsellor_data": {}, "qualification_data": {}
+                    "counsellor_data": c_data, "qualification_data": {}
                 }
                 insert_case(cid, payload, "New Lead", referral_code=manual_ref)
                 
@@ -146,27 +165,27 @@ else:
     st.sidebar.markdown("---")
 
     # --- DYNAMIC MENU BUILDER ---
-   # --- DYNAMIC MENU BUILDER ---
     menu_options = []
     
     if role in ["AGENT", "MICRO_AGENT"]:
         menu_options = ["Partner Dashboard"]
-    elif role == "COUNSELLOR":  # <-- Removed "ADMIN" from here
-        menu_options = ["Global Pipeline", "Case Detail", "University Search"]
-    elif role in ["ADMIN", "MASTER_ADMIN"]: # <-- Added "ADMIN" here!
-        menu_options = ["Global Pipeline", "Case Detail", "University Search", "Master Admin Panel"]
+    elif role == "COUNSELLOR":  
+        menu_options = ["Student Pipelines", "Case Detail", "University Search"]
+    elif role in ["ADMIN", "MASTER_ADMIN"]: 
+        menu_options = ["Student Pipelines", "Case Detail", "University Search", "Master Admin Panel"]
     else:
         # Fallback 
-        menu_options = ["Global Pipeline", "Case Detail", "University Search", "Master Admin Panel"]
+        menu_options = ["Student Pipelines", "Case Detail", "University Search", "Master Admin Panel"]
 
     menu = st.sidebar.radio("Main Menu", menu_options)
-
     # ==========================================
     # 1. PARTNER DASHBOARD (Agents Only)
     # ==========================================
     if menu == "Partner Dashboard":
         st.title("💼 My Workspace (Tasks & Pipeline)")
-        tab1, tab2 = st.tabs(["My Pipeline & Tasks", "My Commissions"])
+        
+        # WE ADDED A 3RD TAB HERE
+        tab1, tab2, tab3 = st.tabs(["My Pipeline & Tasks", "My Commissions", "📥 Bulk Upload Leads"])
         
         with tab1:
             st.subheader("Your Assigned Students")
@@ -176,12 +195,10 @@ else:
                 st.info("No students assigned yet. Share your referral link to start earning!")
             else:
                 for c in my_cases:
-                    # Fetch full details for the dropdown
                     case_details = get_case(c[0]) 
                     if case_details:
                         cid, cdate, status, sname, phone, email, raw_json, brief, assignee, full_rep, rep_date, ref_code = case_details
                         
-                        # THE DROPDOWN (Expander) FOR AGENTS
                         with st.expander(f"👤 {sname}  |  Status: {status}  |  Applied: {cdate[:10]}"):
                             c1, c2 = st.columns([2, 1])
                             
@@ -189,14 +206,14 @@ else:
                                 st.markdown(f"**📞 WhatsApp:** {phone}")
                                 st.markdown(f"**✉️ Email:** {email}")
                                 
-                                # Show Data Opsional if Counsellor filled it out
                                 payload = json.loads(raw_json)
                                 c_data = payload.get("counsellor_data", {})
-                                if c_data.get("kota"):
+                                if c_data.get("kantor"):
+                                    st.caption(f"🏢 Branch: {c_data.get('kantor')} | Agent: {c_data.get('nama_agent', '-')}")
+                                elif c_data.get("kota"):
                                     st.caption(f"📍 Location: {c_data.get('kota')} | 🏫 School: {c_data.get('asal_sekolah')}")
                             
                             with c2:
-                                # Progress Bar
                                 status_map = {"NEW": 10, "CONTACTED": 30, "HOT LEAD": 50, "QUALIFIED LEADS": 60, "CONSULTING PROCESS": 70, "UNI APPLICATION": 80, "VISA": 90, "COMPLETED": 100}
                                 progress = status_map.get(status, 10)
                                 st.progress(progress / 100, text=f"Progress: {progress}%")
@@ -207,6 +224,55 @@ else:
         with tab2:
             st.metric("Total Earnings", "Calculating...")
             st.metric("Next Payout", "15th of Month")
+
+        # --- NEW BULK UPLOAD TAB ---
+        with tab3:
+            st.subheader("📥 Bulk Upload from Events/Expos")
+            st.markdown("Got an Excel file from a school expo? Upload it here to instantly assign leads to your pipeline.")
+            st.info("⚠️ **Format Requirement:** Your Excel file MUST have columns named exactly: **Nama Siswa**, **WhatsApp**, and **Email**.")
+            
+            uploaded_excel = st.file_uploader("Upload Excel File (.xlsx)", type=["xlsx"])
+            
+            if uploaded_excel:
+                if st.button("🚀 Process & Import Leads", type="primary"):
+                    try:
+                        df_leads = pd.read_excel(uploaded_excel)
+                        
+                        # Validate that the necessary columns exist
+                        if 'Nama Siswa' not in df_leads.columns or 'WhatsApp' not in df_leads.columns:
+                            st.error("❌ Error: The Excel file is missing the 'Nama Siswa' or 'WhatsApp' columns. Please rename your columns and try again.")
+                        else:
+                            success_count = 0
+                            with st.spinner("Importing leads to database..."):
+                                for index, row in df_leads.iterrows():
+                                    s_name = str(row.get('Nama Siswa', '')).strip()
+                                    s_phone = str(row.get('WhatsApp', '')).strip()
+                                    s_email = str(row.get('Email', '')).strip()
+                                    
+                                    # Skip empty rows
+                                    if s_name and s_phone and s_name.lower() != 'nan':
+                                        new_cid = str(uuid.uuid4())[:8].upper()
+                                        
+                                        # Package the JSON data exactly like the manual form does
+                                        payload = {
+                                            "student_name": s_name, "phone": s_phone, "email": s_email,
+                                            "destinations": [], 
+                                            "referral_source": "Event/Expo Bulk Upload",
+                                            "referral_detail": "Bulk Import",
+                                            "counsellor_data": {"nama_agent": user['name']}, 
+                                            "qualification_data": {}
+                                        }
+                                        
+                                        # Insert into database securely attached to THIS agent
+                                        insert_case(new_cid, payload, "NEW", referral_code=user['referral_code'])
+                                        success_count += 1
+                                        
+                            st.success(f"✅ Successfully imported {success_count} new leads into your pipeline!")
+                            # Refresh to show them in Tab 1
+                            st.button("View My New Leads") 
+                            
+                    except Exception as e:
+                        st.error(f"Error reading Excel file: {e}")
 
     # ==========================================
     # 2. UNIVERSITY SEARCH (Internal Only)
@@ -222,7 +288,6 @@ else:
         
         if st.button("Search Database"):
             st.success(f"Found matches for {search_major} in {search_dest}")
-            # Mockup dataframe representing your programs.csv
             st.dataframe(pd.DataFrame([
                 {"University": "Monash University", "Rank": "#42 Global", "Tuition": "$32,000", "Match": "98%"},
                 {"University": "RMIT", "Rank": "#140 Global", "Tuition": "$28,000", "Match": "92%"},
@@ -230,26 +295,104 @@ else:
             ]), width='stretch')
 
     # ==========================================
-    # 3. GLOBAL PIPELINE (Admins & Counsellors)
+    # 3. STUDENT PIPELINES (Lead Processing)
     # ==========================================
-    elif menu == "Global Pipeline":
-        st.title("Global Pipeline")
-        with st.expander("Filters", expanded=True):
+    elif menu == "Student Pipelines":
+        st.title("📋 Student Pipelines")
+        st.markdown("Process raw leads, update follow-up remarks, and assign them to branches/counsellors.")
+        
+        # --- 1. FILTERS ---
+        with st.expander("🔍 Filters", expanded=True):
             c1, c2 = st.columns(2)
-            client_statuses = ["All", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"]
-            with c1: status_filter = st.selectbox("Status", client_statuses)
+            
+            # Added NEW and the requested Remarks to the status list
+            pipeline_statuses = [
+                "All", "NEW", "Contacted 1", "Contacted 2", "Contacted 3", 
+                "No Respons", "Junk", "Warm Leads", "HOT LEAD", 
+                "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"
+            ]
+            with c1: status_filter = st.selectbox("Filter by Remarks/Status", pipeline_statuses)
+            
             with c2: 
                 agents = list_users() 
-                agent_opts = ["All"] + [a[1] for a in agents]
-                agent_filter = st.selectbox("Filter by Agent/Counsellor", agent_opts)
+                agent_opts = ["All", "Unassigned"] + [a[1] for a in agents]
+                agent_filter = st.selectbox("Filter by Assigned To", agent_opts)
 
         status_val = None if status_filter == "All" else status_filter
         rows = list_cases_advanced(status=status_val)
         
-        st.dataframe([
-            {"ID": r[0], "Date": r[1][:10], "Status": r[2], "Student": r[3], "Ref/Agent Code": r[6]} 
-            for r in rows
-        ], width='stretch')
+        # --- 2. INTERACTIVE LEAD PROCESSING LIST ---
+        if not rows:
+            st.info("No students found matching these filters.")
+        else:
+            for r in rows:
+                cid, cdate, status, sname, phone, email, raw_json, brief, assignee, full_rep, rep_date, ref_code = r
+                
+                # Logic to map the RefCode to the Agent's actual name for display
+                assignee_name = "Unassigned"
+                for a in agents:
+                    if a[6] == ref_code and ref_code != "": # Match by RefCode
+                        assignee_name = a[1]
+                        break
+                        
+                # Apply the Assignee filter
+                if agent_filter != "All":
+                    if agent_filter == "Unassigned" and assignee_name != "Unassigned": continue
+                    elif agent_filter != "Unassigned" and assignee_name != agent_filter: continue
+
+                # Add visual indicators for the lead temperature
+                icon = "🔵"
+                if status == "NEW": icon = "🟢"
+                elif "Contacted" in status: icon = "🟡"
+                elif status in ["Junk", "No Respons"]: icon = "🔴"
+                elif status in ["Warm Leads", "HOT LEAD", "QUALIFIED LEADS"]: icon = "🔥"
+                
+                # The Interactive Expander Card
+                with st.expander(f"{icon} {sname}  |  Remarks: {status}  |  Assigned To: {assignee_name}  |  Date: {cdate[:10]}"):
+                    with st.form(f"process_lead_{cid}"):
+                        col_info, col_action = st.columns(2)
+                        
+                        with col_info:
+                            st.markdown(f"**📱 WhatsApp:** {phone}")
+                            st.markdown(f"**✉️ Email:** {email}")
+                            
+                            payload = json.loads(raw_json)
+                            c_data = payload.get("counsellor_data", {})
+                            st.markdown(f"**🏢 Source Branch:** {c_data.get('kantor', 'N/A')}")
+                            st.markdown(f"**🎯 Origin:** {payload.get('referral_source', 'N/A')}")
+                            
+                        with col_action:
+                            # Dropdown 1: Update Remarks / Status
+                            current_index = pipeline_statuses.index(status) if status in pipeline_statuses else 0
+                            # We slice from [1:] to remove "All" from the selection options
+                            new_status = st.selectbox("Update Remarks / Status:", pipeline_statuses[1:], index=current_index-1 if current_index > 0 else 0)
+                            
+                            # Dropdown 2: Update Assigned To
+                            user_options = [{"label": "Unassigned", "value": ""}]
+                            for u in agents:
+                                # Include Counsellors, Branches, and Agents
+                                if u[4] in ["AGENT", "MICRO_AGENT", "COUNSELLOR", "ADMIN"]:
+                                    user_options.append({"label": f"{u[1]} ({u[4]})", "value": u[6] if u[6] else u[0]})
+                                    
+                            assignee_index = 0
+                            for i, opt in enumerate(user_options):
+                                if opt["value"] == ref_code:
+                                    assignee_index = i
+                                    break
+                                    
+                            new_assignee_label = st.selectbox("Assigned To:", options=[o["label"] for o in user_options], index=assignee_index)
+                            
+                        if st.form_submit_button("💾 Save Updates", type="primary"):
+                            selected_assignee_value = next(o["value"] for o in user_options if o["label"] == new_assignee_label)
+                            
+                            # Save to Database
+                            from db import update_status, update_case_agent
+                            update_status(cid, new_status)
+                            if selected_assignee_value != ref_code:
+                                update_case_agent(cid, selected_assignee_value)
+                                
+                            st.success(f"✅ Lead {sname} updated successfully!")
+                            rerun()
 
     # ==========================================
     # 4. CASE DETAIL & AI (Admins & Counsellors)
@@ -270,6 +413,7 @@ else:
             c1, c2, c3 = st.columns([2, 1, 1])
             c1.header(f"{sname}")
             if ref_code: c1.caption(f"📍 Referred by Agent: **{ref_code}**")
+            if c_data.get("kantor"): c1.caption(f"🏢 Branch: {c_data.get('kantor')} | Agent: {c_data.get('nama_agent', '-')}")
             c2.metric("Status", status)
             
             with c3:
@@ -282,7 +426,6 @@ else:
 
             # OCR / AI Parsing
             st.info("🤖 **Step 1: Upload Psychometric Results**")
-            # ... (Leave the rest of your Case Detail code exactly as it is below this line) ...
             uploaded_pdf = st.file_uploader("Upload Navigather/Psych PDF", type="pdf", key="ocr_upload")
             if uploaded_pdf:
                 with st.spinner("AI Reading Document..."):
@@ -371,7 +514,6 @@ else:
         else:
             st.info("No data available for analytics.")
         st.divider()
-
 
         # Role Management
         st.subheader("👥 User & Role Management") 
