@@ -10,8 +10,8 @@ try:
 except ImportError:
     def extract_text_from_pdf(f): return "Error: doc_parser.py not found."
 
-from ai_report import generate_abigail_content
 from pdf_generator import create_pdf
+from ai_report import generate_strategic_report
 from scoring import calculate_lead_score
 from engine import rank_programs
 from db import (
@@ -294,7 +294,7 @@ else:
                 {"University": "Deakin", "Rank": "#233 Global", "Tuition": "$25,000", "Match": "89%"},
             ]), width='stretch')
 
-    # ==========================================
+   # ==========================================
     # 3. STUDENT PIPELINES (Lead Processing)
     # ==========================================
     elif menu == "Student Pipelines":
@@ -305,7 +305,6 @@ else:
         with st.expander("🔍 Filters", expanded=True):
             c1, c2 = st.columns(2)
             
-            # Added NEW and the requested Remarks to the status list
             pipeline_statuses = [
                 "All", "NEW", "Contacted 1", "Contacted 2", "Contacted 3", 
                 "No Respons", "Junk", "Warm Leads", "HOT LEAD", 
@@ -319,35 +318,59 @@ else:
                 agent_filter = st.selectbox("Filter by Assigned To", agent_opts)
 
         status_val = None if status_filter == "All" else status_filter
-        rows = list_cases_advanced(status=status_val)
+        all_rows_summary = list_cases_advanced(status=status_val)
         
-        # --- 2. INTERACTIVE LEAD PROCESSING LIST ---
-        if not rows:
-            st.info("No students found matching these filters.")
-        else:
-            for r in rows:
-                cid, cdate, status, sname, phone, email, raw_json, brief, assignee, full_rep, rep_date, ref_code = r
+        # --- 2. LOGIKA VISIBILITAS (HIERARKI AKSES) ---
+        filtered_rows = []
+        if all_rows_summary:
+            for r in all_rows_summary:
+                # FIX: Fetch the FULL 12-column details using the ID (r[0])
+                case_details = get_case(r[0])
+                if not case_details: continue
                 
-                # Logic to map the RefCode to the Agent's actual name for display
+                cid, cdate, status, sname, phone, email, raw_json, brief, assignee, full_rep, rep_date, ref_code = case_details
+                
+                payload = json.loads(raw_json)
+                c_data = payload.get("counsellor_data", {})
+                student_branch = c_data.get("kantor", "")
+
+                # Filter based on Role
+                if role in ["MASTER_ADMIN", "ADMIN", "TELEMARKETER"]:
+                    filtered_rows.append(case_details)
+                elif role == "BRANCH_ADMIN":
+                    if student_branch == user['referral_code']:
+                        filtered_rows.append(case_details)
+                elif role == "COUNSELLOR":
+                    if ref_code == user['referral_code']:
+                        filtered_rows.append(case_details)
+                else:
+                    if ref_code == user['referral_code']:
+                        filtered_rows.append(case_details)
+        
+        # --- 3. INTERACTIVE LEAD PROCESSING LIST ---
+        if not filtered_rows:
+            st.info("No students found matching these filters or your access level.")
+        else:
+            for case_details in filtered_rows:
+                # Unpack from the full details we saved in filtered_rows
+                cid, cdate, status, sname, phone, email, raw_json, brief, assignee, full_rep, rep_date, ref_code = case_details
+                
                 assignee_name = "Unassigned"
                 for a in agents:
-                    if a[6] == ref_code and ref_code != "": # Match by RefCode
+                    if a[6] == ref_code and ref_code != "": 
                         assignee_name = a[1]
                         break
                         
-                # Apply the Assignee filter
                 if agent_filter != "All":
                     if agent_filter == "Unassigned" and assignee_name != "Unassigned": continue
                     elif agent_filter != "Unassigned" and assignee_name != agent_filter: continue
 
-                # Add visual indicators for the lead temperature
                 icon = "🔵"
                 if status == "NEW": icon = "🟢"
                 elif "Contacted" in status: icon = "🟡"
                 elif status in ["Junk", "No Respons"]: icon = "🔴"
                 elif status in ["Warm Leads", "HOT LEAD", "QUALIFIED LEADS"]: icon = "🔥"
                 
-                # The Interactive Expander Card
                 with st.expander(f"{icon} {sname}  |  Remarks: {status}  |  Assigned To: {assignee_name}  |  Date: {cdate[:10]}"):
                     with st.form(f"process_lead_{cid}"):
                         col_info, col_action = st.columns(2)
@@ -362,15 +385,11 @@ else:
                             st.markdown(f"**🎯 Origin:** {payload.get('referral_source', 'N/A')}")
                             
                         with col_action:
-                            # Dropdown 1: Update Remarks / Status
                             current_index = pipeline_statuses.index(status) if status in pipeline_statuses else 0
-                            # We slice from [1:] to remove "All" from the selection options
                             new_status = st.selectbox("Update Remarks / Status:", pipeline_statuses[1:], index=current_index-1 if current_index > 0 else 0)
                             
-                            # Dropdown 2: Update Assigned To
                             user_options = [{"label": "Unassigned", "value": ""}]
                             for u in agents:
-                                # Include Counsellors, Branches, and Agents
                                 if u[4] in ["AGENT", "MICRO_AGENT", "COUNSELLOR", "ADMIN"]:
                                     user_options.append({"label": f"{u[1]} ({u[4]})", "value": u[6] if u[6] else u[0]})
                                     
@@ -385,7 +404,6 @@ else:
                         if st.form_submit_button("💾 Save Updates", type="primary"):
                             selected_assignee_value = next(o["value"] for o in user_options if o["label"] == new_assignee_label)
                             
-                            # Save to Database
                             from db import update_status, update_case_agent
                             update_status(cid, new_status)
                             if selected_assignee_value != ref_code:
@@ -424,19 +442,46 @@ else:
                     st.toast(f"Student {sname} permanently deleted.")
                     rerun()
 
-            # OCR / AI Parsing
-            st.info("🤖 **Step 1: Upload Psychometric Results**")
-            uploaded_pdf = st.file_uploader("Upload Navigather/Psych PDF", type="pdf", key="ocr_upload")
-            if uploaded_pdf:
-                with st.spinner("AI Reading Document..."):
-                    extracted_text = extract_text_from_pdf(uploaded_pdf)
-                    if extracted_text:
-                        if not c_data.get("personality_notes"):
-                            c_data["personality_notes"] = extracted_text[:2000]
-                            payload["counsellor_data"] = c_data
-                            update_case_payload(cid, payload)
-                            st.success("Text Extracted & Saved to Profile!")
-                        else: st.warning("Notes already exist. Clear manually to overwrite.")
+# --- DIGITAL VAULT (Document Uploads) ---
+            st.info("🗄️ **Step 1: Digital Vault (Upload Student Documents)**")
+            
+            col_doc1, col_doc2 = st.columns(2)
+            
+            # Box 1: Psychometric Test
+            with col_doc1:
+                st.markdown("🧠 **Profiling / Psychometric Test**")
+                uploaded_psych = st.file_uploader("Upload Profiling (PDF)", type="pdf", key="psych_upload")
+                
+                if uploaded_psych:
+                    with st.spinner("AI Reading Psych Profile..."):
+                        psych_text = extract_text_from_pdf(uploaded_psych)
+                        if psych_text:
+                            # Save to the specific 'personality_notes' database slot
+                            if c_data.get("personality_notes") != psych_text[:2000]:
+                                c_data["personality_notes"] = psych_text[:2000]
+                                payload["counsellor_data"] = c_data
+                                update_case_payload(cid, payload)
+                                st.success("✅ Profiling Data Extracted & Saved!")
+                            else:
+                                st.caption("Profiling already saved.")
+
+            # Box 2: Academic Grades
+            with col_doc2:
+                st.markdown("📊 **Academic Grades / Transcripts**")
+                uploaded_grades = st.file_uploader("Upload Grades (PDF)", type="pdf", key="grades_upload")
+                
+                if uploaded_grades:
+                    with st.spinner("AI Reading Academic Records..."):
+                        grades_text = extract_text_from_pdf(uploaded_grades)
+                        if grades_text:
+                            # Save to a NEW 'academic_notes' database slot
+                            if c_data.get("academic_notes") != grades_text[:2000]:
+                                c_data["academic_notes"] = grades_text[:2000]
+                                payload["counsellor_data"] = c_data
+                                update_case_payload(cid, payload)
+                                st.success("✅ Academic Grades Extracted & Saved!")
+                            else:
+                                st.caption("Grades already saved.")
             
             # Counsellor Input
             st.info("📝 **Step 2: Data Opsional (Konsultasi Awal)**")
@@ -468,7 +513,7 @@ else:
                     with st.spinner("Analyzing Matrix..."):
                         df = pd.read_csv("data/programs.csv")
                         ranks = rank_programs({"finance":payload.get("finance",{}), "major_choices":["General"], "destinations":[], "gpa":"3.0", "english":"IELTS"}, df)
-                        content = generate_abigail_content(sname, payload, ranks)
+                        content = generate_strategic_report(sname, payload, ranks)
                         fname = create_pdf(sname, content)
                         with open(fname, "rb") as f:
                             st.session_state['pdf_bytes'] = f.read()

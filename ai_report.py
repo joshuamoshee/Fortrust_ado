@@ -2,9 +2,7 @@ import json
 import os
 import google.generativeai as genai
 import streamlit as st
-# ------------------------------------------------------------------
-# CONFIGURATION - THE GEMINI AI ENGINE
-# ------------------------------------------------------------------
+
 # ------------------------------------------------------------------
 # CONFIGURATION - THE GEMINI AI ENGINE
 # ------------------------------------------------------------------
@@ -14,11 +12,11 @@ try:
 except KeyError:
     API_KEY = "" # Fallback if secret is missing
 
-def generate_abigail_content(student_name, payload, top_programs):
+def generate_strategic_report(student_name, payload, top_programs):
     """
     The Core Gemini AI Engine. 
-    It reads the psychometric data, applies strict psychological rules, 
-    and outputs a structured strategic JSON.
+    It reads psychometric data AND academic grades to output a strategic JSON,
+    acting as an intellectual sparring partner.
     """
     
     # --- 1. GATHER CONTEXT ---
@@ -26,45 +24,63 @@ def generate_abigail_content(student_name, payload, top_programs):
     scores = payload.get("algo_result", {})
     
     personality_notes = c_data.get("personality_notes", "No specific psychometric test provided.")
+    academic_notes = c_data.get("academic_notes", "No academic transcripts provided.")
+    
     parents_pref = c_data.get("parents_pref", "No specific parent preference stated.")
     target_uni = c_data.get("target_uni", "Open to suggestions")
     
-    # --- 2. THE SYSTEM PROMPT (Strict Rules) ---
+    # --- 2. THE SYSTEM PROMPT (Client's Rigorous Rules + JSON Schema) ---
     system_prompt = """
-    You are a Meta-Cognitive Reasoning Expert and Senior Educational Psychologist at Fortrust.
-    
-    CORE PROTOCOL:
-    1. Decompose the student's profile into Cognitive Assets (Superpowers) and Personality Risks (Kryptonite) based on the exact test scores provided.
-    2. Solve for the best "Fit vs Friction" career paths.
-    3. Synthesize into a strategic roadmap.
+    You are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
+    From now on, do not simply affirm the student's or parent's statements or assume their career conclusions are correct. 
+    Your goal is to be an intellectual sparring partner, not just an agreeable assistant. 
+    Every time you analyze a student profile, do the following:
+    1. Analyse their assumptions (e.g., Parent preferences vs. student reality).
+    2. Provide counterpoints (e.g., Highlight friction between their grades and their desired major).
+    3. Test their reasoning.
+    4. Offer alternative perspectives (Realistic pivot pathways).
+    5. Prioritize truth over agreement. Maintain a constructive, but rigorous approach to push them toward greater clarity and academic honesty.
+
+    You SHOULD: 
+    - Always tell the truth about their academic reality.
+    - Never make up information, speculate, or guess university data.
+    - Explicitly state "I cannot confirm this" if a career pathway cannot be verified based on their data.
+    - Prioritize accuracy over speed.
+    - Only present interpretations supported by the provided psychometric and academic data.
+
+    You MUST AVOID: 
+    - Fabricating facts, salaries, or university requirements.
+    - Presenting speculation or assumption as fact.
+    - Prioritizing sounding good over being correct (Do not agree with a bad major choice just to please the parent).
 
     ⚠️ CRITICAL PSYCHOMETRIC RULES:
-    - IF "Stress Tolerance" is low (e.g., Score 1 or 2, or listed as a risk): You MUST explicitly warn against high-pressure, emergency-driven careers (e.g., Medicine, Corporate Law). Prioritize project-based, creative, or tech roles (e.g., Design, Data, Engineering).
-    - IF "Figural/Spatial Logic" is high (e.g., Score 4 or 5): You MUST recommend Visual, Design, Architecture, or UI/UX fields.
-    - IF "Parent Preference" contradicts the student's Kryptonite (e.g., Parent wants Medicine, but Stress Tolerance is low), you MUST state "Unsuitable" in the parent analysis and explain the high risk of burnout.
+    - IF "Stress Tolerance" is low: You MUST explicitly warn against high-pressure careers (Medicine, Corporate Law). Prioritize tech, design, or project-based roles.
+    - IF "Parent Preference" contradicts the student's Grades or Kryptonite, you MUST challenge this assumption and state "Unsuitable" in the parent analysis.
 
     OUTPUT FORMAT: Return ONLY valid JSON matching this exact schema:
     {
-      "disclaimer": "Confidence level statement...",
-      "executive_summary": "A brief summary of their cognitive profile...",
+      "disclaimer": "Confidence level statement explicitly stating any missing verifiable data...",
+      "executive_summary": "A rigorous analysis of their assumptions vs. their academic/cognitive reality...",
       "analysis": {
-        "superpowers": "Identify strongest cognitive assets based on scores...",
-        "kryptonite": "Identify critical personality risks (MUST mention Stress Tolerance if low)..."
+        "superpowers": "Identify strongest verifiable cognitive assets...",
+        "kryptonite": "Identify critical personality/academic risks..."
       },
       "recommendations": [
         {
-          "role": "Career Path Name",
-          "future_proofing": "Strategy for 5-10 years...",
-          "salary_map": "Indonesia: $X | Abroad: $Y",
+          "role": "Alternative/Recommended Career Path Name",
+          "future_proofing": "Factual strategy for 5-10 years...",
+          "salary_map": "Indonesia: $X | Abroad: $Y (State 'Requires verification' if unknown)",
           "universities": ["Uni A", "Uni B"]
         }
       ],
-      "roadmap": [{"phase": "Year X", "action": "Specific habit or focus..."}],
-      "parent_analysis": {"preference": "Parent's Choice", "verdict": "Suitable/Unsuitable because..."},
+      "roadmap": [{"phase": "Year X", "action": "Specific habit or academic focus..."}],
+      "parent_analysis": {"preference": "Parent's Choice", "verdict": "Rigorous analysis of why this is Suitable/Unsuitable based on facts..."},
       "value_matrix": {"golden_ticket": ["Option A"], "premium": ["Option B"], "passion": ["Option C"], "questionable": ["Option D"], "scholarship_impact": "Impact of financial aid..."},
-      "city_matrix": [{"city": "City Name", "institution": "Uni Name", "risk": "Risk factor..."}],
-      "fit_vs_friction": [{"pathway": "Option Name", "fit": "Cognitive alignment", "friction": "Personality risk", "score": "8/10"}]
+      "city_matrix": [{"city": "City Name", "institution": "Uni Name", "risk": "Verifiable risk factor..."}],
+      "fit_vs_friction": [{"pathway": "Option Name", "fit": "Cognitive alignment", "friction": "Counterpoint/Friction identified in grades or personality", "score": "8/10"}]
     }
+    
+    Failsafe Final Step: Is every statement in my response supported by the provided data, free of fabrication, and intellectually honest? If not, revise until it is.
     """
     
     # --- 3. THE USER PROMPT ---
@@ -75,6 +91,9 @@ def generate_abigail_content(student_name, payload, top_programs):
     --- PSYCHOMETRIC DATA ---
     {personality_notes}
     
+    --- ACADEMIC GRADES / TRANSCRIPTS ---
+    {academic_notes}
+    
     --- INTERVIEW NOTES ---
     PARENT PREFERENCE: {parents_pref}
     TARGET UNI/BUDGET: {target_uni}
@@ -82,7 +101,7 @@ def generate_abigail_content(student_name, payload, top_programs):
     --- DATABASE MATCHES (Use as reference for university names) ---
     {json.dumps(top_programs[:3])}
     
-    TASK: Execute the Core Protocol and return the JSON report. Ensure you obey the CRITICAL PSYCHOMETRIC RULES based on the data above.
+    TASK: Execute the Core Protocol acting as an intellectual sparring partner and return the strict JSON report.
     """
 
     # --- 4. EXECUTE GEMINI API CALL ---
@@ -90,34 +109,25 @@ def generate_abigail_content(student_name, payload, top_programs):
         return _simulation_fallback(student_name)
 
     try:
-        # Configure Gemini
         genai.configure(api_key=API_KEY)
-        
-        # Initialize Gemini 1.5 Pro
         model = genai.GenerativeModel(
             model_name="gemini-1.5-flash",
             system_instruction=system_prompt,
             generation_config=genai.types.GenerationConfig(
-                temperature=0.4, # Low temp keeps it analytical
-                response_mime_type="application/json", # Forces PERFECT JSON output
+                temperature=0.2, # Extremely low temperature to force factual accuracy and prevent hallucinations
+                response_mime_type="application/json", 
             )
         )
-        
-        # Run the AI
         response = model.generate_content(user_prompt)
-        
-        # Parse the JSON it returns
         return json.loads(response.text)
-        
     except Exception as e:
         print(f"Gemini API Error: {e}")
         return _simulation_fallback(student_name)
-
 def _simulation_fallback(student_name):
     """Fallback if API Key is missing or quota is exceeded."""
     return {
         "disclaimer": "⚠️ OFFLINE MODE: Showing simulation data.",
-        "executive_summary": f"{student_name} demonstrates a 'Visual-Systematic' profile with high spatial logic but requires a low-stress environment.",
+        "executive_summary": f"{student_name} demonstrates a 'Visual-Systematic' profile with high spatial logic but requires a low-stress environment. Academic grades indicate strong performance in practical subjects.",
         "analysis": {
             "superpowers": "High Figural Logic. Able to visualize complex 3D systems.",
             "kryptonite": "Low Stress Tolerance (Score: 2). High risk of burnout in reactive environments."
