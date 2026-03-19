@@ -1,16 +1,17 @@
 import json
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import streamlit as st
 
 # ------------------------------------------------------------------
 # CONFIGURATION - THE GEMINI AI ENGINE
 # ------------------------------------------------------------------
-# Safely fetch the key from Streamlit secrets
+# Safely fetch the key from Streamlit secrets or environment variables
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
-except KeyError:
-    API_KEY = "" # Fallback if secret is missing
+except (KeyError, FileNotFoundError):
+    API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 def generate_strategic_report(student_name, payload, top_programs):
     """
@@ -25,11 +26,10 @@ def generate_strategic_report(student_name, payload, top_programs):
     
     personality_notes = c_data.get("personality_notes", "No specific psychometric test provided.")
     academic_notes = c_data.get("academic_notes", "No academic transcripts provided.")
-    
     parents_pref = c_data.get("parents_pref", "No specific parent preference stated.")
     target_uni = c_data.get("target_uni", "Open to suggestions")
     
-    # --- 2. THE SYSTEM PROMPT (Client's Rigorous Rules + JSON Schema) ---
+    # --- 2. THE SYSTEM PROMPT ---
     system_prompt = """
     You are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
     From now on, do not simply affirm the student's or parent's statements or assume their career conclusions are correct. 
@@ -39,28 +39,26 @@ def generate_strategic_report(student_name, payload, top_programs):
     2. Provide counterpoints (e.g., Highlight friction between their grades and their desired major).
     3. Test their reasoning.
     4. Offer alternative perspectives (Realistic pivot pathways).
-    5. Prioritize truth over agreement. Maintain a constructive, but rigorous approach to push them toward greater clarity and academic honesty.
+    5. Prioritize truth over agreement. Maintain a constructive, but rigorous approach.
 
     You SHOULD: 
     - Always tell the truth about their academic reality.
     - Never make up information, speculate, or guess university data.
-    - Explicitly state "I cannot confirm this" if a career pathway cannot be verified based on their data.
+    - Explicitly state "I cannot confirm this" if a career pathway cannot be verified.
     - Prioritize accuracy over speed.
-    - Only present interpretations supported by the provided psychometric and academic data.
 
     You MUST AVOID: 
     - Fabricating facts, salaries, or university requirements.
     - Presenting speculation or assumption as fact.
-    - Prioritizing sounding good over being correct (Do not agree with a bad major choice just to please the parent).
 
     ⚠️ CRITICAL PSYCHOMETRIC RULES:
-    - IF "Stress Tolerance" is low: You MUST explicitly warn against high-pressure careers (Medicine, Corporate Law). Prioritize tech, design, or project-based roles.
-    - IF "Parent Preference" contradicts the student's Grades or Kryptonite, you MUST challenge this assumption and state "Unsuitable" in the parent analysis.
+    - IF "Stress Tolerance" is low: explicitly warn against high-pressure careers (Medicine, Corporate Law). Prioritize tech, design, or project-based roles.
+    - IF "Parent Preference" contradicts Grades or Kryptonite, state "Unsuitable" in the parent analysis.
 
     OUTPUT FORMAT: Return ONLY valid JSON matching this exact schema:
     {
-      "disclaimer": "Confidence level statement explicitly stating any missing verifiable data...",
-      "executive_summary": "A rigorous analysis of their assumptions vs. their academic/cognitive reality...",
+      "disclaimer": "Confidence level statement...",
+      "executive_summary": "A rigorous analysis...",
       "analysis": {
         "superpowers": "Identify strongest verifiable cognitive assets...",
         "kryptonite": "Identify critical personality/academic risks..."
@@ -68,19 +66,17 @@ def generate_strategic_report(student_name, payload, top_programs):
       "recommendations": [
         {
           "role": "Alternative/Recommended Career Path Name",
-          "future_proofing": "Factual strategy for 5-10 years...",
-          "salary_map": "Indonesia: $X | Abroad: $Y (State 'Requires verification' if unknown)",
+          "future_proofing": "Factual strategy...",
+          "salary_map": "Indonesia: $X | Abroad: $Y",
           "universities": ["Uni A", "Uni B"]
         }
       ],
-      "roadmap": [{"phase": "Year X", "action": "Specific habit or academic focus..."}],
-      "parent_analysis": {"preference": "Parent's Choice", "verdict": "Rigorous analysis of why this is Suitable/Unsuitable based on facts..."},
-      "value_matrix": {"golden_ticket": ["Option A"], "premium": ["Option B"], "passion": ["Option C"], "questionable": ["Option D"], "scholarship_impact": "Impact of financial aid..."},
-      "city_matrix": [{"city": "City Name", "institution": "Uni Name", "risk": "Verifiable risk factor..."}],
-      "fit_vs_friction": [{"pathway": "Option Name", "fit": "Cognitive alignment", "friction": "Counterpoint/Friction identified in grades or personality", "score": "8/10"}]
+      "roadmap": [{"phase": "Year X", "action": "Specific habit..."}],
+      "parent_analysis": {"preference": "Parent's Choice", "verdict": "Rigorous analysis..."},
+      "value_matrix": {"golden_ticket": ["Option A"], "premium": ["Option B"], "passion": ["Option C"], "questionable": ["Option D"], "scholarship_impact": "Impact..."},
+      "city_matrix": [{"city": "City Name", "institution": "Uni Name", "risk": "Verifiable risk..."}],
+      "fit_vs_friction": [{"pathway": "Option Name", "fit": "Cognitive alignment", "friction": "Counterpoint/Friction", "score": "8/10"}]
     }
-    
-    Failsafe Final Step: Is every statement in my response supported by the provided data, free of fabrication, and intellectually honest? If not, revise until it is.
     """
     
     # --- 3. THE USER PROMPT ---
@@ -98,31 +94,35 @@ def generate_strategic_report(student_name, payload, top_programs):
     PARENT PREFERENCE: {parents_pref}
     TARGET UNI/BUDGET: {target_uni}
     
-    --- DATABASE MATCHES (Use as reference for university names) ---
+    --- DATABASE MATCHES ---
     {json.dumps(top_programs[:3])}
     
     TASK: Execute the Core Protocol acting as an intellectual sparring partner and return the strict JSON report.
     """
 
-    # --- 4. EXECUTE GEMINI API CALL ---
-    if API_KEY == "YOUR_GEMINI_API_KEY_HERE" or API_KEY == "":
+    # --- 4. EXECUTE GEMINI API CALL (NEW SDK SYNTAX) ---
+    if not API_KEY or API_KEY == "YOUR_GEMINI_API_KEY_HERE":
         return _simulation_fallback(student_name)
 
     try:
-        genai.configure(api_key=API_KEY)
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=system_prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.2, # Extremely low temperature to force factual accuracy and prevent hallucinations
-                response_mime_type="application/json", 
+        # Initialize the new Client
+        client = genai.Client(api_key=API_KEY)
+        
+        # Call the model using the new configuration types
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.2, 
+                response_mime_type="application/json",
             )
         )
-        response = model.generate_content(user_prompt)
         return json.loads(response.text)
     except Exception as e:
         print(f"Gemini API Error: {e}")
         return _simulation_fallback(student_name)
+
 def _simulation_fallback(student_name):
     """Fallback if API Key is missing or quota is exceeded."""
     return {
@@ -152,7 +152,7 @@ def extract_programs_from_brochure(text):
     """
     Reads a raw university PDF brochure and extracts structured program data.
     """
-    if not API_KEY or API_KEY == "GEMINI_API_KEYE":
+    if not API_KEY or API_KEY == "GEMINI_API_KEY_HERE":
         print("Extraction Error: Gemini API Key is missing or invalid.")
         return []
 
@@ -161,39 +161,38 @@ def extract_programs_from_brochure(text):
     Your job is to read messy university brochures and extract program details.
     
     Extract a list of programs. For each program, provide EXACTLY these JSON keys:
-    - country (string, e.g., "Australia", "UK", "USA")
-    - city (string, e.g., "Melbourne", "London")
-    - institution (string, e.g., "Monash University")
+    - country (string)
+    - city (string)
+    - institution (string)
     - level (string: "Bachelor", "Master", "Diploma", "Certificate")
-    - category (string: "Business", "IT", "Engineering", "Arts", "Health", "General")
-    - program_name (string, e.g., "Bachelor of Data Science")
+    - category (string)
+    - program_name (string)
     - tuition_per_year (integer, numeric only)
     - living_per_year (integer, numeric only, estimate 20000 if not stated)
-    - duration_years (float, e.g., 3.0 or 4.0)
-    - intake_months (string, e.g., "Feb,Jul")
-    - ielts_min (float, e.g., 6.0 or 6.5)
-    - gpa_min (float, e.g., 2.5 or 3.0)
+    - duration_years (float)
+    - intake_months (string)
+    - ielts_min (float)
+    - gpa_min (float)
     - visa_risk (string: "Low", "Medium", "High")
     - scholarship_level (string: "Low", "Medium", "High")
     - vibe (string, short 1-word description)
     
-    Return ONLY a valid JSON array of objects. No markdown formatting, no ```json tags, no explanations. Just the raw array [ { ... } ].
+    Return ONLY a valid JSON array of objects. No markdown formatting, no ```json tags.
     """
     
     try:
-        genai.configure(api_key=API_KEY)
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            system_instruction=system_prompt,
-            generation_config=genai.types.GenerationConfig(
+        client = genai.Client(api_key=API_KEY)
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=text,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
                 temperature=0.1, 
             )
         )
-        response = model.generate_content(text)
         
         # --- BULLETPROOF JSON CLEANUP ---
         raw_output = response.text.strip()
-        # Remove markdown code blocks if Gemini accidentally includes them
         if raw_output.startswith("```json"):
             raw_output = raw_output[7:]
         if raw_output.startswith("```"):
@@ -204,5 +203,5 @@ def extract_programs_from_brochure(text):
         return json.loads(raw_output.strip())
         
     except Exception as e:
-        print(f"Extraction Error: {e}") # This will print the exact error in your terminal
+        print(f"Extraction Error: {e}") 
         return []
