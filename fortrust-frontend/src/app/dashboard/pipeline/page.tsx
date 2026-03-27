@@ -63,7 +63,7 @@ export default function PipelinePage() {
   }, []);
 
   const fetchStudents = (role: string, agentName: string) => {
-    fetch(`http://127.0.0.1:8000/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`)
+    fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.status === "success") {
@@ -98,7 +98,7 @@ export default function PipelinePage() {
     if (psychTestFile) formData.append("psych_test", psychTestFile);
 
     try {
-      await fetch("http://127.0.0.1:8000/api/pipeline", { method: "POST", body: formData });
+      await fetch("process.env.NEXT_PUBLIC_API_URL/api/pipeline", { method: "POST", body: formData });
       setIsSingleModalOpen(false); 
       setNewName(""); setNewEmail(""); setNewPhone(""); 
       setReportCardFile(null); setPsychTestFile(null);
@@ -113,7 +113,7 @@ export default function PipelinePage() {
     formData.append("file", bulkFile);
     formData.append("assignee", user?.name || "Unassigned");
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/pipeline/bulk", { method: "POST", body: formData });
+      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/pipeline/bulk", { method: "POST", body: formData });
       const result = await response.json();
       alert(result.message || "Import complete.");
       setIsBulkModalOpen(false); setBulkFile(null); fetchStudents(user.role, user.name);
@@ -127,7 +127,7 @@ export default function PipelinePage() {
     if (slideOutReportCard) formData.append("report_card", slideOutReportCard);
     if (slideOutPsychTest) formData.append("psych_test", slideOutPsychTest);
     try {
-      await fetch(`http://127.0.0.1:8000/api/pipeline/${caseId}/document`, { method: "PUT", body: formData });
+      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${caseId}/document`, { method: "PUT", body: formData });
       setSlideOutReportCard(null); setSlideOutPsychTest(null);
       fetchStudents(user.role, user.name); 
     } catch (error) { alert("Failed to upload document."); } finally { setIsSaving(false); }
@@ -137,7 +137,7 @@ export default function PipelinePage() {
     if (!newNote.trim() || !selectedStudent) return;
     setIsSaving(true);
     try {
-      await fetch(`http://127.0.0.1:8000/api/pipeline/${selectedStudent.id}/notes`, {
+      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/notes`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ note: newNote, author: user?.name || "Agent", reminder_date: newReminderDate || null }),
       });
@@ -155,7 +155,7 @@ export default function PipelinePage() {
     formData.append("proof_document", verifyFile);
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/pipeline/${selectedStudent.id}/verify-commission`, { method: "POST", body: formData });
+      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/verify-commission`, { method: "POST", body: formData });
       const data = await response.json();
       setVerifyStatus(data);
       if (data.verified) fetchStudents(user.role, user.name); 
@@ -165,7 +165,7 @@ export default function PipelinePage() {
   const syncApplications = async (updatedApps: any[]) => {
     setIsSaving(true);
     try {
-      await fetch(`http://127.0.0.1:8000/api/pipeline/${selectedStudent.id}/applications`, {
+      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/applications`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ applications: updatedApps }),
       });
@@ -190,7 +190,7 @@ export default function PipelinePage() {
     setAiReport(`Fetching data and parsing PDF for ${studentName}...\nPlease wait...`);
     setIsGenerating(true); setIsAiModalOpen(true);
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/ai-strategy", {
+      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/ai-strategy", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ case_id: studentId }), 
       });
       const result = await response.json();
@@ -203,7 +203,7 @@ export default function PipelinePage() {
     if (!selectedStudent) return;
     setIsDraftingEmail(true);
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/pipeline/${selectedStudent.id}/draft-email`, {
+      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/draft-email`, {
         method: "POST"
       });
       const data = await response.json();
@@ -227,7 +227,7 @@ export default function PipelinePage() {
     if (!selectedStudent) return;
     setIsDraftingWA(true);
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/pipeline/${selectedStudent.id}/draft-whatsapp`, {
+      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/draft-whatsapp`, {
         method: "POST"
       });
       const data = await response.json();
@@ -458,7 +458,7 @@ export default function PipelinePage() {
                   <p className="text-[10px] font-bold text-[#282860] uppercase tracking-widest flex items-center gap-2 mb-3"><DownloadCloud size={14}/> Secure Vault</p>
                   <div className="grid grid-cols-2 gap-2">
                     {selectedStudent.documents.map((doc: any, i: number) => (
-                      <a key={i} href={`http://127.0.0.1:8000/api/documents/${doc.filename}`} target="_blank" rel="noopener noreferrer" className="bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-2 hover:border-[#BAD133] hover:shadow-sm transition-all group" title="Download Document">
+                      <a key={i} href={`process.env.NEXT_PUBLIC_API_URL/api/documents/${doc.filename}`} target="_blank" rel="noopener noreferrer" className="bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-2 hover:border-[#BAD133] hover:shadow-sm transition-all group" title="Download Document">
                         <div className="p-1.5 bg-red-50 rounded text-red-500 group-hover:bg-red-100 transition-colors"><FileText size={16} /></div>
                         <span className="text-xs font-bold text-slate-700 truncate w-full">{doc.title}</span>
                       </a>

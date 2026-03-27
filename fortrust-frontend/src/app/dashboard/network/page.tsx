@@ -10,7 +10,7 @@ export default function NetworkDirectoryPage() {
 
   useEffect(() => {
     // 1. Fetch the user list from the Python server
-    fetch("http://127.0.0.1:8000/api/users")
+    fetch("process.env.NEXT_PUBLIC_API_URL/api/users")
       .then(res => res.json())
       .then(data => {
         if (data.status === "success") {

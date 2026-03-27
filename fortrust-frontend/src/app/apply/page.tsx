@@ -27,7 +27,7 @@ export default function PublicApplicationPage() {
     formData.append("assignee", "Web Lead"); // <-- Tags them so you know where they came from!
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/pipeline", {
+      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/pipeline", {
         method: "POST",
         body: formData,
       });

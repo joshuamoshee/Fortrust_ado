@@ -41,8 +41,8 @@ export default function MasterAdminDashboard() {
   const fetchData = async () => {
     try {
       const [studentsRes, usersRes] = await Promise.all([
-        fetch("http://127.0.0.1:8000/api/pipeline?role=MASTER_ADMIN"),
-        fetch("http://127.0.0.1:8000/api/users")
+        fetch("process.env.NEXT_PUBLIC_API_URL/api/pipeline?role=MASTER_ADMIN"),
+        fetch("process.env.NEXT_PUBLIC_API_URL/api/users")
       ]);
       const studentsData = await studentsRes.json();
       const usersData = await usersRes.json();
@@ -69,7 +69,7 @@ export default function MasterAdminDashboard() {
 
   const executeLeadUpdate = async (caseId: string, status: string, assignedTo: string, tuition: number, commRate: number, currency: string) => {
     try {
-      await fetch(`http://127.0.0.1:8000/api/pipeline/${caseId}`, {
+      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${caseId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, assigned_to: assignedTo, tuition, commission_rate: commRate, currency }), // <-- Added Currency
@@ -97,7 +97,7 @@ export default function MasterAdminDashboard() {
     e.preventDefault();
     setIsSavingUser(true);
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/users", {
+      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/users", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newUserName, email: newUserEmail, password: newUserPassword, role: newUserRole, branch: newUserBranch }),
       });
