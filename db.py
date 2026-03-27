@@ -1,288 +1,148 @@
 import sqlite3
-from pathlib import Path
-from datetime import datetime
-from typing import Optional, Dict, Any
+import datetime
 import json
-import hashlib
-import uuid
 
-DB_PATH = Path("data/fortrust.db")
-
-def ensure_column(conn, table: str, col: str, col_type: str):
-    try:
-        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-        if col not in cols:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
-    except Exception as e:
-        print(f"Migration warning for {table}.{col}: {e}")
-
-def get_conn():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(DB_PATH)
-
-def hash_password(pw: str) -> str:
-    return hashlib.sha256(pw.encode("utf-8")).hexdigest()
+DB_FILE = "data/fortrust.db"
 
 def init_db():
-    with get_conn() as conn:
-        # 1. CASES TABLE
-        conn.execute("""
+    """Initializes the database with necessary tables."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # 1. Cases table
+    c.execute('''
         CREATE TABLE IF NOT EXISTS cases (
             case_id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            status TEXT NOT NULL,
-            student_name TEXT NOT NULL,
+            created_at TEXT,
+            status TEXT,
+            student_name TEXT,
             phone TEXT,
             email TEXT,
-            destination_1 TEXT,
-            destination_2 TEXT,
-            destination_3 TEXT,
-            annual_budget REAL,
-            savings REAL,
-            cash_buffer REAL,
-            raw_json TEXT NOT NULL,
+            raw_json TEXT,
             counsellor_brief_md TEXT,
-            full_report_md TEXT,
             assigned_to TEXT,
-            last_updated_at TEXT,
-            referral_code TEXT,           -- NEW: For Micro-Agent Tracking
-            commission_status TEXT        -- NEW: PENDING, PAID, CANCELLED
+            full_report_md TEXT,
+            report_generated_at TEXT,
+            referral_code TEXT
         )
-        """)
-        
-        # Schema upgrades (Existing + New Franchise Fields)
-        ensure_column(conn, "cases", "full_report_md", "TEXT")
-        ensure_column(conn, "cases", "full_report_updated_at", "TEXT")
-        ensure_column(conn, "cases", "assigned_to", "TEXT")
-        ensure_column(conn, "cases", "first_contacted_at", "TEXT")
-        ensure_column(conn, "cases", "last_contact_attempt_at", "TEXT")
-        ensure_column(conn, "cases", "next_followup_at", "TEXT")
-        # Franchise migrations
-        ensure_column(conn, "cases", "referral_code", "TEXT")
-        ensure_column(conn, "cases", "commission_status", "TEXT")
+    ''')
 
-        # 2. USERS TABLE
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL,
-            referral_code TEXT UNIQUE,    -- NEW: The Agent's unique code
-            bank_details TEXT             -- NEW: For paying commissions
-        )
-        """)
-        
-        # Franchise migrations
-        ensure_column(conn, "users", "referral_code", "TEXT")
-        ensure_column(conn, "users", "bank_details", "TEXT")
-
-        # Bootstrap admin
-        row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
-        if row and row[0] == 0:
-            # Create default admin with a referral code just in case
-            create_user_internal(conn, "ADMIN001", "Default Admin", "admin@fortrust.local", "admin123", "ADMIN", "ADM-001")
-
-        # 3. AUDIT LOG
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS audit_log (
+    # 2. Programs table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS programs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ts TEXT NOT NULL,
-            user_id TEXT,
-            action TEXT NOT NULL,
-            case_id TEXT,
-            metadata TEXT
+            country TEXT,
+            university TEXT,
+            program_name TEXT,
+            level TEXT,
+            tuition_per_year REAL,
+            duration_years REAL,
+            category TEXT,
+            notes TEXT
         )
-        """)
+    ''')
+
+    # 3. Users table (with branch)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            email TEXT UNIQUE,
+            password TEXT,
+            role TEXT,
+            branch TEXT
+        )
+    ''')
+
+    # 4. Create default Master Admin
+    c.execute("SELECT * FROM users WHERE email='admin@fortrust.com'")
+    if not c.fetchone():
+        c.execute("INSERT INTO users (id, name, email, password, role, branch) VALUES (?, ?, ?, ?, ?, ?)",
+                  ("U-001", "Master Admin", "admin@fortrust.com", "admin123", "MASTER_ADMIN", "Headquarters"))
+    
+    # 🚨 Notice how the commit and close are ONLY at the very end now!
+    conn.commit()
+    conn.close()
+
+def seed_programs():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    count = c.execute("SELECT COUNT(*) FROM programs").fetchone()[0]
+    if count == 0:
+        print("Seeding database with university programs...")
+        test_programs = [
+            ("New Zealand", "Massey University", "Bachelor of Design", "Bachelor", 35000, 4.0, "Design", ""),
+        ]
+        c.executemany('''
+            INSERT INTO programs (country, university, program_name, level, tuition_per_year, duration_years, category, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', test_programs)
         conn.commit()
+    conn.close()
 
-# Internal helper to avoid opening nested connections during init
-def create_user_internal(conn, user_id, name, email, password, role, referral_code=None):
-    if not referral_code:
-        # Generate default: e.g. "JON-XE3"
-        suffix = uuid.uuid4().hex[:3].upper()
-        clean_name = name.replace(" ", "")[:3].upper()
-        referral_code = f"{clean_name}-{suffix}"
-        
-    conn.execute("""
-    INSERT INTO users (user_id, name, email, password_hash, role, is_active, created_at, referral_code)
-    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-    """, (user_id, name, email, hash_password(password), role, datetime.utcnow().isoformat(), referral_code))
+def get_all_programs():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    programs = c.execute("SELECT * FROM programs").fetchall()
+    conn.close()
+    return programs
 
-# --- Public API ---
-
-def create_user(user_id: str, name: str, email: str, password: str, role: str, referral_code: str = None):
-    with get_conn() as conn:
-        create_user_internal(conn, user_id, name, email, password, role, referral_code)
-        conn.commit()
-
-def insert_case(case_id: str, payload: dict, brief_md: str, referral_code: str = None):
-    now = datetime.utcnow().isoformat()
-    dests = payload.get("destinations") or []
-    dests = (dests + ["", "", ""])[:3]
-
-    commission_status = "PENDING" if referral_code else None
-
-    with get_conn() as conn:
-        conn.execute("""
-        INSERT INTO cases (
-            case_id, created_at, status, student_name, phone, email,
-            destination_1, destination_2, destination_3,
-            annual_budget, savings, cash_buffer,
-            raw_json, counsellor_brief_md, referral_code, commission_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            case_id, now, "NEW",
-            payload.get("student_name",""),
-            payload.get("phone",""),
-            payload.get("email",""),
-            dests[0], dests[1], dests[2],
-            payload.get("finance", {}).get("annual_budget"),
-            payload.get("finance", {}).get("savings"),
-            payload.get("finance", {}).get("cash_buffer"),
-            json.dumps(payload, ensure_ascii=False),
-            brief_md,
-            referral_code,
-            commission_status
-        ))
-        conn.commit()
-
-def list_cases():
-    with get_conn() as conn:
-        rows = conn.execute("SELECT case_id, created_at, status, student_name, destination_1, annual_budget FROM cases ORDER BY created_at DESC").fetchall()
+def list_cases_advanced():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    try:
+        rows = c.execute("SELECT * FROM cases ORDER BY created_at DESC").fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    conn.close()
     return rows
 
 def get_case(case_id: str):
-    with get_conn() as conn:
-        row = conn.execute("""
-        SELECT case_id, created_at, status, student_name, phone, email,
-                raw_json, counsellor_brief_md, assigned_to, full_report_md, full_report_updated_at, referral_code
-        FROM cases WHERE case_id = ?
-        """, (case_id,)).fetchone()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    row = c.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+    conn.close()
     return row
 
-def update_status(case_id: str, status: str):
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET status=? WHERE case_id=?", (status, case_id))
-        conn.commit()
-
-def log_event(user_id: Optional[str], action: str, case_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
-    with get_conn() as conn:
-        conn.execute("INSERT INTO audit_log (ts, user_id, action, case_id, metadata) VALUES (?, ?, ?, ?, ?)", 
-                     (datetime.utcnow().isoformat(), user_id, action, case_id, json.dumps(metadata or {}, ensure_ascii=False)))
-        conn.commit()
-
-def get_user_by_email(email: str):
-    with get_conn() as conn:
-        # Added referral_code to selection
-        return conn.execute("SELECT user_id, name, email, password_hash, role, is_active, referral_code FROM users WHERE email = ?", (email,)).fetchone()
-    
-def list_users(role: Optional[str] = None):
-    with get_conn() as conn:
-        # Added referral_code to selection
-        if role:
-            return conn.execute("SELECT user_id, name, email, password_hash, role, is_active, referral_code FROM users WHERE role=? ORDER BY name", (role,)).fetchall()
-        return conn.execute("SELECT user_id, name, email, password_hash, role, is_active, referral_code FROM users ORDER BY role, name").fetchall()
-
-def assign_case(case_id: str, user_id: Optional[str]):
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET assigned_to=? WHERE case_id=?", (user_id, case_id))
-        conn.commit()
-
-def list_cases_filtered(status: Optional[str] = None, assigned_to: Optional[str] = None):
-    q = "SELECT case_id, created_at, status, student_name, destination_1, annual_budget, assigned_to FROM cases WHERE 1=1"
-    params = []
-    if status:
-        q += " AND status=?"
-        params.append(status)
-    if assigned_to:
-        q += " AND assigned_to=?"
-        params.append(assigned_to)
-    q += " ORDER BY created_at DESC"
-    with get_conn() as conn:
-        return conn.execute(q, params).fetchall()
-
-def get_audit_for_case(case_id: str, limit: int = 50):
-    with get_conn() as conn:
-        return conn.execute("SELECT ts, user_id, action, metadata FROM audit_log WHERE case_id=? ORDER BY ts DESC LIMIT ?", (case_id, limit)).fetchall()
-
-# Updated to support Referral Code filtering
-def list_cases_advanced(status=None, assigned_to=None, unassigned_only=False, destination=None, referral_code=None):
-    q = "SELECT case_id, created_at, status, student_name, destination_1, annual_budget, assigned_to FROM cases WHERE 1=1"
-    params = []
-    if status:
-        q += " AND status=?"
-        params.append(status)
-    if assigned_to:
-        q += " AND assigned_to=?"
-        params.append(assigned_to)
-    if unassigned_only:
-        q += " AND assigned_to IS NULL"
-    if destination:
-        q += " AND (destination_1=? OR destination_2=? OR destination_3=?)"
-        params += [destination, destination, destination]
-    if referral_code:
-        q += " AND referral_code=?"
-        params.append(referral_code)
-
-    q += " ORDER BY created_at DESC"
-    with get_conn() as conn:
-        return conn.execute(q, params).fetchall()
-
-def mark_contacted(case_id: str):
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET first_contacted_at = COALESCE(first_contacted_at, ?), last_contact_attempt_at = ? WHERE case_id = ?", (now, now, case_id))
-        conn.commit()
-
-def log_contact_attempt(case_id: str):
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET last_contact_attempt_at = ? WHERE case_id = ?", (now, case_id))
-        conn.commit()
-
-def save_full_report(case_id: str, report_md: str):
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET full_report_md = ?, full_report_updated_at = ? WHERE case_id = ?", (report_md, now, case_id))
-        conn.commit()
-
-def update_case_payload(case_id: str, new_payload: dict):
-    """Updates just the JSON data (for counsellor notes/data opsional)"""
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET raw_json = ? WHERE case_id = ?", (json.dumps(new_payload, ensure_ascii=False), case_id))
-        conn.commit()
-
-def update_case_status_and_payload(case_id: str, status: str, new_payload: dict):
-    """Updates Status AND JSON at the same time (for Qualification results)"""
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET status = ?, raw_json = ? WHERE case_id = ?", (status, json.dumps(new_payload, ensure_ascii=False), case_id))
-        conn.commit()
-
-def update_user_role(user_id: str, new_role: str):
-    """Allows Master Admin to change a user's role"""
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET role=? WHERE user_id=?", (new_role, user_id))
-        conn.commit()
-
-def update_case_agent(case_id: str, agent_code: str):
-    """Allows Master Admin to re-assign a student to a different agent/referral code"""
-    with get_conn() as conn:
-        conn.execute("UPDATE cases SET referral_code=? WHERE case_id=?", (agent_code, case_id))
-        conn.commit()
-
 def delete_case(case_id: str):
-    """Permanently deletes a student lead and their logs."""
-    with get_conn() as conn:
-        conn.execute("DELETE FROM cases WHERE case_id = ?", (case_id,))
-        conn.execute("DELETE FROM audit_log WHERE case_id = ?", (case_id,))
-        conn.commit()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM cases WHERE case_id = ?", (case_id,))
+    conn.commit()
+    conn.close()
 
-def delete_user(user_id: str):
-    """Permanently deletes an agent/user from the system."""
-    with get_conn() as conn:
-        conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
-        conn.commit()
+def update_case_assignment(case_id: str, status: str, assigned_to: str, tuition: float = 0.0, commission_rate: float = 0.0, currency: str = "USD"):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    row = c.execute("SELECT raw_json FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+    payload = json.loads(row[0]) if row and row[0] else {}
+    
+    if status == "COMPLETED":
+        payload["tuition"] = tuition
+        payload["commission_rate"] = commission_rate
+        payload["currency"] = currency # <-- NEW: Save the specific currency!
+        payload["commission_earned"] = tuition * (commission_rate / 100)
+    
+    c.execute('''
+        UPDATE cases SET status = ?, assigned_to = ?, raw_json = ? WHERE case_id = ?
+    ''', (status, assigned_to, json.dumps(payload, ensure_ascii=False), case_id))
+    
+    conn.commit()
+    conn.close()
+
+
+def get_users_with_stats():
+    """Fetches all users and counts how many students are assigned to them."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    query = '''
+        SELECT u.id, u.name, u.email, u.role, u.branch, COUNT(c.case_id) as student_count
+        FROM users u
+        LEFT JOIN cases c ON u.name = c.assigned_to
+        GROUP BY u.id
+        ORDER BY student_count DESC
+    '''
+    rows = c.execute(query).fetchall()
+    conn.close()
+    return rows

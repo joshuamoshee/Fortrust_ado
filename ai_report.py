@@ -1,207 +1,124 @@
-import json
 import os
+from dotenv import load_dotenv
 from google import genai
-from google.genai import types
-import streamlit as st
+from google.genai import types # <-- NEW: We need this to turn on Google Search
 
-# ------------------------------------------------------------------
-# CONFIGURATION - THE GEMINI AI ENGINE
-# ------------------------------------------------------------------
-# Safely fetch the key from Streamlit secrets or environment variables
-try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-except (KeyError, FileNotFoundError):
-    API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# 1. Force Python to open the .env vault right now
+load_dotenv()
 
-def generate_strategic_report(student_name, payload, top_programs):
+# 2. Safely fetch the key
+API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not API_KEY:
+    raise ValueError("GEMINI_API_KEY is missing! Make sure your file is named exactly '.env' and not '.env.txt'")
+
+# 3. Initialize the NEW Gemini Client
+client = genai.Client(api_key=API_KEY)
+
+# 🚨 UPGRADE: Added 'pdf_data' so the AI can read the extracted text!
+def generate_strategic_report(student_name: str, destination: str, budget: float, notes: str, pdf_data: str = "") -> str:
     """
-    The Core Gemini AI Engine. 
-    It reads psychometric data AND academic grades to output a strategic JSON,
-    acting as an intellectual sparring partner.
+    Generates a highly structured, premium Fortrust Assessment Report.
+    Now reads BOTH Counselor Notes AND raw PDF text, AND searches the live internet!
     """
     
-    # --- 1. GATHER CONTEXT ---
-    c_data = payload.get("counsellor_data", {})
-    scores = payload.get("algo_result", {})
-    
-    personality_notes = c_data.get("personality_notes", "No specific psychometric test provided.")
-    academic_notes = c_data.get("academic_notes", "No academic transcripts provided.")
-    parents_pref = c_data.get("parents_pref", "No specific parent preference stated.")
-    target_uni = c_data.get("target_uni", "Open to suggestions")
-    
-    # --- 2. THE SYSTEM PROMPT ---
     system_prompt = """
     You are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
-    From now on, do not simply affirm the student's or parent's statements or assume their career conclusions are correct. 
-    Your goal is to be an intellectual sparring partner, not just an agreeable assistant. 
-    Every time you analyze a student profile, do the following:
-    1. Analyse their assumptions (e.g., Parent preferences vs. student reality).
-    2. Provide counterpoints (e.g., Highlight friction between their grades and their desired major).
-    3. Test their reasoning.
-    4. Offer alternative perspectives (Realistic pivot pathways).
-    5. Prioritize truth over agreement. Maintain a constructive, but rigorous approach.
+    Your job is to generate a comprehensive, premium student assessment report. 
+    You must output the report in strict Markdown format, using bold headers, bullet points, and Markdown tables where requested. Do NOT use raw JSON.
+    
+    CRITICAL INSTRUCTION: You have access to Google Search. You MUST search the live internet to find 3 REAL, up-to-date university programs that perfectly match the student's profile, destination, and budget. Do NOT invent or hallucinate tuition fees. Find the actual current estimated tuition and use it in your tables.
+    
+    You will be provided with Counselor Notes AND raw text extracted from the student's PDFs (Psychometric Reports and Report Cards).
+    You MUST analyze both data sources to find their "Superpower", academic reality, and highest risk factors.
+    
+    Read the provided student data and generate a report using EXACTLY this structure and these headings:
 
-    You SHOULD: 
-    - Always tell the truth about their academic reality.
-    - Never make up information, speculate, or guess university data.
-    - Explicitly state "I cannot confirm this" if a career pathway cannot be verified.
-    - Prioritize accuracy over speed.
+    # FORTRUST ASSESSMENT REPORT for [Student Name]
 
-    You MUST AVOID: 
-    - Fabricating facts, salaries, or university requirements.
-    - Presenting speculation or assumption as fact.
+    ## 1. EXECUTIVE SUMMARY
+    [Provide a 3-4 sentence psychological and academic profile based on the notes AND the PDF data. Define their "superpower" (e.g., "The Visual-Systematic Profile").]
 
-    ⚠️ CRITICAL PSYCHOMETRIC RULES:
-    - IF "Stress Tolerance" is low: explicitly warn against high-pressure careers (Medicine, Corporate Law). Prioritize tech, design, or project-based roles.
-    - IF "Parent Preference" contradicts Grades or Kryptonite, state "Unsuitable" in the parent analysis.
+    ## 2. STRATEGIC DIRECTION
+    [Provide a 2-sentence strategy on the ideal career path that leverages their natural aptitude.]
 
-    OUTPUT FORMAT: Return ONLY valid JSON matching this exact schema:
-    {
-      "disclaimer": "Confidence level statement...",
-      "executive_summary": "A rigorous analysis...",
-      "analysis": {
-        "superpowers": "Identify strongest verifiable cognitive assets...",
-        "kryptonite": "Identify critical personality/academic risks..."
-      },
-      "recommendations": [
-        {
-          "role": "Alternative/Recommended Career Path Name",
-          "future_proofing": "Factual strategy...",
-          "salary_map": "Indonesia: $X | Abroad: $Y",
-          "universities": ["Uni A", "Uni B"]
-        }
-      ],
-      "roadmap": [{"phase": "Year X", "action": "Specific habit..."}],
-      "parent_analysis": {"preference": "Parent's Choice", "verdict": "Rigorous analysis..."},
-      "value_matrix": {"golden_ticket": ["Option A"], "premium": ["Option B"], "passion": ["Option C"], "questionable": ["Option D"], "scholarship_impact": "Impact..."},
-      "city_matrix": [{"city": "City Name", "institution": "Uni Name", "risk": "Verifiable risk..."}],
-      "fit_vs_friction": [{"pathway": "Option Name", "fit": "Cognitive alignment", "friction": "Counterpoint/Friction", "score": "8/10"}]
-    }
+    ## 3. TOP 3 RECOMMENDED UNIVERSITY MAJORS & CAREER PATHS
+    [For EACH of the 3 options, provide the following structure:]
+    ### OPTION [1/2/3]: [MAJOR NAME] at [LIVE UNIVERSITY NAME FOUND ONLINE]
+    **BEST FIT:** [1 sentence explaining why, e.g., "The Sweet Spot" or "The Safety Backup"]
+    
+    | CRITERIA | ANALYSIS | SCORE (1-10) |
+    | :--- | :--- | :--- |
+    | Cognitive Fit | [Your rigorous analysis based on the PDF] | [X/10] |
+    | Interest Alignment | [Your rigorous analysis] | [X/10] |
+    | Personality Fit | [Your rigorous analysis] | [X/10] |
+    | Career Outlook | [Your rigorous analysis] | [X/10] |
+    | Live Tuition Estimate | [Include the actual tuition found via Google Search] | - |
+    | Risk Factor | [Low/Med/High] | - |
+
+    **FUTURE PROOFING STRATEGY (5-9 Years)**
+    * **The Shift:** [Industry trend]
+    * **Actionable Advice:** [Specific minor, tech, or skill to learn]
+    * **Salary Expectation:** [Entry and Senior estimates in local currency of target destination]
+
+    ## 4. CRITICAL SUCCESS FACTORS
+    [Identify 3 specific risks (e.g., low stress tolerance, math gaps from the PDF) and provide strict, actionable advice to overcome them (e.g., "The Feynman Technique", "Body Double Strategy").]
+
+    ## 5. CONCLUSION
+    [A brief 3-sentence final verdict on their best pathway.]
+
+    ## 6. 5-YEAR DEVELOPMENT ROADMAP (From Current Grade to Uni Year 2)
+    | Year | Focus Area | Actionable Steps |
+    | :--- | :--- | :--- |
+    | Year 1 | Foundation | [Specific steps] |
+    | Year 2 | Application | [Specific steps] |
+    | Year 3 | Survival | [Specific steps] |
+    | Year 4 | Specialization | [Specific steps] |
+    | Year 5 | Professionalism | [Specific steps] |
+
+    ## 7. EXTRACURRICULAR SUGGESTIONS & PORTFOLIO BLUEPRINT
+    [Suggest 2-3 specific clubs/activities and 3 specific portfolio projects tailored to their major.]
+
+    ## 8. CITY & UNIVERSITY MATCHING
+    **Target Destination:** [Destination]
+    [Provide 3 specific university recommendations in the target destination, including the "Why". Include a short "Scholarship Match List".]
+
+    ## 9. THE BUDGET-OPTIMIZED STRATEGY
+    [Provide a strategic alternative pathway (like a Polytechnic/Diploma ladder or regional arbitrage) to save money, assuming an annual budget of the provided amount.]
+    | Strategy | Estimated Tuition | Saved Tuition | Risk Factor |
+    | :--- | :--- | :--- | :--- |
+    | Traditional Uni | [Amount] | - | [Risk] |
+    | Polytech / Diploma Pathway | [Amount] | [Amount Saved] | [Risk] |
     """
     
-    # --- 3. THE USER PROMPT ---
     user_prompt = f"""
-    STUDENT: {student_name}
-    ALGO LEAD SCORE: {scores.get('score', 0)} / 100
+    --- STUDENT DATA ---
+    STUDENT NAME: {student_name}
+    TARGET DESTINATION: {destination}
+    ANNUAL BUDGET: ${budget}
     
-    --- PSYCHOMETRIC DATA ---
-    {personality_notes}
+    --- COUNSELLOR NOTES ---
+    {notes}
     
-    --- ACADEMIC GRADES / TRANSCRIPTS ---
-    {academic_notes}
+    --- EXTRACTED PDF DATA (REPORT CARDS / NAVIGATHER) ---
+    {pdf_data}
+    --------------------
     
-    --- INTERVIEW NOTES ---
-    PARENT PREFERENCE: {parents_pref}
-    TARGET UNI/BUDGET: {target_uni}
-    
-    --- DATABASE MATCHES ---
-    {json.dumps(top_programs[:3])}
-    
-    TASK: Execute the Core Protocol acting as an intellectual sparring partner and return the strict JSON report.
+    TASK: Generate the strict, premium Fortrust Markdown report based on ALL the data above. Ensure you use Google Search to ground your university recommendations and tuition estimates in live, real-world data.
     """
-
-    # --- 4. EXECUTE GEMINI API CALL (NEW SDK SYNTAX) ---
-    if not API_KEY or API_KEY == "YOUR_GEMINI_API_KEY_HERE":
-        return _simulation_fallback(student_name)
 
     try:
-        # Initialize the new Client
-        client = genai.Client(api_key=API_KEY)
-        
-        # Call the model using the new configuration types
+        full_prompt = system_prompt + "\n\n" + user_prompt
+        # The NEW syntax for generating content WITH LIVE SEARCH ON!
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=user_prompt,
+            model='gemini-2.5-flash',
+            contents=full_prompt,
             config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.2, 
-                response_mime_type="application/json",
+                tools=[{"google_search": {}}], # <-- Turns on live internet access
+                temperature=0.2 # Keep it strictly factual so it doesn't hallucinate
             )
         )
-        return json.loads(response.text)
+        return response.text
     except Exception as e:
         print(f"Gemini API Error: {e}")
-        return _simulation_fallback(student_name)
-
-def _simulation_fallback(student_name):
-    """Fallback if API Key is missing or quota is exceeded."""
-    return {
-        "disclaimer": "⚠️ OFFLINE MODE: Showing simulation data.",
-        "executive_summary": f"{student_name} demonstrates a 'Visual-Systematic' profile with high spatial logic but requires a low-stress environment. Academic grades indicate strong performance in practical subjects.",
-        "analysis": {
-            "superpowers": "High Figural Logic. Able to visualize complex 3D systems.",
-            "kryptonite": "Low Stress Tolerance (Score: 2). High risk of burnout in reactive environments."
-        },
-        "recommendations": [
-            {"role": "Industrial Design", "future_proofing": "AI Generative Design", "salary_map": "IDR 15jt | AUD $75k", "universities": ["RMIT", "Swinburne"]},
-            {"role": "UX/UI Specialist", "future_proofing": "Spatial Computing (VR/AR)", "salary_map": "IDR 20jt | AUD $90k", "universities": ["Monash", "UTS"]}
-        ],
-        "roadmap": [
-            {"phase": "Year 1", "action": "Build Discipline: Focus on time-management."}
-        ],
-        "parent_analysis": {"preference": "Medicine", "verdict": "Unsuitable. The Stress Tolerance of 2/5 indicates a severe risk of burnout in high-pressure medical environments."},
-        "value_matrix": {"golden_ticket": ["Industrial Design"], "premium": ["Architecture @ G8"], "passion": ["Fine Arts"], "questionable": ["General Business"], "scholarship_impact": "Scholarships available for STEM/Design."},
-        "city_matrix": [{"city": "Melbourne", "institution": "RMIT", "risk": "High living costs"}],
-        "fit_vs_friction": [
-            {"pathway": "Industrial Design", "fit": "High Spatial Skill", "friction": "Moderate Deadlines", "score": "9/10"},
-            {"pathway": "Medicine", "fit": "High IQ", "friction": "Extreme Stress Environment", "score": "3/10"}
-        ]
-    }
-
-def extract_programs_from_brochure(text):
-    """
-    Reads a raw university PDF brochure and extracts structured program data.
-    """
-    if not API_KEY or API_KEY == "GEMINI_API_KEY_HERE":
-        print("Extraction Error: Gemini API Key is missing or invalid.")
-        return []
-
-    system_prompt = """
-    You are an expert Data Extraction AI for a global education database.
-    Your job is to read messy university brochures and extract program details.
-    
-    Extract a list of programs. For each program, provide EXACTLY these JSON keys:
-    - country (string)
-    - city (string)
-    - institution (string)
-    - level (string: "Bachelor", "Master", "Diploma", "Certificate")
-    - category (string)
-    - program_name (string)
-    - tuition_per_year (integer, numeric only)
-    - living_per_year (integer, numeric only, estimate 20000 if not stated)
-    - duration_years (float)
-    - intake_months (string)
-    - ielts_min (float)
-    - gpa_min (float)
-    - visa_risk (string: "Low", "Medium", "High")
-    - scholarship_level (string: "Low", "Medium", "High")
-    - vibe (string, short 1-word description)
-    
-    Return ONLY a valid JSON array of objects. No markdown formatting, no ```json tags.
-    """
-    
-    try:
-        client = genai.Client(api_key=API_KEY)
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=text,
-            config=types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.1, 
-            )
-        )
-        
-        # --- BULLETPROOF JSON CLEANUP ---
-        raw_output = response.text.strip()
-        if raw_output.startswith("```json"):
-            raw_output = raw_output[7:]
-        if raw_output.startswith("```"):
-            raw_output = raw_output[3:]
-        if raw_output.endswith("```"):
-            raw_output = raw_output[:-3]
-            
-        return json.loads(raw_output.strip())
-        
-    except Exception as e:
-        print(f"Extraction Error: {e}") 
-        return []
+        return "Error generating AI report. Please check your API key and connection."
