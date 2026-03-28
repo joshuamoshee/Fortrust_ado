@@ -13,3 +13,4 @@ openpyxl
 psycopg2-binary
 bcrypt
 PyJWT
+supabase
