@@ -10,3 +10,5 @@ pandas
 pdfplumber
 fpdf
 openpyxl
+psycopg2-binary
+bcrypt
