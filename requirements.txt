@@ -1,6 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+python-dotenv
+PyPDF2
+google-genai
+google-generativeai
 streamlit
 pandas
-google-generativeai
 pdfplumber
 fpdf
 openpyxl
