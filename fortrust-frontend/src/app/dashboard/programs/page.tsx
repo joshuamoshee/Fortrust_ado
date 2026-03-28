@@ -18,8 +18,8 @@ export default function AIProgramFinderPage() {
     setPrograms([]);
 
     try {
-      const res = await fetch(`process.env.NEXT_PUBLIC_API_URL/api/programs/search?query=${encodeURIComponent(searchQuery)}`);
-      const data = await res.json();
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/programs/search?query=${encodeURIComponent(searchQuery)}`);
+      const data = await response.json();
       if (data.status === "success") {
         setPrograms(data.data);
       } else {
