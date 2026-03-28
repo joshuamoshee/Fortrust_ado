@@ -112,10 +112,7 @@ const handleLogin = async (e: React.FormEvent) => {
             </button>
           </form>
           
-          <div className="mt-6 text-center text-xs text-gray-500">
-            <p>Admin Login: admin@fortrust.com / admin123</p>
-            <p className="mt-1">Agent Login: agent@fortrust.com / agent123</p>
-          </div>
+          
         </div>
       </div>
     </div>
