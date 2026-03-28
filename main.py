@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Header, Depends # 🚨 FIXED: Added Header and Depends
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg2.extras import RealDictCursor
 from fastapi.responses import FileResponse
@@ -9,6 +9,7 @@ import bcrypt
 import datetime
 import json
 import io
+import jwt
 import PyPDF2
 import csv
 import codecs
@@ -16,12 +17,13 @@ import shutil
 from dotenv import load_dotenv
 from google import genai
 
-# Optional: Ensure local uploads folder exists for now (We will move this to Cloud Storage in Step 3!)
+# Optional: Ensure local uploads folder exists for now
 os.makedirs("data/uploads", exist_ok=True)
 
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
+JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_fallback_key_123")
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 # 1. Initialize the API
@@ -57,6 +59,24 @@ def verify_schema():
 
 verify_schema() # Runs once on startup
 
+# --- THE BOUNCER (Security Check) ---
+def verify_token(authorization: str = Header(None)):
+    """Checks if the user has a valid ID badge before giving them data."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Access Denied: Missing ID Badge.")
+    
+    # Extract the token from the "Bearer [TOKEN]" string
+    token = authorization.split(" ")[1]
+    
+    try:
+        # Check if the badge is real and hasn't expired
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Access Denied: Badge Expired. Please log in again.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Access Denied: Fake Badge Detected.")
+
 # --- 0. AUTHENTICATION & USER MANAGEMENT ---
 class LoginRequest(BaseModel):
     email: str
@@ -72,12 +92,27 @@ def login_user(req: LoginRequest):
     cur.close()
     conn.close()
     
+    # 🚨 FIXED: Correctly check if user exists before doing the math!
     if user:
         provided_password = req.password.encode('utf-8')
         stored_hash = user['password'].encode('utf-8')
+        
         if bcrypt.checkpw(provided_password, stored_hash):
-            return {"status": "success", "user": {"id": user['id'], "name": user['name'], "role": user['role']}}
+            # Create the ID Badge (expires in 24 hours)
+            token_data = {
+                "id": user['id'], 
+                "role": user['role'], 
+                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+            }
+            token = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
+
+            return {
+                "status": "success", 
+                "token": token, # Give the token to Vercel
+                "user": {"id": user['id'], "name": user['name'], "role": user['role']}
+            }
             
+    # 🚨 FIXED: Give an error if login fails
     raise HTTPException(status_code=401, detail="Invalid email or password.")
 
 class NewUserRequest(BaseModel):
@@ -90,9 +125,7 @@ class NewUserRequest(BaseModel):
 @app.post("/api/users")
 def create_user(req: NewUserRequest):
     """Allows Master Admin to create new agents securely."""
-    # 🚨 BCRYPT: Hash the password before saving to the database!
     hashed_password = bcrypt.hashpw(req.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -124,7 +157,6 @@ def ai_program_search(query: str = "Popular business degrees in Australia"):
     """Bypasses the database and uses Gemini + LIVE GOOGLE SEARCH."""
     try:
         if not client: raise HTTPException(status_code=500, detail="Gemini API key not configured.")
-
         prompt = f"""
         You are an expert global university counselor API. The agent is searching for: "{query}"
         STEP 1: Use Google Search to look up the MOST RECENT tuition fees and programs for 5 to 8 REAL universities.
@@ -139,12 +171,11 @@ def ai_program_search(query: str = "Popular business degrees in Australia"):
     
 # --- 1. GET ALL STUDENTS ENDPOINT ---
 @app.get("/api/pipeline")
-def get_pipeline(role: str, agent_code: str = None):
+def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(verify_token)): # 🚨 FIXED: The Bouncer is now guarding this door!
     """Fetches students directly from Postgres JSONB columns."""
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
-    # 🚨 POSTGRES: Fetch directly. No need to unpack raw_json anymore!
     if role in ["MASTER_ADMIN", "ADMIN", "TELEMARKETER", "BRANCH_ADMIN"]:
         cur.execute("SELECT * FROM students ORDER BY created_at DESC")
     else:
@@ -154,9 +185,7 @@ def get_pipeline(role: str, agent_code: str = None):
     cur.close()
     conn.close()
     
-    # Ensure IDs are strings for frontend consistency
     for s in students: s['id'] = str(s['id'])
-    
     return {"status": "success", "data": students}
 
 # --- 2. CREATE NEW LEAD WITH DUAL PDF UPLOAD ---
@@ -184,7 +213,6 @@ async def create_lead(
 
     conn = get_db_connection()
     cur = conn.cursor()
-    # 🚨 POSTGRES: Directly insert into the proper columns
     cur.execute("""
         INSERT INTO students (name, email, phone, assignee, status, notes, documents, pdf_text) 
         VALUES (%s, %s, %s, %s, 'NEW LEAD', %s, %s::jsonb, %s)
@@ -223,7 +251,6 @@ def add_timeline_note(case_id: str, req: TimelineNote):
     
     conn = get_db_connection()
     cur = conn.cursor()
-    # 🚨 POSTGRES MAGIC: || appends to a JSONB array automatically!
     cur.execute("UPDATE students SET timeline = timeline || %s::jsonb WHERE id = %s", 
                 (json.dumps([new_entry]), case_id))
     conn.commit()

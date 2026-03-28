@@ -12,3 +12,4 @@ fpdf
 openpyxl
 psycopg2-binary
 bcrypt
+PyJWT
