@@ -29,19 +29,23 @@ const handleLogin = async (e: React.FormEvent) => {
 
       const data = await response.json();
 
-      if (data.status === "success") {
-        // 1. Save the user's role to the browser
+if (data.status === "success") {
+        // 🚨 NEW: Save the ID Badge (token) to the browser's memory
+        localStorage.setItem("fortrust_token", data.token);
+        
+        // Save the user details like before
         localStorage.setItem("fortrust_user", JSON.stringify(data.user));
         
-        // 2. THE FIX: Route them based on their Role!
-        if (data.user.role === "MASTER_ADMIN") {
-          router.push("/dashboard/admin");
-        } else {
-          router.push("/dashboard/pipeline");
-        }
+        // Go to dashboard
+        router.push("/dashboard/pipeline");
+      } else {
+        // If login fails, show the error message and do NOT go to dashboard
+        setError("Invalid email or password.");
       }
+      
     } catch (err) {
-      setError("Invalid email or password. Please try again.");
+      // If the server crashes or internet drops
+      setError("Network error. Please try again.");
     } finally {
       setIsLoading(false);
     }

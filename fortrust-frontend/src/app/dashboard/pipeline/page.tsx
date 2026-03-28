@@ -63,11 +63,27 @@ export default function PipelinePage() {
     }
   }, []);
 
-  const fetchStudents = (role: string, agentName: string) => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`)
-      .then((res) => res.json())
+const fetchStudents = (role: string, agentName: string) => {
+    // 1. Grab the badge from memory
+    const token = localStorage.getItem("fortrust_token");
+
+    // 2. Add the badge to the "Headers" of the request
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`, {
+      headers: {
+        "Authorization": `Bearer ${token}` // <-- Flashing the badge to the Bouncer!
+      }
+    })
+      .then((res) => {
+        // If the Bouncer kicks us out (401 Unauthorized), send user back to login
+        if (res.status === 401) {
+          localStorage.removeItem("fortrust_token");
+          window.location.href = "/";
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => {
-        if (data.status === "success") {
+        if (data && data.status === "success") {
           setStudents(data.data);
           if (selectedStudent) {
             const updatedProfile = data.data.find((s: any) => s.id === selectedStudent.id);
