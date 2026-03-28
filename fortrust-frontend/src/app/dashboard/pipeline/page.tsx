@@ -23,8 +23,9 @@ export default function PipelinePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiReport, setAiReport] = useState<string>("");
   
-  // 🚨 NEW: Email Drafter State
+  // Email Drafter State
   const [isDraftingEmail, setIsDraftingEmail] = useState(false);
+  const [isDraftingWA, setIsDraftingWA] = useState(false);
 
   // Timeline & Reminder States
   const [newNote, setNewNote] = useState("");
@@ -63,7 +64,7 @@ export default function PipelinePage() {
   }, []);
 
   const fetchStudents = (role: string, agentName: string) => {
-    fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`)
       .then((res) => res.json())
       .then((data) => {
         if (data.status === "success") {
@@ -98,7 +99,7 @@ export default function PipelinePage() {
     if (psychTestFile) formData.append("psych_test", psychTestFile);
 
     try {
-      await fetch("process.env.NEXT_PUBLIC_API_URL/api/pipeline", { method: "POST", body: formData });
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, { method: "POST", body: formData });
       setIsSingleModalOpen(false); 
       setNewName(""); setNewEmail(""); setNewPhone(""); 
       setReportCardFile(null); setPsychTestFile(null);
@@ -113,7 +114,7 @@ export default function PipelinePage() {
     formData.append("file", bulkFile);
     formData.append("assignee", user?.name || "Unassigned");
     try {
-      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/pipeline/bulk", { method: "POST", body: formData });
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/bulk`, { method: "POST", body: formData });
       const result = await response.json();
       alert(result.message || "Import complete.");
       setIsBulkModalOpen(false); setBulkFile(null); fetchStudents(user.role, user.name);
@@ -127,7 +128,7 @@ export default function PipelinePage() {
     if (slideOutReportCard) formData.append("report_card", slideOutReportCard);
     if (slideOutPsychTest) formData.append("psych_test", slideOutPsychTest);
     try {
-      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${caseId}/document`, { method: "PUT", body: formData });
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}/document`, { method: "PUT", body: formData });
       setSlideOutReportCard(null); setSlideOutPsychTest(null);
       fetchStudents(user.role, user.name); 
     } catch (error) { alert("Failed to upload document."); } finally { setIsSaving(false); }
@@ -137,7 +138,7 @@ export default function PipelinePage() {
     if (!newNote.trim() || !selectedStudent) return;
     setIsSaving(true);
     try {
-      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/notes`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/notes`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ note: newNote, author: user?.name || "Agent", reminder_date: newReminderDate || null }),
       });
@@ -155,7 +156,7 @@ export default function PipelinePage() {
     formData.append("proof_document", verifyFile);
 
     try {
-      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/verify-commission`, { method: "POST", body: formData });
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/verify-commission`, { method: "POST", body: formData });
       const data = await response.json();
       setVerifyStatus(data);
       if (data.verified) fetchStudents(user.role, user.name); 
@@ -165,7 +166,7 @@ export default function PipelinePage() {
   const syncApplications = async (updatedApps: any[]) => {
     setIsSaving(true);
     try {
-      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/applications`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/applications`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ applications: updatedApps }),
       });
@@ -190,7 +191,7 @@ export default function PipelinePage() {
     setAiReport(`Fetching data and parsing PDF for ${studentName}...\nPlease wait...`);
     setIsGenerating(true); setIsAiModalOpen(true);
     try {
-      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/ai-strategy", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ai-strategy`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ case_id: studentId }), 
       });
       const result = await response.json();
@@ -198,17 +199,15 @@ export default function PipelinePage() {
     } catch (error) { setAiReport("Network Error."); } finally { setIsGenerating(false); }
   };
 
-  // 🚨 NEW: The AI Email Drafter Logic
   const handleDraftEmail = async () => {
     if (!selectedStudent) return;
     setIsDraftingEmail(true);
     try {
-      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/draft-email`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-email`, {
         method: "POST"
       });
       const data = await response.json();
       if (data.status === "success") {
-        // Automatically open the user's default email client with the AI text!
         const mailtoLink = `mailto:${selectedStudent.email}?subject=${encodeURIComponent(data.data.subject)}&body=${encodeURIComponent(data.data.body)}`;
         window.location.href = mailtoLink;
       } else {
@@ -221,18 +220,15 @@ export default function PipelinePage() {
     }
   };
 
-  const [isDraftingWA, setIsDraftingWA] = useState(false); // 🚨 Add this near your other states at the top if you want, or just here!
-
   const handleDraftWhatsApp = async () => {
     if (!selectedStudent) return;
     setIsDraftingWA(true);
     try {
-      const response = await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${selectedStudent.id}/draft-whatsapp`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-whatsapp`, {
         method: "POST"
       });
       const data = await response.json();
       if (data.status === "success") {
-        // Clean the phone number and open WhatsApp with the pre-filled text!
         const phone = selectedStudent.phone?.replace(/\D/g, '');
         const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(data.data.message)}`;
         window.open(waLink, '_blank');
@@ -290,10 +286,10 @@ export default function PipelinePage() {
         </div>
       )}
 
-      {/* MODALS (Bulk & Single Lead) */}
+      {/* MODALS */}
       <Dialog open={isBulkModalOpen} onOpenChange={setIsBulkModalOpen}>
         <DialogContent className="rounded-2xl">
-          <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl"><Users className="text-[#BAD133]" /> AI Bulk Scanner</DialogTitle><DialogDescription className="text-slate-500 mt-2">Upload a raw PDF list from a school expo or a CSV file. Gemini AI will instantly extract names, emails, and phones to populate your pipeline.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl"><Users className="text-[#BAD133]" /> AI Bulk Scanner</DialogTitle><DialogDescription className="text-slate-500 mt-2">Upload a raw PDF list from a school expo. Gemini AI will extract data.</DialogDescription></DialogHeader>
           <div className="py-6"><div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center bg-slate-50 hover:bg-slate-100 transition-colors"><UploadCloud className="mx-auto h-12 w-12 text-slate-400 mb-4" /><Input type="file" accept=".pdf,.csv" onChange={(e) => setBulkFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto bg-white cursor-pointer" /></div></div>
           <DialogFooter><button onClick={handleBulkImport} disabled={isSaving || !bulkFile} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white py-3 rounded-xl font-medium disabled:opacity-50 transition-colors">{isSaving ? "Scanning..." : "Scan & Import Students"}</button></DialogFooter>
         </DialogContent>
@@ -367,49 +363,28 @@ export default function PipelinePage() {
             </div>
             
             <div className="flex-1 overflow-y-auto custom-scrollbar">
-              
               <div className="p-6 pb-2 space-y-3">
-                <div className="p-6 pb-2 space-y-3">
                 <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest">Contact Information</p>
-                
-                {/* Email Row */}
                 <div className="flex gap-2">
                   <div className="flex-1 flex items-center gap-3 text-sm font-medium text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100">
                     <Mail size={16} className="text-slate-400" /> {selectedStudent.email}
                   </div>
-                  <button 
-                    onClick={handleDraftEmail}
-                    disabled={isDraftingEmail}
-                    className="flex items-center justify-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm"
-                    title="Draft AI Email"
-                  >
+                  <button onClick={handleDraftEmail} disabled={isDraftingEmail} className="flex items-center justify-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI Email">
                     <Sparkles size={14} className={isDraftingEmail ? "animate-spin text-[#BAD133]" : "text-[#BAD133]"} />
                     {isDraftingEmail ? "Drafting..." : "AI Email"}
                   </button>
                 </div>
 
-                {/* WhatsApp Row */}
                 <div className="flex gap-2">
                   <a href={`https://wa.me/${selectedStudent.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-3 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-sm shadow-emerald-100/50 group" title="Open empty WhatsApp chat">
                     <MessageCircle size={18} className="text-emerald-500 group-hover:text-emerald-600" /> {selectedStudent.phone}
                     <span className="text-[10px] bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded-full ml-auto uppercase tracking-wider">Empty Chat</span>
                   </a>
-                  <button 
-                    onClick={handleDraftWhatsApp}
-                    disabled={isDraftingWA}
-                    className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm"
-                    title="Draft AI WhatsApp Message"
-                  >
+                  <button onClick={handleDraftWhatsApp} disabled={isDraftingWA} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI WhatsApp Message">
                     <Sparkles size={14} className={isDraftingWA ? "animate-spin text-emerald-200" : "text-emerald-200"} />
                     {isDraftingWA ? "Drafting..." : "AI Text"}
                   </button>
                 </div>
-              </div>
-
-                <a href={`https://wa.me/${selectedStudent.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-3 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-sm shadow-emerald-100/50 group" title="Click to open WhatsApp">
-                  <MessageCircle size={18} className="text-emerald-500 group-hover:text-emerald-600" /> {selectedStudent.phone}
-                  <span className="text-[10px] bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded-full ml-auto uppercase tracking-wider">Message</span>
-                </a>
               </div>
 
               <div className="p-6 pt-6 pb-4 border-t border-slate-100 mt-4">
@@ -448,8 +423,8 @@ export default function PipelinePage() {
                 <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest flex items-center gap-2 mb-4"><FileText size={14}/> Document Management</p>
                 <div className="space-y-4">
                   <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">School Report Card (Grades)</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutReportCard(e.target.files?.[0] || null)} /></div></div>
-                  <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Psychology Test / Navigather</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutPsychTest(e.target.files?.[0] || null)} /></div></div>
-                  {(slideOutReportCard || slideOutPsychTest) && (<button onClick={() => handleUploadToExisting(selectedStudent.id)} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white font-bold py-2.5 rounded-lg mt-2 text-sm transition-colors shadow-md disabled:opacity-50">{isSaving ? "Uploading to Profile..." : "Save Attached Documents"}</button>)}
+                  <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Psychology Test</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutPsychTest(e.target.files?.[0] || null)} /></div></div>
+                  {(slideOutReportCard || slideOutPsychTest) && (<button onClick={() => handleUploadToExisting(selectedStudent.id)} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white font-bold py-2.5 rounded-lg mt-2 text-sm transition-colors shadow-md disabled:opacity-50">{isSaving ? "Uploading..." : "Save Documents"}</button>)}
                 </div>
               </div>
 
@@ -458,7 +433,7 @@ export default function PipelinePage() {
                   <p className="text-[10px] font-bold text-[#282860] uppercase tracking-widest flex items-center gap-2 mb-3"><DownloadCloud size={14}/> Secure Vault</p>
                   <div className="grid grid-cols-2 gap-2">
                     {selectedStudent.documents.map((doc: any, i: number) => (
-                      <a key={i} href={`process.env.NEXT_PUBLIC_API_URL/api/documents/${doc.filename}`} target="_blank" rel="noopener noreferrer" className="bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-2 hover:border-[#BAD133] hover:shadow-sm transition-all group" title="Download Document">
+                      <a key={i} href={`${process.env.NEXT_PUBLIC_API_URL}/api/documents/${doc.filename}`} target="_blank" rel="noopener noreferrer" className="bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-2 hover:border-[#BAD133] hover:shadow-sm transition-all group" title="Download Document">
                         <div className="p-1.5 bg-red-50 rounded text-red-500 group-hover:bg-red-100 transition-colors"><FileText size={16} /></div>
                         <span className="text-xs font-bold text-slate-700 truncate w-full">{doc.title}</span>
                       </a>
@@ -470,26 +445,25 @@ export default function PipelinePage() {
               {/* ANTI-CHEAT COMMISSION CLAIMER */}
               <div className="p-6 pt-4 pb-6 border-t border-slate-100 bg-slate-100/50">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 mb-4">
-                  <ShieldAlert size={14} className="text-orange-500"/> Claim Commission (AI Verification Required)
+                  <ShieldAlert size={14} className="text-orange-500"/> Claim Commission
                 </p>
                 {selectedStudent.status?.toUpperCase().includes("COMPLETED") ? (
                   <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center">
                     <CheckCircle2 size={24} className="text-emerald-500 mx-auto mb-2" />
-                    <p className="font-bold text-emerald-800 text-sm">Deal Completed & Verified</p>
-                    <p className="text-xs text-emerald-600 mt-1">Commission has been locked into the Master Ledger.</p>
+                    <p className="font-bold text-emerald-800 text-sm">Deal Verified</p>
                   </div>
                 ) : (
                   <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm space-y-4">
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Total Tuition Paid</Label><Input type="number" placeholder="$ USD" value={verifyTuition} onChange={(e) => setVerifyTuition(e.target.value)} className="text-xs" /></div>
-                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Your Comm. Rate (e.g. 0.10)</Label><Input type="number" step="0.01" placeholder="0.10" value={verifyRate} onChange={(e) => setVerifyRate(e.target.value)} className="text-xs" /></div>
+                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Tuition Paid</Label><Input type="number" placeholder="$ USD" value={verifyTuition} onChange={(e) => setVerifyTuition(e.target.value)} className="text-xs" /></div>
+                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Rate</Label><Input type="number" step="0.01" value={verifyRate} onChange={(e) => setVerifyRate(e.target.value)} className="text-xs" /></div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-600">Proof of Payment & Email Thread (PDF)</Label>
+                      <Label className="text-xs font-bold text-slate-600">Proof (PDF)</Label>
                       <Input type="file" accept=".pdf" onChange={(e) => setVerifyFile(e.target.files?.[0] || null)} className="text-xs cursor-pointer" />
                     </div>
                     <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50">
-                      {isVerifying ? "AI is auditing document..." : "Verify & Close Deal"}
+                      {isVerifying ? "Verifying..." : "Verify & Close Deal"}
                     </button>
                     {verifyStatus && (
                       <div className={`p-3 rounded-lg text-xs font-medium border ${verifyStatus.verified ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
@@ -520,7 +494,7 @@ export default function PipelinePage() {
                         <div className="flex-1 bg-white border border-slate-100 p-3 rounded-lg shadow-sm">
                           <div className="flex justify-between items-start mb-1"><span className="text-xs font-bold text-slate-900">{entry.author}</span><span className="text-[10px] text-slate-400 font-medium">{entry.date}</span></div>
                           <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{entry.note}</p>
-                          {entry.reminder_date && (<div className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-[#BAD133] bg-[#BAD133]/10 px-2 py-1 rounded-md"><Calendar size={10}/> Reminder Set: {entry.reminder_date}</div>)}
+                          {entry.reminder_date && (<div className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-[#BAD133] bg-[#BAD133]/10 px-2 py-1 rounded-md"><Calendar size={10}/> Reminder: {entry.reminder_date}</div>)}
                         </div>
                       </div>
                     ))
