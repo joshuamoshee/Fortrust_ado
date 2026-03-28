@@ -17,7 +17,7 @@ const handleLogin = async (e: React.FormEvent) => {
     setError("");
 
     try {
-      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/login", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -79,7 +79,7 @@ const handleLogin = async (e: React.FormEvent) => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none transition-all"
-                  placeholder="admin@fortrust.com"
+                  placeholder=""
                   required
                 />
               </div>
@@ -96,7 +96,7 @@ const handleLogin = async (e: React.FormEvent) => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none transition-all"
-                  placeholder="••••••••"
+                  placeholder=""
                   required
                 />
               </div>
