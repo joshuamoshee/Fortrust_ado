@@ -1,7 +1,7 @@
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Header, Depends # 🚨 FIXED: Added Header and Depends
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg2.extras import RealDictCursor
-from fastapi.responses import FileResponse
+from fastapi.responses import Response # 🚨 UPDATED: Used for cloud files
 from pydantic import BaseModel
 import psycopg2
 import os
@@ -11,19 +11,19 @@ import json
 import io
 import jwt
 import PyPDF2
-import csv
-import codecs
-import shutil
 from dotenv import load_dotenv
 from google import genai
-
-# Optional: Ensure local uploads folder exists for now
-os.makedirs("data/uploads", exist_ok=True)
+from supabase import create_client, Client # 🚨 NEW: For Cloud Storage
 
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_fallback_key_123")
+
+# 🚨 NEW: Supabase Storage Setup
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL else None
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 # 1. Initialize the API
@@ -42,7 +42,7 @@ app.add_middleware(
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
-# 🚨 AUTO-UPGRADE SCHEMA: Ensures Supabase has the right columns without crashing
+# 🚨 AUTO-UPGRADE SCHEMA
 def verify_schema():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -57,25 +57,42 @@ def verify_schema():
         cur.close()
         conn.close()
 
-verify_schema() # Runs once on startup
+verify_schema() 
 
 # --- THE BOUNCER (Security Check) ---
 def verify_token(authorization: str = Header(None)):
-    """Checks if the user has a valid ID badge before giving them data."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Access Denied: Missing ID Badge.")
-    
-    # Extract the token from the "Bearer [TOKEN]" string
     token = authorization.split(" ")[1]
-    
     try:
-        # Check if the badge is real and hasn't expired
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Access Denied: Badge Expired. Please log in again.")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Access Denied: Fake Badge Detected.")
+
+# --- 🚨 EMERGENCY BACKDOOR 🚨 ---
+@app.get("/api/emergency-admin")
+def create_emergency_admin():
+    """Temporary backdoor to force-create a working admin account."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    fresh_hash = bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode('utf-8')
+    try:
+        cur.execute("DELETE FROM users WHERE email = 'admin@fortrust.com'")
+        cur.execute("""
+            INSERT INTO users (name, email, password, role, branch) 
+            VALUES ('Master Admin', 'admin@fortrust.com', %s, 'MASTER_ADMIN', 'Global')
+        """, (fresh_hash,))
+        conn.commit()
+        return {"status": "success", "message": "Emergency Admin created successfully! Go try logging in."}
+    except Exception as e:
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        conn.close()
 
 # --- 0. AUTHENTICATION & USER MANAGEMENT ---
 class LoginRequest(BaseModel):
@@ -84,7 +101,6 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/login")
 def login_user(req: LoginRequest):
-    """Secure login using bcrypt hashing."""
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT id, name, role, password FROM users WHERE email=%s", (req.email,))
@@ -92,27 +108,22 @@ def login_user(req: LoginRequest):
     cur.close()
     conn.close()
     
-    # 🚨 FIXED: Correctly check if user exists before doing the math!
     if user:
         provided_password = req.password.encode('utf-8')
         stored_hash = user['password'].encode('utf-8')
-        
         if bcrypt.checkpw(provided_password, stored_hash):
-            # Create the ID Badge (expires in 24 hours)
             token_data = {
                 "id": user['id'], 
                 "role": user['role'], 
                 "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)
             }
             token = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
-
             return {
                 "status": "success", 
-                "token": token, # Give the token to Vercel
+                "token": token, 
                 "user": {"id": user['id'], "name": user['name'], "role": user['role']}
             }
             
-    # 🚨 FIXED: Give an error if login fails
     raise HTTPException(status_code=401, detail="Invalid email or password.")
 
 class NewUserRequest(BaseModel):
@@ -124,7 +135,6 @@ class NewUserRequest(BaseModel):
 
 @app.post("/api/users")
 def create_user(req: NewUserRequest):
-    """Allows Master Admin to create new agents securely."""
     hashed_password = bcrypt.hashpw(req.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     conn = get_db_connection()
     cur = conn.cursor()
@@ -142,7 +152,6 @@ def create_user(req: NewUserRequest):
 
 @app.get("/api/users")
 def get_all_users():
-    """Returns the list of all agents."""
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT id, name, email, role, branch FROM users")
@@ -154,7 +163,6 @@ def get_all_users():
 # --- 0.5 AI-POWERED PROGRAM FINDER ---
 @app.get("/api/programs/search")
 def ai_program_search(query: str = "Popular business degrees in Australia"):
-    """Bypasses the database and uses Gemini + LIVE GOOGLE SEARCH."""
     try:
         if not client: raise HTTPException(status_code=500, detail="Gemini API key not configured.")
         prompt = f"""
@@ -171,24 +179,20 @@ def ai_program_search(query: str = "Popular business degrees in Australia"):
     
 # --- 1. GET ALL STUDENTS ENDPOINT ---
 @app.get("/api/pipeline")
-def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(verify_token)): # 🚨 FIXED: The Bouncer is now guarding this door!
-    """Fetches students directly from Postgres JSONB columns."""
+def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    
     if role in ["MASTER_ADMIN", "ADMIN", "TELEMARKETER", "BRANCH_ADMIN"]:
         cur.execute("SELECT * FROM students ORDER BY created_at DESC")
     else:
         cur.execute("SELECT * FROM students WHERE assignee = %s ORDER BY created_at DESC", (agent_code,))
-        
     students = cur.fetchall()
     cur.close()
     conn.close()
-    
     for s in students: s['id'] = str(s['id'])
     return {"status": "success", "data": students}
 
-# --- 2. CREATE NEW LEAD WITH DUAL PDF UPLOAD ---
+# --- 2. CREATE NEW LEAD WITH DUAL PDF UPLOAD (CLOUD STORAGE VERSION) ---
 @app.post("/api/pipeline")
 async def create_lead(
     name: str = Form(...), email: str = Form(""), phone: str = Form(""),
@@ -201,15 +205,21 @@ async def create_lead(
     for file, title in [(report_card, "REPORT CARD"), (psych_test, "PSYCHOLOGY TEST")]:
         if file and file.filename.endswith('.pdf'):
             safe_filename = f"NEW_{title.replace(' ', '_')}_{file.filename}"
-            file_path = os.path.join("data/uploads", safe_filename)
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+            
+            # Read file into memory
+            file_bytes = await file.read()
+            
+            # 🚨 CLOUD UPLOAD: Fire directly to Supabase
+            if supabase:
+                supabase.storage.from_("student-documents").upload(
+                    path=safe_filename, file=file_bytes, file_options={"content-type": "application/pdf"}
+                )
             saved_documents.append({"title": title, "filename": safe_filename})
 
-            with open(file_path, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                extracted_pdf_text += f"\n\n--- [BEGIN {title}] ---\n"
-                extracted_pdf_text += "\n".join([page.extract_text() or "" for page in reader.pages])
+            # AI READING
+            reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+            extracted_pdf_text += f"\n\n--- [BEGIN {title}] ---\n"
+            extracted_pdf_text += "\n".join([page.extract_text() or "" for page in reader.pages])
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -217,11 +227,10 @@ async def create_lead(
         INSERT INTO students (name, email, phone, assignee, status, notes, documents, pdf_text) 
         VALUES (%s, %s, %s, %s, 'NEW LEAD', %s, %s::jsonb, %s)
     """, (name, email, phone, assignee, notes, json.dumps(saved_documents), extracted_pdf_text))
-    
     conn.commit()
     cur.close()
     conn.close()
-    return {"status": "success", "message": "Lead & Documents saved!"}
+    return {"status": "success", "message": "Lead & Documents saved to Cloud!"}
 
 # --- 3. DELETE LEAD ENDPOINT ---
 @app.delete("/api/pipeline/{case_id}")
@@ -248,7 +257,6 @@ def add_timeline_note(case_id: str, req: TimelineNote):
         "note": req.note,
         "reminder_date": req.reminder_date 
     }
-    
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("UPDATE students SET timeline = timeline || %s::jsonb WHERE id = %s", 
@@ -273,13 +281,15 @@ def update_applications(case_id: str, req: ApplicationData):
     conn.close()
     return {"status": "success", "message": "Applications updated!"}
 
-# --- 6. SECURE VAULT FILE DOWNLOAD ---
+# --- 6. SECURE CLOUD VAULT DOWNLOAD ---
 @app.get("/api/documents/{filename}")
-def download_document(filename: str):
-    file_path = os.path.join("data/uploads", filename)
-    if os.path.exists(file_path):
-        return FileResponse(path=file_path, filename=filename, media_type='application/pdf')
-    raise HTTPException(status_code=404, detail="Document not found.")
+def download_document(filename: str, user_data: dict = Depends(verify_token)):
+    try:
+        if not supabase: raise HTTPException(status_code=500, detail="Cloud storage not configured.")
+        response = supabase.storage.from_("student-documents").download(filename)
+        return Response(content=response, media_type="application/pdf")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Document not found in Cloud Vault.")
 
 # --- 7. AI ANTI-CHEAT COMMISSION VERIFIER ---
 @app.post("/api/pipeline/{case_id}/verify-commission")
@@ -326,7 +336,6 @@ def get_ai_strategy(req: AIRequest):
     student = cur.fetchone()
     cur.close()
     conn.close()
-
     if not student: return {"status": "error", "report": "Student not found."}
 
     prompt = f"Analyze this student profile. Name: {student['name']}. Notes: {student['notes']}. Documents: {student['pdf_text']}. Provide a strict, professional academic strategy."
@@ -341,7 +350,6 @@ def draft_student_email(case_id: str):
     s = cur.fetchone()
     cur.close()
     conn.close()
-
     if not s: raise HTTPException(status_code=404, detail="Student not found.")
 
     prompt = f"Draft an email to {s['name']}. Status: {s['status']}. Notes: {json.dumps(s['timeline'])}. Apps: {json.dumps(s['applications'])}. Return ONLY valid JSON: {{\"subject\": \"...\", \"body\": \"...\"}}"
@@ -357,7 +365,6 @@ def draft_whatsapp_message(case_id: str):
     s = cur.fetchone()
     cur.close()
     conn.close()
-
     if not s: raise HTTPException(status_code=404, detail="Student not found.")
 
     prompt = f"Draft a short WhatsApp message to {s['name']}. Status: {s['status']}. Timeline: {json.dumps(s['timeline'])}. Return ONLY valid JSON: {{\"message\": \"...\"}}"
