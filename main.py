@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from psycopg2.extras import RealDictCursor
 from fastapi.responses import Response # 🚨 UPDATED: Used for cloud files
 from pydantic import BaseModel
+from typing import List # 🚨 NEW: For multi-file upload arrays
 import psycopg2
 import os
 import bcrypt
@@ -192,34 +193,43 @@ def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(ve
     for s in students: s['id'] = str(s['id'])
     return {"status": "success", "data": students}
 
-# --- 2. CREATE NEW LEAD WITH DUAL PDF UPLOAD (CLOUD STORAGE VERSION) ---
+# --- 2. CREATE NEW LEAD WITH MULTI-FILE UPLOAD ---
 @app.post("/api/pipeline")
 async def create_lead(
     name: str = Form(...), email: str = Form(""), phone: str = Form(""),
     notes: str = Form(""), assignee: str = Form("Unassigned"),
-    report_card: UploadFile = File(None), psych_test: UploadFile = File(None)
+    report_cards: List[UploadFile] = File(default=[]), 
+    psych_tests: List[UploadFile] = File(default=[])
 ):
     extracted_pdf_text = ""
     saved_documents = [] 
     
-    for file, title in [(report_card, "REPORT CARD"), (psych_test, "PSYCHOLOGY TEST")]:
-        if file and file.filename.endswith('.pdf'):
-            safe_filename = f"NEW_{title.replace(' ', '_')}_{file.filename}"
-            
-            # Read file into memory
-            file_bytes = await file.read()
-            
-            # 🚨 CLOUD UPLOAD: Fire directly to Supabase
-            if supabase:
-                supabase.storage.from_("student-documents").upload(
-                    path=safe_filename, file=file_bytes, file_options={"content-type": "application/pdf"}
-                )
-            saved_documents.append({"title": title, "filename": safe_filename})
+    # 🚨 Combine all incoming files into a single list with their category tags
+    all_files = [(f, "REPORT CARD") for f in report_cards] + [(f, "PSYCHOLOGY TEST") for f in psych_tests]
+    
+    for file, title in all_files:
+        if file and file.filename: # Ensure it is an actual uploaded file
+            if file.filename.endswith(('.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png')):
+                safe_filename = f"NEW_{title.replace(' ', '_')}_{file.filename}"
+                
+                # Read file into memory
+                file_bytes = await file.read()
+                
+                # 🚨 CLOUD UPLOAD: Fire directly to Supabase
+                if supabase:
+                    supabase.storage.from_("student-documents").upload(
+                        path=safe_filename, file=file_bytes, file_options={"content-type": file.content_type}
+                    )
+                saved_documents.append({"title": f"{title} - {file.filename}", "filename": safe_filename})
 
-            # AI READING
-            reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-            extracted_pdf_text += f"\n\n--- [BEGIN {title}] ---\n"
-            extracted_pdf_text += "\n".join([page.extract_text() or "" for page in reader.pages])
+                # AI READING (Only extract text if it's a PDF)
+                if file.filename.endswith('.pdf'):
+                    try:
+                        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                        extracted_pdf_text += f"\n\n--- [BEGIN {title} - {file.filename}] ---\n"
+                        extracted_pdf_text += "\n".join([page.extract_text() or "" for page in reader.pages])
+                    except Exception:
+                        pass # Silently skip if the PDF is encrypted or unreadable
 
     conn = get_db_connection()
     cur = conn.cursor()

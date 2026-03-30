@@ -37,8 +37,11 @@ export default function PipelinePage() {
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [bulkFile, setBulkFile] = useState<File | null>(null);
-  const [reportCardFile, setReportCardFile] = useState<File | null>(null);
-  const [psychTestFile, setPsychTestFile] = useState<File | null>(null);
+  
+  // Array states for multiple file uploads
+  const [reportCardFiles, setReportCardFiles] = useState<File[]>([]);
+  const [psychTestFiles, setPsychTestFiles] = useState<File[]>([]);
+  
   const [slideOutReportCard, setSlideOutReportCard] = useState<File | null>(null);
   const [slideOutPsychTest, setSlideOutPsychTest] = useState<File | null>(null);
 
@@ -64,17 +67,14 @@ export default function PipelinePage() {
   }, []);
 
 const fetchStudents = (role: string, agentName: string) => {
-    // 1. Grab the badge from memory
     const token = localStorage.getItem("fortrust_token");
 
-    // 2. Add the badge to the "Headers" of the request
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`, {
       headers: {
-        "Authorization": `Bearer ${token}` // <-- Flashing the badge to the Bouncer!
+        "Authorization": `Bearer ${token}` 
       }
     })
       .then((res) => {
-        // If the Bouncer kicks us out (401 Unauthorized), send user back to login
         if (res.status === 401) {
           localStorage.removeItem("fortrust_token");
           window.location.href = "/";
@@ -111,14 +111,16 @@ const fetchStudents = (role: string, agentName: string) => {
     formData.append("email", newEmail);
     formData.append("phone", newPhone);
     formData.append("assignee", user?.name || "Unassigned");
-    if (reportCardFile) formData.append("report_card", reportCardFile);
-    if (psychTestFile) formData.append("psych_test", psychTestFile);
+    
+    // Append multiple files for the backend list
+    reportCardFiles.forEach(file => formData.append("report_cards", file));
+    psychTestFiles.forEach(file => formData.append("psych_tests", file));
 
     try {
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, { method: "POST", body: formData });
       setIsSingleModalOpen(false); 
       setNewName(""); setNewEmail(""); setNewPhone(""); 
-      setReportCardFile(null); setPsychTestFile(null);
+      setReportCardFiles([]); setPsychTestFiles([]);
       fetchStudents(user.role, user.name);       
     } catch (error) { alert("Error saving lead."); } finally { setIsSaving(false); }
   };
@@ -270,12 +272,12 @@ const fetchStudents = (role: string, agentName: string) => {
       {/* HEADER */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Agent Pipeline</h2>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Student Pipeline</h2>
           <p className="text-sm text-slate-500 mt-1">Manage your assigned students and generate AI strategies.</p>
         </div>
         <div className="flex gap-3">
           <button onClick={() => setIsBulkModalOpen(true)} className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"><UploadCloud size={18} className="text-[#282860]" /> Bulk Expo Scan</button>
-          <button onClick={() => setIsSingleModalOpen(true)} className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-[#282860]/20">+ Add New Lead</button>
+          <button onClick={() => setIsSingleModalOpen(true)} className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-[#282860]/20">+ Add student Data</button>
         </div>
       </div>
 
@@ -311,18 +313,72 @@ const fetchStudents = (role: string, agentName: string) => {
         </DialogContent>
       </Dialog>
 
+      {/* UPDATED STUDENT DATA MODAL */}
       <Dialog open={isSingleModalOpen} onOpenChange={setIsSingleModalOpen}>
-        <DialogContent className="rounded-2xl">
-          <DialogHeader><DialogTitle className="text-xl">Add Single Student</DialogTitle></DialogHeader>
+        <DialogContent className="rounded-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="text-xl">Add student Data</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-4">
-            <div className="space-y-1.5"><Label className="text-slate-600">Full Name</Label><Input value={newName} onChange={(e) => setNewName(e.target.value)} className="focus-visible:ring-[#BAD133]" /></div>
+            <div className="space-y-1.5">
+              <Label className="text-slate-600">Full Name (Sesuai Passport)</Label>
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} className="focus-visible:ring-[#BAD133]" />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5"><Label className="text-slate-600">Email</Label><Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="focus-visible:ring-[#BAD133]" /></div>
               <div className="space-y-1.5"><Label className="text-slate-600">Phone</Label><Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className="focus-visible:ring-[#BAD133]" /></div>
             </div>
+            
             <div className="space-y-4 pt-4 border-t border-slate-100 mt-2">
-              <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">1. School Report Card</Label><Input type="file" accept=".pdf" onChange={(e) => setReportCardFile(e.target.files?.[0] || null)} className="cursor-pointer" /></div>
-              <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">2. Psychology Test</Label><Input type="file" accept=".pdf" onChange={(e) => setPsychTestFile(e.target.files?.[0] || null)} className="cursor-pointer" /></div>
+              
+              {/* Multi-File Report Card */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">1. School Report Card (Optional)</Label>
+                <div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group">
+                  <Input 
+                    type="file" 
+                    multiple
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" 
+                    onChange={(e) => setReportCardFiles(Array.from(e.target.files || []))} 
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                  />
+                  <div className="flex flex-col items-center justify-center pointer-events-none">
+                    <UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" />
+                    <span className="font-semibold text-[#282860] text-sm">Upload File</span>
+                    <span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - Bisa pilih lebih dari 1 file)</span>
+                  </div>
+                </div>
+                {reportCardFiles.length > 0 && (
+                  <div className="flex flex-col items-end">
+                    <p className="text-xs font-semibold text-[#BAD133] mt-1">{reportCardFiles.length} file(s) selected</p>
+                    {reportCardFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}
+                  </div>
+                )}
+              </div>
+
+              {/* Multi-File Psych Test */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">2. Psychology / Profiling Test (Optional)</Label>
+                <div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group">
+                  <Input 
+                    type="file" 
+                    multiple
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" 
+                    onChange={(e) => setPsychTestFiles(Array.from(e.target.files || []))} 
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
+                  />
+                  <div className="flex flex-col items-center justify-center pointer-events-none">
+                    <UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" />
+                    <span className="font-semibold text-[#282860] text-sm">Upload File</span>
+                    <span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - Bisa pilih lebih dari 1 file)</span>
+                  </div>
+                </div>
+                {psychTestFiles.length > 0 && (
+                  <div className="flex flex-col items-end">
+                    <p className="text-xs font-semibold text-[#BAD133] mt-1">{psychTestFiles.length} file(s) selected</p>
+                    {psychTestFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}
+                  </div>
+                )}
+              </div>
+
             </div>
             <button onClick={handleSaveLead} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white py-3 rounded-xl mt-4 font-medium disabled:opacity-50 transition-colors shadow-md shadow-[#282860]/10">{isSaving ? "Saving..." : "Create Profile"}</button>
           </div>

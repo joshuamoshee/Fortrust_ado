@@ -38,7 +38,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!isLoaded || !user) return null;
 
   return (
-    // 🚨 Added font-sans and antialiased to force modern typography!
     <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased">
       
       {/* 1. THE REFINED SIDEBAR */}
@@ -82,6 +81,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {user.role === "MASTER_ADMIN" && (
             <>
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-8">Admin Tools</p>
+              
+              <Link 
+                href="/dashboard/agent-pipeline" 
+                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
+                  ${pathname === '/dashboard/agent-pipeline' 
+                    ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
+                    : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
+              >
+                <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Agent Pipeline
+              </Link>
               
               <Link 
                 href="/dashboard/admin" 
