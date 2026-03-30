@@ -64,7 +64,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
           >
             <LayoutDashboard size={18} className={pathname === '/dashboard/pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-            Agent Pipeline
+            Student Pipeline
           </Link>
 
           <Link 
