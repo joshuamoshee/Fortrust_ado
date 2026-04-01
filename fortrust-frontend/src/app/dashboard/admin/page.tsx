@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Users, Target, FileText, DollarSign, ChevronDown, Edit2, X, PartyPopper } from "lucide-react";
+import { Users, Target, FileText, DollarSign, ChevronDown, X, PartyPopper, TrendingUp, Medal, Building2, Filter } from "lucide-react";
 
 const STATUS_OPTIONS = ["NEW LEAD", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"];
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
 
-// 🚨 NEW: Standard Exchange Rates (Normalized to USD for the Master KPI)
+// Standard Exchange Rates (Normalized to USD for the Master KPI)
 const EXCHANGE_RATES: Record<string, number> = {
   "USD": 1.0,
   "AUD": 0.65,
@@ -21,8 +21,13 @@ const EXCHANGE_RATES: Record<string, number> = {
 export default function MasterAdminDashboard() {
   const [students, setStudents] = useState<any[]>([]);
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null); // For Performance Report
   const [loading, setLoading] = useState(true);
   
+  // 🚨 FIXED: The timeframe state is now safely inside the component!
+  const [timeframe, setTimeframe] = useState("all"); 
+  
+  // User Modal State
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -36,13 +41,16 @@ export default function MasterAdminDashboard() {
   const [closingStudent, setClosingStudent] = useState<any>(null);
   const [tuitionAmount, setTuitionAmount] = useState("");
   const [commissionPercent, setCommissionPercent] = useState("10"); 
-  const [dealCurrency, setDealCurrency] = useState("AUD"); // <-- NEW: Currency State
+  const [dealCurrency, setDealCurrency] = useState("AUD");
 
   const fetchData = async () => {
+    const token = localStorage.getItem("fortrust_token");
+    const headers = { "Authorization": `Bearer ${token}` };
+
     try {
       const [studentsRes, usersRes] = await Promise.all([
-        fetch("process.env.NEXT_PUBLIC_API_URL/api/pipeline?role=MASTER_ADMIN"),
-        fetch("process.env.NEXT_PUBLIC_API_URL/api/users")
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=MASTER_ADMIN`, { headers }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, { headers })
       ]);
       const studentsData = await studentsRes.json();
       const usersData = await usersRes.json();
@@ -50,11 +58,28 @@ export default function MasterAdminDashboard() {
       if (studentsData.status === "success") setStudents(studentsData.data);
       if (usersData.status === "success") setSystemUsers(usersData.data);
     } catch (error) {
-      console.error("Failed to fetch data:", error);
+      console.error("Failed to fetch initial data:", error);
     } finally {
       setLoading(false);
     }
   };
+
+  // Separate effect that ONLY runs when the filter dropdown changes
+  useEffect(() => {
+    const fetchStats = async () => {
+      const token = localStorage.getItem("fortrust_token");
+      try {
+        const statsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/dashboard-stats?timeframe=${timeframe}`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const statsData = await statsRes.json();
+        if (statsData.status === "success") setStats(statsData.data);
+      } catch (error) {
+        console.error("Failed to fetch stats:", error);
+      }
+    };
+    fetchStats();
+  }, [timeframe]);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -69,10 +94,10 @@ export default function MasterAdminDashboard() {
 
   const executeLeadUpdate = async (caseId: string, status: string, assignedTo: string, tuition: number, commRate: number, currency: string) => {
     try {
-      await fetch(`process.env.NEXT_PUBLIC_API_URL/api/pipeline/${caseId}`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, assigned_to: assignedTo, tuition, commission_rate: commRate, currency }), // <-- Added Currency
+        body: JSON.stringify({ status, assigned_to: assignedTo, tuition, commission_rate: commRate, currency }),
       });
       fetchData(); 
     } catch (error) {
@@ -97,7 +122,7 @@ export default function MasterAdminDashboard() {
     e.preventDefault();
     setIsSavingUser(true);
     try {
-      const response = await fetch("process.env.NEXT_PUBLIC_API_URL/api/users", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newUserName, email: newUserEmail, password: newUserPassword, role: newUserRole, branch: newUserBranch }),
       });
@@ -127,7 +152,7 @@ export default function MasterAdminDashboard() {
   const qualifiedLeads = students.filter(s => s.status?.toUpperCase() === "QUALIFIED LEADS").length;
   const activeApps = students.filter(s => s.status?.toUpperCase() === "UNI APPLICATION").length;
   
-  // 🚨 EXCHANGE ENGINE: Convert all earned commissions to a unified USD total
+  // EXCHANGE ENGINE
   const totalCommissionUSD = students.reduce((sum, student) => {
     const earned = student.commission_earned || 0;
     const curr = student.currency || "USD";
@@ -135,11 +160,14 @@ export default function MasterAdminDashboard() {
     return sum + (earned * rate);
   }, 0);
 
+  if (loading) return <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing Master Dashboard...</div>;
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] p-8 font-sans space-y-6 relative">
+    <div className="min-h-screen bg-[#f8fafc] p-8 font-sans space-y-6 relative max-w-[1600px] mx-auto">
+      
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Master Control Panel</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Master Admin Dashboard</h1>
           <p className="text-sm text-slate-500 mt-1">Global Pipeline, Commission, & Team Management</p>
         </div>
         <button onClick={() => setIsUserModalOpen(true)} className="flex items-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-all">
@@ -158,11 +186,9 @@ export default function MasterAdminDashboard() {
             </div>
             
             <div className="p-6 space-y-5">
-              
-              {/* 🚨 CURRENCY SELECTOR */}
               <div className="space-y-1.5">
                 <label className="text-sm font-bold text-slate-700">Currency</label>
-                <select value={dealCurrency} onChange={(e)=>setDealCurrency(e.target.value)} className="w-full border-2 border-slate-200 rounded-xl py-2.5 px-4 text-slate-900 font-bold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 transition-all cursor-pointer">
+                <select value={dealCurrency} onChange={(e)=>setDealCurrency(e.target.value)} className="w-full border-2 border-slate-200 rounded-xl py-2.5 px-4 text-slate-900 font-bold outline-none focus:border-emerald-500 transition-all cursor-pointer">
                   <option value="AUD">AUD - Australian Dollar</option>
                   <option value="GBP">GBP - British Pound</option>
                   <option value="NZD">NZD - New Zealand Dollar</option>
@@ -174,13 +200,13 @@ export default function MasterAdminDashboard() {
 
               <div className="space-y-1.5">
                 <label className="text-sm font-bold text-slate-700">Total University Tuition (Est)</label>
-                <input type="number" value={tuitionAmount} onChange={(e)=>setTuitionAmount(e.target.value)} placeholder={`e.g. 35000`} className="w-full border-2 border-slate-200 rounded-xl py-2.5 px-4 text-slate-900 font-bold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 transition-all" />
+                <input type="number" value={tuitionAmount} onChange={(e)=>setTuitionAmount(e.target.value)} placeholder={`e.g. 35000`} className="w-full border-2 border-slate-200 rounded-xl py-2.5 px-4 text-slate-900 font-bold outline-none focus:border-emerald-500 transition-all" />
               </div>
               
               <div className="space-y-1.5">
                 <label className="text-sm font-bold text-slate-700">Fortrust Commission Rate (%)</label>
                 <div className="relative">
-                  <input type="number" value={commissionPercent} onChange={(e)=>setCommissionPercent(e.target.value)} className="w-full border-2 border-slate-200 rounded-xl py-2.5 pl-4 pr-8 text-slate-900 font-bold outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/20 transition-all" />
+                  <input type="number" value={commissionPercent} onChange={(e)=>setCommissionPercent(e.target.value)} className="w-full border-2 border-slate-200 rounded-xl py-2.5 pl-4 pr-8 text-slate-900 font-bold outline-none focus:border-emerald-500 transition-all" />
                   <span className="absolute right-4 top-2.5 text-slate-400 font-bold">%</span>
                 </div>
               </div>
@@ -220,7 +246,7 @@ export default function MasterAdminDashboard() {
         </div>
       )}
 
-      {/* KPI CARDS */}
+      {/* 1. KPI CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex justify-between items-center"><p className="text-sm font-bold text-slate-500">Total Students</p><div className="p-2.5 bg-blue-50 rounded-xl text-blue-600"><Users size={20} /></div></div>
@@ -234,8 +260,6 @@ export default function MasterAdminDashboard() {
           <div className="flex justify-between items-center"><p className="text-sm font-bold text-slate-500">Active Applications</p><div className="p-2.5 bg-orange-50 rounded-xl text-orange-500"><FileText size={20} /></div></div>
           <h3 className="text-3xl font-black text-slate-900 mt-4">{activeApps}</h3>
         </div>
-        
-        {/* 🚨 UPDATED MONEY KPI CARD */}
         <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 rounded-2xl shadow-md shadow-emerald-600/20 flex flex-col justify-between text-white">
           <div className="flex justify-between items-center">
             <p className="text-sm font-bold text-emerald-100">Total Business (Est. USD)</p>
@@ -245,77 +269,182 @@ export default function MasterAdminDashboard() {
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <h3 className="text-base font-bold text-slate-900 mb-8">Top Performing Branches by Student Volume</h3>
-        <div className="h-[300px] w-full">
-          <ResponsiveContainer width="100%" height={300} minWidth={1} minHeight={1}>
-            <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 60 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" axisLine={{stroke: '#cbd5e1'}} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}} angle={-45} textAnchor="end"/>
-              <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}} label={{ value: 'Number of Students', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11, fontWeight: 600 }}/>
-              <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: '1px solid #e2e8f0', fontWeight: 'bold'}}/>
-              <Bar dataKey="students" fill="#282860" radius={[6, 6, 0, 0]} barSize={45} />
-            </BarChart>
-          </ResponsiveContainer>
+      {/* 2. PDF REQUIREMENT: PERFORMANCE REPORT GRIDS */}
+      {stats && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mt-6">
+          <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="text-[#BAD133]" size={20} />
+              <h3 className="text-lg font-bold text-[#282860]">Performance Report</h3>
+            </div>
+            
+            {/* THE WORKING FILTER DROPDOWN */}
+            <div className="relative inline-block">
+              <select 
+                value={timeframe} 
+                onChange={(e) => setTimeframe(e.target.value)}
+                className="appearance-none flex items-center gap-2 text-sm font-bold text-slate-500 bg-white border border-slate-200 py-2 pl-4 pr-10 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20"
+              >
+                <option value="all">Filter: All Time</option>
+                <option value="30days">Filter: Last 30 Days</option>
+                <option value="this_year">Filter: This Year</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                <Filter size={16} />
+              </div>
+            </div>
+          </div>
+
+          {/* THE 5-COLUMN GRID */}
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            
+            {/* 1. Top Agents by Volume */}
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Top Agents (Volume)</h4>
+              <div className="space-y-3">
+                {stats.performance.top_agents_volume?.length > 0 ? stats.performance.top_agents_volume.map((agent: any, i: number) => (
+                  <div key={i} className="flex flex-col p-2 bg-slate-50 rounded-xl">
+                    <span className="font-bold text-slate-700 text-xs truncate">{i+1}. {agent.name}</span>
+                    <span className="text-blue-600 font-black text-xs mt-1">{agent.value} Students</span>
+                  </div>
+                )) : <p className="text-xs text-slate-400 italic">No data.</p>}
+              </div>
+            </div>
+
+            {/* 2. Top Agents by Revenue */}
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-1">Top Agents (Revenue) <Medal size={12} className="text-[#BAD133]"/></h4>
+              <div className="space-y-3">
+                {stats.performance.top_agents_revenue?.length > 0 ? stats.performance.top_agents_revenue.map((agent: any, i: number) => (
+                  <div key={i} className="flex flex-col p-2 bg-emerald-50 rounded-xl border border-emerald-100/50">
+                    <span className="font-bold text-emerald-900 text-xs truncate">{i+1}. {agent.name}</span>
+                    <span className="font-black text-emerald-600 text-xs mt-1">${agent.value.toLocaleString()}</span>
+                  </div>
+                )) : <p className="text-xs text-slate-400 italic">No data.</p>}
+              </div>
+            </div>
+
+            {/* 3. Top Counsellors by Volume */}
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Top Counsellors (Volume)</h4>
+              <div className="space-y-3">
+                {stats.performance.top_counsellors_volume?.length > 0 ? stats.performance.top_counsellors_volume.map((agent: any, i: number) => (
+                  <div key={i} className="flex flex-col p-2 bg-slate-50 rounded-xl">
+                    <span className="font-bold text-slate-700 text-xs truncate">{i+1}. {agent.name}</span>
+                    <span className="text-purple-600 font-black text-xs mt-1">{agent.value} Students</span>
+                  </div>
+                )) : <p className="text-xs text-slate-400 italic">No data.</p>}
+              </div>
+            </div>
+
+            {/* 4. Top Counsellors by Revenue */}
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-1">Top Counsellors (Revenue) <Medal size={12} className="text-purple-400"/></h4>
+              <div className="space-y-3">
+                {stats.performance.top_counsellors_revenue?.length > 0 ? stats.performance.top_counsellors_revenue.map((agent: any, i: number) => (
+                  <div key={i} className="flex flex-col p-2 bg-purple-50 rounded-xl border border-purple-100/50">
+                    <span className="font-bold text-purple-900 text-xs truncate">{i+1}. {agent.name}</span>
+                    <span className="font-black text-purple-600 text-xs mt-1">${agent.value.toLocaleString()}</span>
+                  </div>
+                )) : <p className="text-xs text-slate-400 italic">No data.</p>}
+              </div>
+            </div>
+
+            {/* 5. Top Institutions */}
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-1">Top Institutions <Building2 size={12} className="text-slate-400"/></h4>
+              <div className="space-y-3">
+                {stats.performance.top_institutions?.length > 0 ? stats.performance.top_institutions.map((inst: any, i: number) => (
+                  <div key={i} className="flex flex-col p-2 bg-slate-50 rounded-xl">
+                    <span className="font-bold text-slate-700 text-xs truncate">{i+1}. {inst.name}</span>
+                    <span className="text-orange-600 font-black text-xs mt-1">{inst.value} Apps</span>
+                  </div>
+                )) : <p className="text-xs text-slate-400 italic">No apps yet.</p>}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 3. CHART & PIPELINE TABLE */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+        
+        {/* Chart */}
+        <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 className="text-base font-bold text-slate-900 mb-8">Branch Volume</h3>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="name" axisLine={{stroke: '#cbd5e1'}} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}} angle={-45} textAnchor="end"/>
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}}/>
+                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: '1px solid #e2e8f0', fontWeight: 'bold'}}/>
+                <Bar dataKey="students" fill="#282860" radius={[6, 6, 0, 0]} barSize={45} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Master Data Table */}
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[400px]">
+          <div className="p-4 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-900">Master Pipeline Control</h3></div>
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 bg-slate-50 z-10">
+                <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 tracking-wider uppercase">
+                  <th className="px-6 py-4">Student Name</th>
+                  <th className="px-6 py-4">Assigned To</th>
+                  <th className="px-6 py-4">Pipeline Status</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm divide-y divide-slate-100">
+                {students.map((student) => (
+                  <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <span className="font-bold text-[#282860]">{student.name}</span>
+                      {student.status === "COMPLETED" && (
+                        <div className="text-[10px] font-bold text-emerald-600 mt-1 flex items-center gap-1">
+                          <DollarSign size={10}/>Earned: {student.currency || "USD"} {(student.commission_earned || 0).toLocaleString()}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="relative inline-block w-48">
+                        <select 
+                          value={student.assigned_to || "Unassigned"}
+                          onChange={(e) => handleAssignAgent(student.id, student.status, e.target.value)}
+                          className="block w-full appearance-none bg-white border border-slate-200 text-slate-900 text-xs font-bold rounded-lg py-2 pl-3 pr-8 shadow-sm outline-none focus:border-[#282860]"
+                        >
+                          <option value="Unassigned">Unassigned</option>
+                          {systemUsers.map(u => <option key={u.id} value={u.name}>{u.role} - {u.name}</option>)}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400"><ChevronDown size={14} /></div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="relative inline-block w-40">
+                        <select 
+                          value={student.status?.toUpperCase() || "NEW LEAD"}
+                          onChange={(e) => handleStatusChange(student, e.target.value)}
+                          className={`block w-full appearance-none font-black text-[10px] tracking-wider rounded-lg py-2 pl-3 pr-8 outline-none shadow-sm
+                            ${student.status?.toUpperCase() === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 
+                              student.status?.toUpperCase() === 'QUALIFIED LEADS' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 
+                              'bg-slate-100 text-slate-700 border border-slate-200'}`}
+                        >
+                          {STATUS_OPTIONS.map(opt => <option key={opt} value={opt} className="bg-white text-slate-900">{opt}</option>)}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-current opacity-50"><ChevronDown size={14} /></div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>t
+            </table>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 tracking-wider uppercase">
-              <th className="px-6 py-4">Student Name</th>
-              <th className="px-6 py-4">Assigned To (Real Agents)</th>
-              <th className="px-6 py-4">Pipeline Status</th>
-            </tr>
-          </thead>
-          <tbody className="text-sm divide-y divide-slate-100">
-            {students.map((student) => (
-              <tr key={student.id} className="hover:bg-slate-50 transition-colors">
-                <td className="px-6 py-4">
-                  <span className="font-bold text-[#282860]">{student.name}</span>
-                  {student.status === "COMPLETED" && (
-                    <div className="text-[10px] font-bold text-emerald-600 mt-1 flex items-center gap-1">
-                      <DollarSign size={10}/>
-                      Earned: {student.currency || "USD"} {(student.commission_earned || 0).toLocaleString()}
-                    </div>
-                  )}
-                </td>
-                
-                <td className="px-6 py-4 relative">
-                  <div className="relative inline-block w-64">
-                    <select 
-                      value={student.assigned_to || "Unassigned"}
-                      onChange={(e) => handleAssignAgent(student.id, student.status, e.target.value)}
-                      className="block w-full appearance-none bg-white border border-slate-200 text-slate-900 text-sm font-bold rounded-lg py-2 pl-3 pr-8 shadow-sm focus:outline-none focus:border-[#282860] focus:ring-1 focus:ring-[#282860] cursor-pointer"
-                    >
-                      <option value="Unassigned">Unassigned</option>
-                      {systemUsers.map(u => <option key={u.id} value={u.name}>{u.role} - {u.name} ({u.branch})</option>)}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400"><ChevronDown size={14} /></div>
-                  </div>
-                </td>
-
-                <td className="px-6 py-4">
-                  <div className="relative inline-block w-48">
-                    <select 
-                      value={student.status?.toUpperCase() || "NEW LEAD"}
-                      onChange={(e) => handleStatusChange(student, e.target.value)}
-                      className={`block w-full appearance-none font-black text-xs tracking-wider rounded-lg py-2.5 pl-4 pr-8 outline-none cursor-pointer transition-colors shadow-sm
-                        ${student.status?.toUpperCase() === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 
-                          student.status?.toUpperCase() === 'QUALIFIED LEADS' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 
-                          'bg-slate-100 text-slate-700 border border-slate-200 hover:border-slate-300'}`}
-                    >
-                      {STATUS_OPTIONS.map(opt => <option key={opt} value={opt} className="bg-white text-slate-900">{opt}</option>)}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-current opacity-50"><ChevronDown size={14} /></div>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

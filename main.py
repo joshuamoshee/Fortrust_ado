@@ -1,9 +1,9 @@
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg2.extras import RealDictCursor
-from fastapi.responses import Response # 🚨 UPDATED: Used for cloud files
+from fastapi.responses import Response 
 from pydantic import BaseModel
-from typing import List # 🚨 NEW: For multi-file upload arrays
+from typing import List 
 import psycopg2
 import os
 import bcrypt
@@ -14,14 +14,14 @@ import jwt
 import PyPDF2
 from dotenv import load_dotenv
 from google import genai
-from supabase import create_client, Client # 🚨 NEW: For Cloud Storage
+from supabase import create_client, Client 
 
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 JWT_SECRET = os.getenv("JWT_SECRET", "super_secret_fallback_key_123")
 
-# 🚨 NEW: Supabase Storage Setup
+# Supabase Storage Setup
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL else None
@@ -43,7 +43,7 @@ app.add_middleware(
 def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
-# 🚨 AUTO-UPGRADE SCHEMA
+# AUTO-UPGRADE SCHEMA
 def verify_schema():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -51,6 +51,11 @@ def verify_schema():
         cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS pdf_text TEXT DEFAULT '';")
         cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';")
         cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS commission_earned NUMERIC DEFAULT 0.0;")
+        
+        # 🚨 NEW: Added Agent Pipeline Fields
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_type TEXT DEFAULT 'Individual Agent';")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS corporation_name TEXT DEFAULT '';")
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -73,7 +78,7 @@ def verify_token(authorization: str = Header(None)):
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Access Denied: Fake Badge Detected.")
 
-# --- 🚨 EMERGENCY BACKDOOR 🚨 ---
+# --- EMERGENCY BACKDOOR ---
 @app.get("/api/emergency-admin")
 def create_emergency_admin():
     """Temporary backdoor to force-create a working admin account."""
@@ -127,12 +132,16 @@ def login_user(req: LoginRequest):
             
     raise HTTPException(status_code=401, detail="Invalid email or password.")
 
+# 🚨 UPDATED: Model now accepts Agent details
 class NewUserRequest(BaseModel):
     name: str
     email: str
     password: str
     role: str
     branch: str
+    phone: str = ""
+    agent_type: str = "Individual Agent"
+    corporation_name: str = ""
 
 @app.post("/api/users")
 def create_user(req: NewUserRequest):
@@ -140,8 +149,11 @@ def create_user(req: NewUserRequest):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute("INSERT INTO users (name, email, password, role, branch) VALUES (%s, %s, %s, %s, %s)",
-                    (req.name, req.email, hashed_password, req.role, req.branch))
+        # 🚨 UPDATED: Insert new fields
+        cur.execute("""
+            INSERT INTO users (name, email, password, role, branch, phone, agent_type, corporation_name) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (req.name, req.email, hashed_password, req.role, req.branch, req.phone, req.agent_type, req.corporation_name))
         conn.commit()
         return {"status": "success", "message": "User account created securely!"}
     except psycopg2.IntegrityError:
@@ -155,11 +167,91 @@ def create_user(req: NewUserRequest):
 def get_all_users():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT id, name, email, role, branch FROM users")
+    # 🚨 UPDATED: Fetch new fields
+    cur.execute("SELECT id, name, email, role, branch, phone, agent_type, corporation_name FROM users ORDER BY id DESC")
     users = cur.fetchall()
     cur.close()
     conn.close()
     return {"status": "success", "data": users}
+
+# --- MASTER ADMIN DASHBOARD STATS ---
+# --- MASTER ADMIN DASHBOARD STATS ---
+@app.get("/api/admin/dashboard-stats")
+def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify_token)):
+    if user_data.get("role") != "MASTER_ADMIN":
+        raise HTTPException(status_code=403, detail="Master Admin access required.")
+        
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    cur.execute("SELECT name, role FROM users")
+    users_db = cur.fetchall()
+    user_roles = {u['name']: u['role'] for u in users_db}
+
+    # 🚨 NEW: Timeframe Filtering Logic
+    query = "SELECT assignee, status, applications, commission_earned, created_at FROM students"
+    if timeframe == "30days":
+        query += " WHERE created_at >= NOW() - INTERVAL '30 days'"
+    elif timeframe == "this_year":
+        query += " WHERE EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM NOW())"
+
+    cur.execute(query)
+    students = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    total_students = len(students)
+    qualified_leads = 0
+    active_applications = 0
+    total_business = 0.0
+
+    agent_volume, agent_revenue = {}, {}
+    counsellor_volume, counsellor_revenue = {}, {}
+    institution_volume = {}
+
+    for s in students:
+        status = (s.get("status") or "").upper()
+        assignee = s.get("assignee") or "Unassigned"
+        role = user_roles.get(assignee, "Agent")
+        commission = float(s.get("commission_earned") or 0.0)
+        apps = s.get("applications") or []
+
+        if status not in ["NEW LEAD", "REJECTED"]:
+            qualified_leads += 1
+        
+        active_apps_for_student = [a for a in apps if isinstance(a, dict) and a.get("status") != "Rejected"]
+        active_applications += len(active_apps_for_student)
+        total_business += commission
+
+        if role.upper() == "COUNSELLOR":
+            counsellor_volume[assignee] = counsellor_volume.get(assignee, 0) + 1
+            counsellor_revenue[assignee] = counsellor_revenue.get(assignee, 0.0) + commission
+        else:
+            agent_volume[assignee] = agent_volume.get(assignee, 0) + 1
+            agent_revenue[assignee] = agent_revenue.get(assignee, 0.0) + commission
+
+        for app in active_apps_for_student:
+            uni = app.get("university", "Unknown")
+            institution_volume[uni] = institution_volume.get(uni, 0) + 1
+
+    return {
+        "status": "success",
+        "data": {
+            "metrics": {
+                "total_students": total_students,
+                "qualified_leads": qualified_leads,
+                "active_applications": active_applications,
+                "total_business": total_business
+            },
+            "performance": {
+                "top_agents_volume": [{"name": k, "value": v} for k, v in sorted(agent_volume.items(), key=lambda item: item[1], reverse=True)[:5]],
+                "top_agents_revenue": [{"name": k, "value": v} for k, v in sorted(agent_revenue.items(), key=lambda item: item[1], reverse=True)[:5]],
+                "top_counsellors_volume": [{"name": k, "value": v} for k, v in sorted(counsellor_volume.items(), key=lambda item: item[1], reverse=True)[:5]],
+                "top_counsellors_revenue": [{"name": k, "value": v} for k, v in sorted(counsellor_revenue.items(), key=lambda item: item[1], reverse=True)[:5]],
+                "top_institutions": [{"name": k, "value": v} for k, v in sorted(institution_volume.items(), key=lambda item: item[1], reverse=True)[:5]]
+            }
+        }
+    }
 
 # --- 0.5 AI-POWERED PROGRAM FINDER ---
 @app.get("/api/programs/search")
@@ -204,7 +296,7 @@ async def create_lead(
     extracted_pdf_text = ""
     saved_documents = [] 
     
-    # 🚨 Combine all incoming files into a single list with their category tags
+    # Combine all incoming files into a single list with their category tags
     all_files = [(f, "REPORT CARD") for f in report_cards] + [(f, "PSYCHOLOGY TEST") for f in psych_tests]
     
     for file, title in all_files:
@@ -215,7 +307,7 @@ async def create_lead(
                 # Read file into memory
                 file_bytes = await file.read()
                 
-                # 🚨 CLOUD UPLOAD: Fire directly to Supabase
+                # CLOUD UPLOAD: Fire directly to Supabase
                 if supabase:
                     supabase.storage.from_("student-documents").upload(
                         path=safe_filename, file=file_bytes, file_options={"content-type": file.content_type}
@@ -362,7 +454,13 @@ def draft_student_email(case_id: str):
     conn.close()
     if not s: raise HTTPException(status_code=404, detail="Student not found.")
 
-    prompt = f"Draft an email to {s['name']}. Status: {s['status']}. Notes: {json.dumps(s['timeline'])}. Apps: {json.dumps(s['applications'])}. Return ONLY valid JSON: {{\"subject\": \"...\", \"body\": \"...\"}}"
+    prompt = f"""
+    You are a helpful education agent writing directly to your student.
+    Draft a professional, helpful, and friendly email to your student named {s['name']}.
+    Address the student directly (e.g., "Hi {s['name']},"). Do not refer to them in the third person.
+    Context - Status: {s['status']}. Notes: {json.dumps(s['timeline'])}. Apps: {json.dumps(s['applications'])}.
+    Return ONLY valid JSON: {{"subject": "...", "body": "..."}}
+    """
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     clean_json = response.text.strip().replace("```json", "").replace("```", "")
     return {"status": "success", "data": json.loads(clean_json)}
@@ -377,7 +475,14 @@ def draft_whatsapp_message(case_id: str):
     conn.close()
     if not s: raise HTTPException(status_code=404, detail="Student not found.")
 
-    prompt = f"Draft a short WhatsApp message to {s['name']}. Status: {s['status']}. Timeline: {json.dumps(s['timeline'])}. Return ONLY valid JSON: {{\"message\": \"...\"}}"
+    prompt = f"""
+    You are a helpful education agent writing directly to your student.
+    Draft a short, friendly, and supportive WhatsApp message to your student named {s['name']}.
+    Address the student directly (e.g., "Hi {s['name']}!"). Do not refer to them in the third person.
+    Context - Status: {s['status']}. Timeline: {json.dumps(s['timeline'])}.
+    Keep it conversational and use emojis naturally.
+    Return ONLY valid JSON: {{"message": "..."}}
+    """
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     clean_json = response.text.strip().replace("```json", "").replace("```", "")
     return {"status": "success", "data": json.loads(clean_json)}
