@@ -11,7 +11,8 @@ import {
   Search,
   Settings,
   Users,
-  BookOpen
+  BookOpen,
+  Megaphone
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -113,6 +114,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   <Users size={18} className={pathname === '/dashboard/network' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                   Network Directory
+                </Link>
+
+                <Link 
+                  href="/dashboard/marketing" 
+                  className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
+                    ${pathname === '/dashboard/marketing' 
+                      ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
+                      : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                  <span className="font-bold">Marketing Hub</span>
                 </Link>
             </>
           )}
