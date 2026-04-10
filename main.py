@@ -486,3 +486,47 @@ def draft_whatsapp_message(case_id: str):
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     clean_json = response.text.strip().replace("```json", "").replace("```", "")
     return {"status": "success", "data": json.loads(clean_json)}
+
+# --- 9. MARKETING MODULE: GOOGLE FORM INGEST & AUTO-FILTER ---
+@app.post("/api/marketing/leads")
+async def create_marketing_lead(
+    name: str = Form(...),
+    email: str = Form(...),
+    wa_number: str = Form(""),
+    program_interest: str = Form(""),
+    lead_source: str = Form(""),
+):
+    # 🧠 AUTO-FILTERING SYSTEM (Step 1 & 2)
+    temperature = "Cold Leads"
+    score = 0
+    
+    if wa_number.strip(): 
+        score += 1
+    if program_interest.strip(): 
+        score += 2
+        
+    if score >= 3:
+        temperature = "Hot Leads"
+    elif score >= 1:
+        temperature = "Warm Leads"
+
+    # Save to Database
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO students (name, email, phone, program_interest, lead_source, lead_temperature, status, assignee) 
+            VALUES (%s, %s, %s, %s, %s, %s, 'NEW LEAD', 'Unassigned')
+        """, (name, email, wa_number, program_interest, lead_source, temperature))
+        conn.commit()
+        return {
+            "status": "success", 
+            "message": f"Lead safely stored and auto-filtered as: {temperature}",
+            "temperature": temperature
+        }
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()

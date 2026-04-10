@@ -439,7 +439,7 @@ export default function MasterAdminDashboard() {
                     </td>
                   </tr>
                 ))}
-              </tbody>t
+              </tbody>
             </table>
           </div>
         </div>
