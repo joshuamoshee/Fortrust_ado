@@ -41,7 +41,7 @@ app.add_middleware(
 
 # 2. The Cloud Database Connection
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    return psycopg2.connect(DATABASE_URL)
 
 # AUTO-UPGRADE SCHEMA
 def verify_schema():
