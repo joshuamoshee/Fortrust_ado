@@ -4,6 +4,7 @@ from psycopg2.extras import RealDictCursor
 from fastapi.responses import Response 
 from pydantic import BaseModel
 from typing import List 
+from ai_report import generate_strategic_report
 import psycopg2
 import os
 import bcrypt
@@ -434,15 +435,27 @@ class AIRequest(BaseModel):
 def get_ai_strategy(req: AIRequest):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
+    # Fetch all the necessary data to feed the Abigail prompt
     cur.execute("SELECT name, notes, pdf_text FROM students WHERE id = %s", (req.case_id,))
     student = cur.fetchone()
     cur.close()
     conn.close()
-    if not student: return {"status": "error", "report": "Student not found."}
+    
+    if not student: 
+        return {"status": "error", "report": "Student not found."}
 
-    prompt = f"Analyze this student profile. Name: {student['name']}. Notes: {student['notes']}. Documents: {student['pdf_text']}. Provide a strict, professional academic strategy."
-    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-    return {"status": "success", "report": response.text}
+    # 🚨 NOW WE CALL YOUR MASTERPIECE FROM ai_report.py
+    try:
+        premium_report = generate_strategic_report(
+            student_name=student['name'],
+            destination="Global (AI Recommended)", # You can make this dynamic later
+            budget=30000, # You can pull this from the DB later if you want
+            notes=student['notes'] or "No counselor notes provided yet.",
+            pdf_data=student['pdf_text'] or "No PDF documents uploaded."
+        )
+        return {"status": "success", "report": premium_report}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/pipeline/{case_id}/draft-email")
 def draft_student_email(case_id: str):
@@ -530,3 +543,56 @@ async def create_marketing_lead(
     finally:
         cur.close()
         conn.close()
+
+# --- 10. AI COMMISSION AGREEMENT EXTRACTOR ---
+@app.post("/api/admin/extract-commission")
+async def extract_commission_agreement(contract: UploadFile = File(...)):
+    try:
+        # 1. Read the PDF File
+        content = await contract.read()
+        reader = PyPDF2.PdfReader(io.BytesIO(content))
+        extracted_text = "".join([page.extract_text() or "" for page in reader.pages])
+
+        # 2. Force AI to extract the exact Client Checklist items
+        prompt = f"""
+        You are a top-tier legal AI assistant for an education agency.
+        Read the following University Commission Agreement and extract the exact details requested.
+        If a field is not found in the text, write "Not Specified".
+        
+        Return ONLY a raw, valid JSON object. Do NOT wrap it in ```json blocks.
+        
+        REQUIRED JSON SCHEMA:
+        {{
+            "institution_name": "...",
+            "expiry_date": "...",
+            "finance_pic_name": "...",
+            "finance_pic_email": "...",
+            "commission_structure": {{
+                "HighSchool_1st_Year": "...",
+                "English_Course": "...",
+                "Foundation": "...",
+                "Diploma": "...",
+                "Bachelor_Year_1": "...",
+                "Bachelor_Year_2": "...",
+                "Bachelor_Year_3": "...",
+                "Bachelor_Year_4": "...",
+                "Master_Year_1": "...",
+                "Master_Year_2": "...",
+                "PhD": "..."
+            }}
+        }}
+        
+        CONTRACT TEXT:
+        {extracted_text}
+        """
+        
+        if not client: raise HTTPException(status_code=500, detail="Gemini API key not configured.")
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+        
+        # 3. Clean and return the data
+        clean_json = response.text.strip().replace("```json", "").replace("```", "")
+        return {"status": "success", "data": json.loads(clean_json)}
+        
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to parse University Contract.")

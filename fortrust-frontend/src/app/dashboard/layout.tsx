@@ -12,7 +12,8 @@ import {
   Settings,
   Users,
   BookOpen,
-  Megaphone
+  Megaphone,
+  UserCircle
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
