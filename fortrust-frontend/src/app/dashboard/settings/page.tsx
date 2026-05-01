@@ -22,6 +22,7 @@ export default function SettingsPage() {
   const handleLogout = () => {
     localStorage.removeItem("fortrust_user");
     localStorage.removeItem("fortrust_token");
+    document.cookie = "fortrust_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     router.push("/");
   };
 
