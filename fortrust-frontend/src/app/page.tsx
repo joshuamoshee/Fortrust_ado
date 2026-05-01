@@ -31,12 +31,12 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (data.status === "success") {
-        // 🚨 NEW: Save the ID Badge (token) to the browser's memory
+        // Save the ID Badge (token) to the browser's memory
         localStorage.setItem("fortrust_token", data.token);
-        
         // Save the user details like before
         localStorage.setItem("fortrust_user", JSON.stringify(data.user));
-        
+        // NEW: Also set the token as a cookie (expires in 7 days)
+        document.cookie = `fortrust_token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}`;
         // Go to dashboard
         router.push("/dashboard/pipeline");
       } else {
@@ -60,7 +60,7 @@ export default function LoginPage() {
         <div className="bg-[var(--brand-700)] p-6 sm:p-8 text-center relative overflow-hidden">
           <div className="absolute inset-0 bg-black/20"></div>
           <div className="relative z-10">
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white tracking-tight">FORTRUST</h1>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white">FORTRUST</h1>
             <p className="text-white mt-0.5 text-sm sm:text-base">Global Education Ecosystem</p>
           </div>
         </div>
