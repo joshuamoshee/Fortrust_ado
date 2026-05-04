@@ -13,6 +13,8 @@ export default function CommissionExtractor() {
     if (!file) return;
 
     setIsAnalyzing(true);
+    setContractData(null); // <-- CLEARS the screen before a new upload starts
+    
     const formData = new FormData();
     formData.append("contract", file);
 
@@ -25,13 +27,21 @@ export default function CommissionExtractor() {
       });
       
       const result = await res.json();
+      
+      // 🚨 NEW USER-FRIENDLY FAIL-SAFE LOGIC 🚨
       if (result.status === "success") {
-        setContractData(result.data);
+        if (result.data.is_valid === false) {
+          // The AI rejected the PDF (no institution found, wrong document type, etc.)
+          alert(result.data.error_message);
+        } else {
+          // The AI successfully found a valid contract!
+          setContractData(result.data);
+        }
       } else {
-        alert("Failed to analyze document.");
+        alert("Failed to analyze document. Please try a different PDF.");
       }
     } catch (error) {
-      alert("Network error.");
+      alert("Network error. Please check your internet connection.");
     } finally {
       setIsAnalyzing(false);
     }

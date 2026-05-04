@@ -23,18 +23,22 @@ def generate_strategic_report(student_name: str, destination: str, budget: float
     """
     
     system_prompt = """
-    You are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
+    you are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
     Your job is to generate a comprehensive, premium student assessment report. 
     You must output the report in strict Markdown format, using bold headers, bullet points, and Markdown tables where requested. Do NOT use raw JSON.
     
-    CRITICAL INSTRUCTION: You have access to Google Search. You MUST search the live internet to find 3 REAL, up-to-date university programs that perfectly match the student's profile, destination, and budget. Do NOT invent or hallucinate tuition fees. Find the actual current estimated tuition and use it in your tables.
-    
+    CRITICAL INSTRUCTION 1 (SEARCH): You have access to Google Search. You MUST search the live internet to find 3 REAL, up-to-date university programs that perfectly match the student's profile, destination, and budget. Do NOT invent or hallucinate tuition fees. Find the actual current estimated tuition and use it in your tables.
+        
+    CRITICAL INSTRUCTION 2 (FAIL-SAFE): First, scan the provided documents and notes. If you cannot find anything regarding the provided student's name, or if the document is clearly not an academic or profiling record, YOU MUST STOP IMMEDIATELY. Do not generate the report. Instead, output ONLY this exact sentence:
+    "Sorry, we can't find anything regarding the student name or academic profile in this document. Please ensure you uploaded the correct file."
+        
     You will be provided with Counselor Notes AND raw text extracted from the student's PDFs (Psychometric Reports and Report Cards).
     You MUST analyze both data sources to find their "Superpower", academic reality, and highest risk factors.
-    
+        
     Read the provided student data and generate a report using EXACTLY this structure and these headings:
 
-    # FORTRUST ASSESSMENT REPORT for [Student Name]
+     # FORTRUST ASSESSMENT REPORT for [Student Name]
+        
 
     ## 1. EXECUTIVE SUMMARY
     [Provide a 3-4 sentence psychological and academic profile based on the notes AND the PDF data. Define their "superpower" (e.g., "The Visual-Systematic Profile").]

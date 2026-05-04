@@ -556,28 +556,29 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
         # 2. Force AI to extract the exact Client Checklist items
         prompt = f"""
         You are a top-tier legal AI assistant for an education agency.
-        Read the following University Commission Agreement and extract the exact details requested.
-        If a field is not found in the text, write "Not Specified".
+        Read the following document.
         
-        Return ONLY a raw, valid JSON object. Do NOT wrap it in ```json blocks.
+        CRITICAL FAIL-SAFE: First, determine if this document is actually a University/College Commission Agreement or Contract. If it is NOT a valid contract, or if you cannot find an Institution Name, return this exact JSON:
+        {{ "is_valid": false, "error_message": "Sorry, we can't find anything regarding an Institution Name or Commission Agreement in this document. Please upload a valid contract." }}
         
-        REQUIRED JSON SCHEMA:
+        If it IS a valid contract, extract the data and return ONLY a raw, valid JSON object (no markdown blocks) with this exact schema:
         {{
+            "is_valid": true,
             "institution_name": "...",
             "expiry_date": "...",
             "finance_pic_name": "...",
             "finance_pic_email": "...",
             "commission_structure": {{
-                "HighSchool_1st_Year": "...",
-                "English_Course": "...",
+                "High School / Year 1": "...",
+                "English Course": "...",
                 "Foundation": "...",
                 "Diploma": "...",
-                "Bachelor_Year_1": "...",
-                "Bachelor_Year_2": "...",
-                "Bachelor_Year_3": "...",
-                "Bachelor_Year_4": "...",
-                "Master_Year_1": "...",
-                "Master_Year_2": "...",
+                "Bachelor Year 1": "...",
+                "Bachelor Year 2": "...",
+                "Bachelor Year 3": "...",
+                "Bachelor Year 4": "...",
+                "Master Year 1": "...",
+                "Master Year 2": "...",
                 "PhD": "..."
             }}
         }}
