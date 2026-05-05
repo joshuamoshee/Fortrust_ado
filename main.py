@@ -7,6 +7,7 @@ from typing import List
 from ai_report import generate_strategic_report
 import psycopg2
 import os
+import csv
 import bcrypt
 import datetime
 import json
@@ -597,3 +598,73 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
     except Exception as e:
         print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to parse University Contract.")
+
+# --- 11. THE MARKETING CSV BULK UPLOAD ENGINE ---
+@app.post("/api/bulk-upload")
+async def bulk_upload_students(file: UploadFile = File(...)):
+    # 1. Strict File Validation (Fail-Safe)
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Invalid format. Strictly .csv files only.")
+
+    try:
+        # 2. Read and decode the CSV in memory (super fast)
+        content = await file.read()
+        decoded_content = content.decode('utf-8-sig') # utf-8-sig removes Excel's invisible BOM characters
+        reader = csv.DictReader(io.StringIO(decoded_content))
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        success_count = 0
+
+        # 3. Loop through every row in the spreadsheet
+        for row in reader:
+            # Map the exact columns "Mami" requested from the G-Form
+            name = row.get('Name', '').strip()
+            email = row.get('Email (Active)', '').strip()
+            phone = row.get('WA', '').strip()
+            program = row.get('Program yang diminati', '').strip()
+            source = row.get('How do you know about this event?', '').strip()
+
+            # Skip totally empty rows
+            if not name or not email:
+                continue
+
+            # 4. INSTANT AUTO-GRADING AI (Cold/Warm/Hot)
+            # You can tweak these rules based on what the client considers "Hot"
+            status = "COLD LEAD"
+            if program and (source.lower() in ['website', 'direct inquiry', 'referral']):
+                status = "HOT LEAD"
+            elif program or source:
+                status = "WARM LEAD"
+
+            # 5. Save to Database
+            cur.execute("""
+                INSERT INTO students (name, email, phone, notes, status, assigned_to)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                name, 
+                email, 
+                phone, 
+                f"Program: {program} | Source: {source}", # Saving their answers into the notes!
+                status, 
+                "Unassigned" # Leaves it in the Master Admin pool to be distributed
+            ))
+            
+            success_count += 1
+
+        # 6. Commit the entire batch at once
+        conn.commit()
+        
+        return {
+            "status": "success", 
+            "message": f"Successfully imported and auto-graded {success_count} students!"
+        }
+
+    except Exception as e:
+        if 'conn' in locals(): conn.rollback() # Cancel the whole batch if one fails
+        print(f"Bulk Upload Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to process the CSV file. Please check your column headers.")
+    finally:
+        if 'cur' in locals(): cur.close()
+        if 'conn' in locals(): conn.close()
