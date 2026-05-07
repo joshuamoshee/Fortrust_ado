@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Users, Target, FileText, DollarSign, ChevronDown, X, PartyPopper, TrendingUp, Medal, Building2, Filter } from "lucide-react";
 
 const STATUS_OPTIONS = ["NEW LEAD", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"];
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
 
-// Standard Exchange Rates (Normalized to USD for the Master KPI)
+// Standard Exchange Rates
 const EXCHANGE_RATES: Record<string, number> = {
   "USD": 1.0,
   "AUD": 0.65,
@@ -21,10 +22,9 @@ const EXCHANGE_RATES: Record<string, number> = {
 export default function MasterAdminDashboard() {
   const [students, setStudents] = useState<any[]>([]);
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
-  const [stats, setStats] = useState<any>(null); // For Performance Report
+  const [stats, setStats] = useState<any>(null); 
   const [loading, setLoading] = useState(true);
   
-  // 🚨 FIXED: The timeframe state is now safely inside the component!
   const [timeframe, setTimeframe] = useState("all"); 
   
   // User Modal State
@@ -64,7 +64,6 @@ export default function MasterAdminDashboard() {
     }
   };
 
-  // Separate effect that ONLY runs when the filter dropdown changes
   useEffect(() => {
     const fetchStats = async () => {
       const token = localStorage.getItem("fortrust_token");
@@ -152,7 +151,6 @@ export default function MasterAdminDashboard() {
   const qualifiedLeads = students.filter(s => s.status?.toUpperCase() === "QUALIFIED LEADS").length;
   const activeApps = students.filter(s => s.status?.toUpperCase() === "UNI APPLICATION").length;
   
-  // EXCHANGE ENGINE
   const totalCommissionUSD = students.reduce((sum, student) => {
     const earned = student.commission_earned || 0;
     const curr = student.currency || "USD";
@@ -165,14 +163,24 @@ export default function MasterAdminDashboard() {
   return (
     <div className="min-h-screen bg-[#f8fafc] p-8 font-sans space-y-6 relative max-w-[1600px] mx-auto">
       
+      {/* HEADER */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Master Admin Dashboard</h1>
           <p className="text-sm text-slate-500 mt-1">Global Pipeline, Commission, & Team Management</p>
         </div>
-        <button onClick={() => setIsUserModalOpen(true)} className="flex items-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-all">
-          + Create New User
-        </button>
+        <div className="flex gap-3">
+          <Link 
+            href="/dashboard/admin/commissions"
+            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-all"
+          >
+            <FileText size={18} />
+            Extract Commission PDF
+          </Link>
+          <button onClick={() => setIsUserModalOpen(true)} className="flex items-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm transition-all">
+            + Create New User
+          </button>
+        </div>
       </div>
 
       {/* DEAL CLOSED MODAL */}
@@ -269,7 +277,7 @@ export default function MasterAdminDashboard() {
         </div>
       </div>
 
-      {/* 2. PDF REQUIREMENT: PERFORMANCE REPORT GRIDS */}
+      {/* 2. PERFORMANCE REPORT GRIDS */}
       {stats && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mt-6">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
@@ -278,7 +286,6 @@ export default function MasterAdminDashboard() {
               <h3 className="text-lg font-bold text-[#282860]">Performance Report</h3>
             </div>
             
-            {/* THE WORKING FILTER DROPDOWN */}
             <div className="relative inline-block">
               <select 
                 value={timeframe} 
@@ -295,10 +302,7 @@ export default function MasterAdminDashboard() {
             </div>
           </div>
 
-          {/* THE 5-COLUMN GRID */}
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-            
-            {/* 1. Top Agents by Volume */}
             <div className="space-y-4">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Top Agents (Volume)</h4>
               <div className="space-y-3">
@@ -311,7 +315,6 @@ export default function MasterAdminDashboard() {
               </div>
             </div>
 
-            {/* 2. Top Agents by Revenue */}
             <div className="space-y-4">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-1">Top Agents (Revenue) <Medal size={12} className="text-[#BAD133]"/></h4>
               <div className="space-y-3">
@@ -324,7 +327,6 @@ export default function MasterAdminDashboard() {
               </div>
             </div>
 
-            {/* 3. Top Counsellors by Volume */}
             <div className="space-y-4">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Top Counsellors (Volume)</h4>
               <div className="space-y-3">
@@ -337,7 +339,6 @@ export default function MasterAdminDashboard() {
               </div>
             </div>
 
-            {/* 4. Top Counsellors by Revenue */}
             <div className="space-y-4">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-1">Top Counsellors (Revenue) <Medal size={12} className="text-purple-400"/></h4>
               <div className="space-y-3">
@@ -350,7 +351,6 @@ export default function MasterAdminDashboard() {
               </div>
             </div>
 
-            {/* 5. Top Institutions */}
             <div className="space-y-4">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-1">Top Institutions <Building2 size={12} className="text-slate-400"/></h4>
               <div className="space-y-3">
@@ -362,7 +362,6 @@ export default function MasterAdminDashboard() {
                 )) : <p className="text-xs text-slate-400 italic">No apps yet.</p>}
               </div>
             </div>
-
           </div>
         </div>
       )}
@@ -386,35 +385,52 @@ export default function MasterAdminDashboard() {
           </div>
         </div>
 
-        {/* Master Data Table */}
+        {/* Master Data Table 🚨 NOW WITH MARKETING DATA 🚨 */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[400px]">
           <div className="p-4 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-900">Master Pipeline Control</h3></div>
           <div className="flex-1 overflow-y-auto">
             <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 bg-slate-50 z-10">
-                <tr className="border-b border-slate-200 text-xs font-bold text-slate-500 tracking-wider uppercase">
-                  <th className="px-6 py-4">Student Name</th>
-                  <th className="px-6 py-4">Assigned To</th>
-                  <th className="px-6 py-4">Pipeline Status</th>
+              <thead className="sticky top-0 bg-slate-50 z-10 shadow-sm">
+                <tr className="border-b border-slate-200 text-[10px] font-black text-slate-500 tracking-wider uppercase">
+                  <th className="px-5 py-4">Student Name</th>
+                  <th className="px-5 py-4">Marketing Profile</th> {/* NEW COLUMN */}
+                  <th className="px-5 py-4">Assigned To</th>
+                  <th className="px-5 py-4">Pipeline Status</th>
                 </tr>
               </thead>
               <tbody className="text-sm divide-y divide-slate-100">
                 {students.map((student) => (
                   <tr key={student.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <span className="font-bold text-[#282860]">{student.name}</span>
-                      {student.status === "COMPLETED" && (
-                        <div className="text-[10px] font-bold text-emerald-600 mt-1 flex items-center gap-1">
-                          <DollarSign size={10}/>Earned: {student.currency || "USD"} {(student.commission_earned || 0).toLocaleString()}
-                        </div>
-                      )}
+                    
+                    {/* Column 1: Name & Contact */}
+                    <td className="px-5 py-4">
+                      <span className="font-bold text-[#282860] block">{student.name}</span>
+                      <span className="text-[11px] text-slate-500 block mt-0.5 truncate w-32">{student.email}</span>
+                      {student.phone && <span className="text-[11px] text-slate-500 block truncate w-32">WA: {student.phone}</span>}
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="relative inline-block w-48">
+
+                    {/* 🚨 Column 2: The New "Marketing Profile" (Hot/Warm/Cold + Source) 🚨 */}
+                    <td className="px-5 py-4">
+                      <div className="flex flex-col items-start gap-1.5">
+                        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                          student.lead_temperature === 'Hot Leads' ? 'bg-red-100 text-red-700 border border-red-200' :
+                          student.lead_temperature === 'Warm Leads' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
+                          'bg-blue-100 text-blue-700 border border-blue-200'
+                        }`}>
+                          {student.lead_temperature || "Cold Leads"}
+                        </span>
+                        {student.program_interest && <p className="text-[10px] font-bold text-slate-600 truncate max-w-[120px]" title={student.program_interest}>🎓 {student.program_interest}</p>}
+                        {student.lead_source && <p className="text-[10px] text-slate-500 truncate max-w-[120px]" title={student.lead_source}>🌐 {student.lead_source}</p>}
+                      </div>
+                    </td>
+
+                    {/* Column 3: Assignment Dropdown */}
+                    <td className="px-5 py-4">
+                      <div className="relative inline-block w-40">
                         <select 
                           value={student.assigned_to || "Unassigned"}
                           onChange={(e) => handleAssignAgent(student.id, student.status, e.target.value)}
-                          className="block w-full appearance-none bg-white border border-slate-200 text-slate-900 text-xs font-bold rounded-lg py-2 pl-3 pr-8 shadow-sm outline-none focus:border-[#282860]"
+                          className="block w-full appearance-none bg-white border border-slate-200 text-slate-900 text-xs font-bold rounded-lg py-2 pl-3 pr-8 shadow-sm outline-none focus:border-[#282860] cursor-pointer"
                         >
                           <option value="Unassigned">Unassigned</option>
                           {systemUsers.map(u => <option key={u.id} value={u.name}>{u.role} - {u.name}</option>)}
@@ -422,12 +438,14 @@ export default function MasterAdminDashboard() {
                         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400"><ChevronDown size={14} /></div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="relative inline-block w-40">
+
+                    {/* Column 4: Status Dropdown */}
+                    <td className="px-5 py-4">
+                      <div className="relative inline-block w-36">
                         <select 
                           value={student.status?.toUpperCase() || "NEW LEAD"}
                           onChange={(e) => handleStatusChange(student, e.target.value)}
-                          className={`block w-full appearance-none font-black text-[10px] tracking-wider rounded-lg py-2 pl-3 pr-8 outline-none shadow-sm
+                          className={`block w-full appearance-none font-black text-[9px] tracking-wider rounded-lg py-2 pl-3 pr-8 outline-none shadow-sm cursor-pointer
                             ${student.status?.toUpperCase() === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 
                               student.status?.toUpperCase() === 'QUALIFIED LEADS' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 
                               'bg-slate-100 text-slate-700 border border-slate-200'}`}
@@ -437,6 +455,7 @@ export default function MasterAdminDashboard() {
                         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-current opacity-50"><ChevronDown size={14} /></div>
                       </div>
                     </td>
+
                   </tr>
                 ))}
               </tbody>

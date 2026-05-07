@@ -58,6 +58,11 @@ def verify_schema():
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_type TEXT DEFAULT 'Individual Agent';")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS corporation_name TEXT DEFAULT '';")
+
+        # 🚨 NEW: Added Marketing Fields to prevent crashes!
+        cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS program_interest TEXT DEFAULT '';")
+        cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS lead_source TEXT DEFAULT '';")
+        cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS lead_temperature TEXT DEFAULT 'Cold Leads';")
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -83,7 +88,6 @@ def verify_token(authorization: str = Header(None)):
 # --- EMERGENCY BACKDOOR ---
 @app.get("/api/emergency-admin")
 def create_emergency_admin():
-    """Temporary backdoor to force-create a working admin account."""
     conn = get_db_connection()
     cur = conn.cursor()
     fresh_hash = bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode('utf-8')
@@ -94,7 +98,7 @@ def create_emergency_admin():
             VALUES ('Master Admin', 'admin@fortrust.com', %s, 'MASTER_ADMIN', 'Global')
         """, (fresh_hash,))
         conn.commit()
-        return {"status": "success", "message": "Emergency Admin created successfully! Go try logging in."}
+        return {"status": "success", "message": "Emergency Admin created successfully!"}
     except Exception as e:
         conn.rollback()
         return {"status": "error", "message": str(e)}
@@ -134,7 +138,6 @@ def login_user(req: LoginRequest):
             
     raise HTTPException(status_code=401, detail="Invalid email or password.")
 
-# 🚨 UPDATED: Model now accepts Agent details
 class NewUserRequest(BaseModel):
     name: str
     email: str
@@ -151,7 +154,6 @@ def create_user(req: NewUserRequest):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 🚨 UPDATED: Insert new fields
         cur.execute("""
             INSERT INTO users (name, email, password, role, branch, phone, agent_type, corporation_name) 
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -169,14 +171,12 @@ def create_user(req: NewUserRequest):
 def get_all_users():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    # 🚨 UPDATED: Fetch new fields
     cur.execute("SELECT id, name, email, role, branch, phone, agent_type, corporation_name FROM users ORDER BY id DESC")
     users = cur.fetchall()
     cur.close()
     conn.close()
     return {"status": "success", "data": users}
 
-# --- MASTER ADMIN DASHBOARD STATS ---
 # --- MASTER ADMIN DASHBOARD STATS ---
 @app.get("/api/admin/dashboard-stats")
 def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify_token)):
@@ -190,7 +190,6 @@ def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify
     users_db = cur.fetchall()
     user_roles = {u['name']: u['role'] for u in users_db}
 
-    # 🚨 NEW: Timeframe Filtering Logic
     query = "SELECT assignee, status, applications, commission_earned, created_at FROM students"
     if timeframe == "30days":
         query += " WHERE created_at >= NOW() - INTERVAL '30 days'"
@@ -255,7 +254,6 @@ def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify
         }
     }
 
-# --- 0.5 AI-POWERED PROGRAM FINDER ---
 @app.get("/api/programs/search")
 def ai_program_search(query: str = "Popular business degrees in Australia"):
     try:
@@ -272,7 +270,6 @@ def ai_program_search(query: str = "Popular business degrees in Australia"):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to search live universities.")
     
-# --- 1. GET ALL STUDENTS ENDPOINT ---
 @app.get("/api/pipeline")
 def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
@@ -287,7 +284,6 @@ def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(ve
     for s in students: s['id'] = str(s['id'])
     return {"status": "success", "data": students}
 
-# --- 2. CREATE NEW LEAD WITH MULTI-FILE UPLOAD ---
 @app.post("/api/pipeline")
 async def create_lead(
     name: str = Form(...), email: str = Form(""), phone: str = Form(""),
@@ -298,32 +294,27 @@ async def create_lead(
     extracted_pdf_text = ""
     saved_documents = [] 
     
-    # Combine all incoming files into a single list with their category tags
     all_files = [(f, "REPORT CARD") for f in report_cards] + [(f, "PSYCHOLOGY TEST") for f in psych_tests]
     
     for file, title in all_files:
-        if file and file.filename: # Ensure it is an actual uploaded file
+        if file and file.filename:
             if file.filename.endswith(('.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png')):
                 safe_filename = f"NEW_{title.replace(' ', '_')}_{file.filename}"
-                
-                # Read file into memory
                 file_bytes = await file.read()
                 
-                # CLOUD UPLOAD: Fire directly to Supabase
                 if supabase:
                     supabase.storage.from_("student-documents").upload(
                         path=safe_filename, file=file_bytes, file_options={"content-type": file.content_type}
                     )
                 saved_documents.append({"title": f"{title} - {file.filename}", "filename": safe_filename})
 
-                # AI READING (Only extract text if it's a PDF)
                 if file.filename.endswith('.pdf'):
                     try:
                         reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
                         extracted_pdf_text += f"\n\n--- [BEGIN {title} - {file.filename}] ---\n"
                         extracted_pdf_text += "\n".join([page.extract_text() or "" for page in reader.pages])
                     except Exception:
-                        pass # Silently skip if the PDF is encrypted or unreadable
+                        pass
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -336,7 +327,6 @@ async def create_lead(
     conn.close()
     return {"status": "success", "message": "Lead & Documents saved to Cloud!"}
 
-# --- 3. DELETE LEAD ENDPOINT ---
 @app.delete("/api/pipeline/{case_id}")
 def delete_lead(case_id: str):
     conn = get_db_connection()
@@ -347,7 +337,6 @@ def delete_lead(case_id: str):
     conn.close()
     return {"status": "success", "message": "Lead deleted."}
 
-# --- 4. ADD NOTE TO STUDENT TIMELINE ---
 class TimelineNote(BaseModel):
     note: str
     author: str
@@ -370,7 +359,6 @@ def add_timeline_note(case_id: str, req: TimelineNote):
     conn.close()
     return {"status": "success", "message": "Note added to timeline!"}
 
-# --- 5. UPDATE UNIVERSITY APPLICATIONS ---
 class ApplicationData(BaseModel):
     applications: list
 
@@ -385,7 +373,6 @@ def update_applications(case_id: str, req: ApplicationData):
     conn.close()
     return {"status": "success", "message": "Applications updated!"}
 
-# --- 6. SECURE CLOUD VAULT DOWNLOAD ---
 @app.get("/api/documents/{filename}")
 def download_document(filename: str, user_data: dict = Depends(verify_token)):
     try:
@@ -395,7 +382,6 @@ def download_document(filename: str, user_data: dict = Depends(verify_token)):
     except Exception as e:
         raise HTTPException(status_code=404, detail="Document not found in Cloud Vault.")
 
-# --- 7. AI ANTI-CHEAT COMMISSION VERIFIER ---
 @app.post("/api/pipeline/{case_id}/verify-commission")
 async def verify_comission(
     case_id: str, tuition: float = Form(...), commission_rate: float = Form(...), proof_document: UploadFile = File(...)
@@ -421,14 +407,13 @@ async def verify_comission(
             conn.commit()
             cur.close()
             conn.close()
-            return {"status": "success", "verified": True, "message": "Deal closed and commission locked.", "reason": result.get("reason")}
+            return {"status": "success", "verified": True, "message": "Deal closed.", "reason": result.get("reason")}
         else:
             return {"status": "error", "verified": False, "message": "Verification failed.", "reason": result.get("reason")}
             
     except Exception as e:
         raise HTTPException(status_code=500, detail="Verification system error.")
 
-# --- 8. AI GENERATORS (STRATEGY, EMAIL, WHATSAPP) ---
 class AIRequest(BaseModel):
     case_id: str 
 
@@ -436,7 +421,6 @@ class AIRequest(BaseModel):
 def get_ai_strategy(req: AIRequest):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    # Fetch all the necessary data to feed the Abigail prompt
     cur.execute("SELECT name, notes, pdf_text FROM students WHERE id = %s", (req.case_id,))
     student = cur.fetchone()
     cur.close()
@@ -445,14 +429,13 @@ def get_ai_strategy(req: AIRequest):
     if not student: 
         return {"status": "error", "report": "Student not found."}
 
-    # 🚨 NOW WE CALL YOUR MASTERPIECE FROM ai_report.py
     try:
         premium_report = generate_strategic_report(
             student_name=student['name'],
-            destination="Global (AI Recommended)", # You can make this dynamic later
-            budget=30000, # You can pull this from the DB later if you want
-            notes=student['notes'] or "No counselor notes provided yet.",
-            pdf_data=student['pdf_text'] or "No PDF documents uploaded."
+            destination="Global (AI Recommended)",
+            budget=30000,
+            notes=student['notes'] or "No notes provided.",
+            pdf_data=student['pdf_text'] or "No documents uploaded."
         )
         return {"status": "success", "report": premium_report}
     except Exception as e:
@@ -492,16 +475,14 @@ def draft_whatsapp_message(case_id: str):
     prompt = f"""
     You are a helpful education agent writing directly to your student.
     Draft a short, friendly, and supportive WhatsApp message to your student named {s['name']}.
-    Address the student directly (e.g., "Hi {s['name']}!"). Do not refer to them in the third person.
     Context - Status: {s['status']}. Timeline: {json.dumps(s['timeline'])}.
-    Keep it conversational and use emojis naturally.
     Return ONLY valid JSON: {{"message": "..."}}
     """
     response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
     clean_json = response.text.strip().replace("```json", "").replace("```", "")
     return {"status": "success", "data": json.loads(clean_json)}
 
-# --- 9. MARKETING MODULE: GOOGLE FORM INGEST & AUTO-FILTER ---
+# --- 9. MARKETING MODULE: GOOGLE FORM INGEST ---
 @app.post("/api/marketing/leads")
 async def create_marketing_lead(
     name: str = Form(...),
@@ -510,21 +491,13 @@ async def create_marketing_lead(
     program_interest: str = Form(""),
     lead_source: str = Form(""),
 ):
-    # 🧠 AUTO-FILTERING SYSTEM (Step 1 & 2)
     temperature = "Cold Leads"
     score = 0
-    
-    if wa_number.strip(): 
-        score += 1
-    if program_interest.strip(): 
-        score += 2
-        
-    if score >= 3:
-        temperature = "Hot Leads"
-    elif score >= 1:
-        temperature = "Warm Leads"
+    if wa_number.strip(): score += 1
+    if program_interest.strip(): score += 2
+    if score >= 3: temperature = "Hot Leads"
+    elif score >= 1: temperature = "Warm Leads"
 
-    # Save to Database
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -549,20 +522,16 @@ async def create_marketing_lead(
 @app.post("/api/admin/extract-commission")
 async def extract_commission_agreement(contract: UploadFile = File(...)):
     try:
-        # 1. Read the PDF File
         content = await contract.read()
         reader = PyPDF2.PdfReader(io.BytesIO(content))
         extracted_text = "".join([page.extract_text() or "" for page in reader.pages])
 
-        # 2. Force AI to extract the exact Client Checklist items
         prompt = f"""
-        You are a top-tier legal AI assistant for an education agency.
-        Read the following document.
-        
-        CRITICAL FAIL-SAFE: First, determine if this document is actually a University/College Commission Agreement or Contract. If it is NOT a valid contract, or if you cannot find an Institution Name, return this exact JSON:
+        You are a top-tier legal AI assistant for an education agency. Read the document.
+        CRITICAL FAIL-SAFE: If it is NOT a valid contract, or if you cannot find an Institution Name, return this exact JSON:
         {{ "is_valid": false, "error_message": "Sorry, we can't find anything regarding an Institution Name or Commission Agreement in this document. Please upload a valid contract." }}
         
-        If it IS a valid contract, extract the data and return ONLY a raw, valid JSON object (no markdown blocks) with this exact schema:
+        If valid, return ONLY raw JSON:
         {{
             "is_valid": true,
             "institution_name": "...",
@@ -575,11 +544,7 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
                 "Foundation": "...",
                 "Diploma": "...",
                 "Bachelor Year 1": "...",
-                "Bachelor Year 2": "...",
-                "Bachelor Year 3": "...",
-                "Bachelor Year 4": "...",
                 "Master Year 1": "...",
-                "Master Year 2": "...",
                 "PhD": "..."
             }}
         }}
@@ -587,29 +552,22 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
         CONTRACT TEXT:
         {extracted_text}
         """
-        
         if not client: raise HTTPException(status_code=500, detail="Gemini API key not configured.")
         response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        
-        # 3. Clean and return the data
         clean_json = response.text.strip().replace("```json", "").replace("```", "")
         return {"status": "success", "data": json.loads(clean_json)}
-        
     except Exception as e:
-        print(f"Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to parse University Contract.")
 
-# --- 11. THE MARKETING CSV BULK UPLOAD ENGINE ---
+# 🚨 THE FIXED CSV BULK UPLOAD ENGINE 🚨
 @app.post("/api/bulk-upload")
 async def bulk_upload_students(file: UploadFile = File(...)):
-    # 1. Strict File Validation (Fail-Safe)
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Invalid format. Strictly .csv files only.")
 
     try:
-        # 2. Read and decode the CSV in memory (super fast)
         content = await file.read()
-        decoded_content = content.decode('utf-8-sig') # utf-8-sig removes Excel's invisible BOM characters
+        decoded_content = content.decode('utf-8-sig') 
         reader = csv.DictReader(io.StringIO(decoded_content))
 
         conn = get_db_connection()
@@ -617,52 +575,40 @@ async def bulk_upload_students(file: UploadFile = File(...)):
 
         success_count = 0
 
-        # 3. Loop through every row in the spreadsheet
         for row in reader:
-            # Map the exact columns "Mami" requested from the G-Form
             name = row.get('Name', '').strip()
             email = row.get('Email (Active)', '').strip()
             phone = row.get('WA', '').strip()
             program = row.get('Program yang diminati', '').strip()
             source = row.get('How do you know about this event?', '').strip()
 
-            # Skip totally empty rows
             if not name or not email:
                 continue
 
-            # 4. INSTANT AUTO-GRADING AI (Cold/Warm/Hot)
-            # You can tweak these rules based on what the client considers "Hot"
-            status = "COLD LEAD"
-            if program and (source.lower() in ['website', 'direct inquiry', 'referral']):
-                status = "HOT LEAD"
-            elif program or source:
-                status = "WARM LEAD"
+            # Auto-Grader
+            temperature = "Cold Leads"
+            score = 0
+            if phone: score += 1
+            if program: score += 2
+            if score >= 3: temperature = "Hot Leads"
+            elif score >= 1: temperature = "Warm Leads"
 
-            # 5. Save to Database
+            # 🚨 FIX: Now uses `assignee` AND properly sets Hot/Warm/Cold tags!
             cur.execute("""
-                INSERT INTO students (name, email, phone, notes, status, assigned_to)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (
-                name, 
-                email, 
-                phone, 
-                f"Program: {program} | Source: {source}", # Saving their answers into the notes!
-                status, 
-                "Unassigned" # Leaves it in the Master Admin pool to be distributed
-            ))
+                INSERT INTO students (name, email, phone, program_interest, lead_source, lead_temperature, status, assignee)
+                VALUES (%s, %s, %s, %s, %s, %s, 'NEW LEAD', 'Unassigned')
+            """, (name, email, phone, program, source, temperature))
             
             success_count += 1
 
-        # 6. Commit the entire batch at once
         conn.commit()
-        
         return {
             "status": "success", 
             "message": f"Successfully imported and auto-graded {success_count} students!"
         }
 
     except Exception as e:
-        if 'conn' in locals(): conn.rollback() # Cancel the whole batch if one fails
+        if 'conn' in locals(): conn.rollback()
         print(f"Bulk Upload Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to process the CSV file. Please check your column headers.")
     finally:
