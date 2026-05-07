@@ -14,6 +14,7 @@ import json
 import io
 import jwt
 import PyPDF2
+import pandas as pd
 from dotenv import load_dotenv
 from google import genai
 from supabase import create_client, Client 
@@ -559,33 +560,44 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to parse University Contract.")
 
-# 🚨 THE FIXED CSV BULK UPLOAD ENGINE 🚨
+# --- 11. THE MARKETING EXCEL / CSV BULK UPLOAD ENGINE ---
 @app.post("/api/bulk-upload")
 async def bulk_upload_students(file: UploadFile = File(...)):
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail="Invalid format. Strictly .csv files only.")
+    # 1. Validasi File (Sekarang terima Excel dan CSV)
+    valid_extensions = ('.csv', '.xls', '.xlsx')
+    if not file.filename.lower().endswith(valid_extensions):
+        raise HTTPException(status_code=400, detail="Invalid format. Please upload an Excel (.xlsx) or .csv file.")
 
     try:
         content = await file.read()
-        decoded_content = content.decode('utf-8-sig') 
-        reader = csv.DictReader(io.StringIO(decoded_content))
+        
+        # 2. Baca file secara otomatis (Excel atau CSV) menggunakan Pandas
+        if file.filename.lower().endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(content))
+        else:
+            df = pd.read_excel(io.BytesIO(content))
+
+        # Bersihkan data (Ubah NaN/Null jadi string kosong supaya tidak error)
+        df = df.fillna('')
 
         conn = get_db_connection()
         cur = conn.cursor()
-
         success_count = 0
 
-        for row in reader:
-            name = row.get('Name', '').strip()
-            email = row.get('Email (Active)', '').strip()
-            phone = row.get('WA', '').strip()
-            program = row.get('Program yang diminati', '').strip()
-            source = row.get('How do you know about this event?', '').strip()
+        # 3. Looping semua baris di Excel
+        for index, row in df.iterrows():
+            # Menggunakan .get() supaya kalau kolom tidak ada, tidak langsung crash
+            name = str(row.get('Name', '')).strip()
+            email = str(row.get('Email (Active)', '')).strip()
+            phone = str(row.get('WA', '')).strip()
+            program = str(row.get('Program yang diminati', '')).strip()
+            source = str(row.get('How do you know about this event?', '')).strip()
 
+            # Skip baris yang kosong
             if not name or not email:
                 continue
 
-            # Auto-Grader
+            # 4. Auto-Grader
             temperature = "Cold Leads"
             score = 0
             if phone: score += 1
@@ -593,7 +605,7 @@ async def bulk_upload_students(file: UploadFile = File(...)):
             if score >= 3: temperature = "Hot Leads"
             elif score >= 1: temperature = "Warm Leads"
 
-            # 🚨 FIX: Now uses `assignee` AND properly sets Hot/Warm/Cold tags!
+            # 5. Simpan ke Database
             cur.execute("""
                 INSERT INTO students (name, email, phone, program_interest, lead_source, lead_temperature, status, assignee)
                 VALUES (%s, %s, %s, %s, %s, %s, 'NEW LEAD', 'Unassigned')
@@ -604,13 +616,13 @@ async def bulk_upload_students(file: UploadFile = File(...)):
         conn.commit()
         return {
             "status": "success", 
-            "message": f"Successfully imported and auto-graded {success_count} students!"
+            "message": f"Berhasil mengunggah dan memfilter {success_count} data dari Excel!"
         }
 
     except Exception as e:
         if 'conn' in locals(): conn.rollback()
         print(f"Bulk Upload Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to process the CSV file. Please check your column headers.")
+        raise HTTPException(status_code=500, detail="Gagal membaca file Excel. Pastikan nama kolom sesuai format.")
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
