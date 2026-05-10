@@ -22,8 +22,6 @@ export default function PipelinePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiReport, setAiReport] = useState<string>("");
-  
-  // Email Drafter State
   const [isDraftingEmail, setIsDraftingEmail] = useState(false);
   const [isDraftingWA, setIsDraftingWA] = useState(false);
 
@@ -37,11 +35,8 @@ export default function PipelinePage() {
   const [newEmail, setNewEmail] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [bulkFile, setBulkFile] = useState<File | null>(null);
-  
-  // Array states for multiple file uploads
   const [reportCardFiles, setReportCardFiles] = useState<File[]>([]);
   const [psychTestFiles, setPsychTestFiles] = useState<File[]>([]);
-  
   const [slideOutReportCard, setSlideOutReportCard] = useState<File | null>(null);
   const [slideOutPsychTest, setSlideOutPsychTest] = useState<File | null>(null);
 
@@ -66,13 +61,11 @@ export default function PipelinePage() {
     }
   }, []);
 
-const fetchStudents = (role: string, agentName: string) => {
+  const fetchStudents = (role: string, agentName: string) => {
     const token = localStorage.getItem("fortrust_token");
 
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`, {
-      headers: {
-        "Authorization": `Bearer ${token}` 
-      }
+      headers: { "Authorization": `Bearer ${token}` }
     })
       .then((res) => {
         if (res.status === 401) {
@@ -84,15 +77,18 @@ const fetchStudents = (role: string, agentName: string) => {
       })
       .then((data) => {
         if (data && data.status === "success") {
-          setStudents(data.data);
-          if (selectedStudent) {
-            const updatedProfile = data.data.find((s: any) => s.id === selectedStudent.id);
-            if (updatedProfile) setSelectedStudent(updatedProfile);
-          }
+          setStudents(Array.isArray(data.data) ? data.data : []);
+          setSelectedStudent((prev: any) => {
+            if (!prev) return null;
+            return data.data.find((s: any) => s.id === prev.id) || prev;
+          });
         }
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        console.error("Fetch Error:", err);
+        setLoading(false);
+      });
   };
 
   const getStatusColor = (status: string) => {
@@ -112,17 +108,36 @@ const fetchStudents = (role: string, agentName: string) => {
     formData.append("phone", newPhone);
     formData.append("assignee", user?.name || "Unassigned");
     
-    // Append multiple files for the backend list
-    reportCardFiles.forEach(file => formData.append("report_cards", file));
-    psychTestFiles.forEach(file => formData.append("psych_tests", file));
+    if (reportCardFiles.length === 0) {
+      formData.append("report_cards", new File([""], "empty.txt", { type: "text/plain" }));
+    } else {
+      reportCardFiles.forEach(file => formData.append("report_cards", file));
+    }
+
+    if (psychTestFiles.length === 0) {
+      formData.append("psych_tests", new File([""], "empty.txt", { type: "text/plain" }));
+    } else {
+      psychTestFiles.forEach(file => formData.append("psych_tests", file));
+    }
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, { method: "POST", body: formData });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, { method: "POST", body: formData });
+      
+      if (!res.ok) {
+        const err = await res.json();
+        alert(`Error: ${JSON.stringify(err.detail || "Failed to save lead.")}`);
+        return;
+      }
+
       setIsSingleModalOpen(false); 
       setNewName(""); setNewEmail(""); setNewPhone(""); 
       setReportCardFiles([]); setPsychTestFiles([]);
       fetchStudents(user.role, user.name);       
-    } catch (error) { alert("Error saving lead."); } finally { setIsSaving(false); }
+    } catch (error) { 
+      alert("Network Error: Could not reach the server."); 
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   const handleBulkImport = async () => {
@@ -134,6 +149,10 @@ const fetchStudents = (role: string, agentName: string) => {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/bulk`, { method: "POST", body: formData });
       const result = await response.json();
+      if (!response.ok) {
+        alert(result.detail || "Import failed.");
+        return;
+      }
       alert(result.message || "Import complete.");
       setIsBulkModalOpen(false); setBulkFile(null); fetchStudents(user.role, user.name);
     } catch (error) { alert("Error parsing document."); } finally { setIsSaving(false); }
@@ -213,7 +232,7 @@ const fetchStudents = (role: string, agentName: string) => {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ case_id: studentId }), 
       });
       const result = await response.json();
-      setAiReport(result.report || "Failed to generate.");
+      setAiReport(result.report || "Failed to generate report.");
     } catch (error) { setAiReport("Network Error."); } finally { setIsGenerating(false); }
   };
 
@@ -221,46 +240,30 @@ const fetchStudents = (role: string, agentName: string) => {
     if (!selectedStudent) return;
     setIsDraftingEmail(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-email`, {
-        method: "POST"
-      });
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-email`, { method: "POST" });
       const data = await response.json();
       if (data.status === "success") {
         const mailtoLink = `mailto:${selectedStudent.email}?subject=${encodeURIComponent(data.data.subject)}&body=${encodeURIComponent(data.data.body)}`;
         window.location.href = mailtoLink;
-      } else {
-        alert("Failed to draft email.");
-      }
-    } catch (error) {
-      alert("Network error drafting email.");
-    } finally {
-      setIsDraftingEmail(false);
-    }
+      } else { alert("Failed to draft email."); }
+    } catch (error) { alert("Network error drafting email."); } finally { setIsDraftingEmail(false); }
   };
 
   const handleDraftWhatsApp = async () => {
     if (!selectedStudent) return;
     setIsDraftingWA(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-whatsapp`, {
-        method: "POST"
-      });
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-whatsapp`, { method: "POST" });
       const data = await response.json();
       if (data.status === "success") {
         const phone = selectedStudent.phone?.replace(/\D/g, '');
         const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(data.data.message)}`;
         window.open(waLink, '_blank');
-      } else {
-        alert("Failed to draft WhatsApp message.");
-      }
-    } catch (error) {
-      alert("Network error drafting WhatsApp.");
-    } finally {
-      setIsDraftingWA(false);
-    }
+      } else { alert("Failed to draft WhatsApp message."); }
+    } catch (error) { alert("Network error drafting WhatsApp."); } finally { setIsDraftingWA(false); }
   };
 
-  const activeTasks = students.flatMap(student => 
+  const activeTasks = (students || []).flatMap(student => 
     (student.timeline || [])
       .filter((t: any) => t.reminder_date)
       .map((t: any) => ({ ...t, studentName: student.name, studentId: student.id }))
@@ -268,8 +271,6 @@ const fetchStudents = (role: string, agentName: string) => {
 
   return (
     <div className="space-y-6 relative p-8">
-      
-      {/* HEADER */}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Student Pipeline</h2>
@@ -277,18 +278,13 @@ const fetchStudents = (role: string, agentName: string) => {
         </div>
         <div className="flex gap-3">
           <button onClick={() => setIsBulkModalOpen(true)} className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"><UploadCloud size={18} className="text-[#282860]" /> Bulk Expo Scan</button>
-          <button onClick={() => setIsSingleModalOpen(true)} className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-[#282860]/20">+ Add student Data</button>
+          <button onClick={() => setIsSingleModalOpen(true)} className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-[#282860]/20">+ Add Student Data</button>
         </div>
       </div>
 
-      {/* TASK DASHBOARD WIDGET */}
       {activeTasks.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Calendar className="text-[#BAD133]" size={20} />
-            <h3 className="text-lg font-bold text-[#282860]">My Action Items</h3>
-            <span className="bg-[#BAD133]/20 text-[#282860] text-xs font-bold px-2 py-0.5 rounded-full ml-2">{activeTasks.length}</span>
-          </div>
+          <div className="flex items-center gap-2 mb-4"><Calendar className="text-[#BAD133]" size={20} /><h3 className="text-lg font-bold text-[#282860]">My Action Items</h3><span className="bg-[#BAD133]/20 text-[#282860] text-xs font-bold px-2 py-0.5 rounded-full ml-2">{activeTasks.length}</span></div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {activeTasks.slice(0, 3).map((task, i) => (
               <div key={i} className="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col justify-between group hover:border-[#BAD133] transition-colors">
@@ -313,72 +309,16 @@ const fetchStudents = (role: string, agentName: string) => {
         </DialogContent>
       </Dialog>
 
-      {/* UPDATED STUDENT DATA MODAL */}
       <Dialog open={isSingleModalOpen} onOpenChange={setIsSingleModalOpen}>
         <DialogContent className="rounded-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="text-xl">Add student Data</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="text-xl">Add Student Data</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-4">
-            <div className="space-y-1.5">
-              <Label className="text-slate-600">Full Name (Sesuai Passport)</Label>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} className="focus-visible:ring-[#BAD133]" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5"><Label className="text-slate-600">Email</Label><Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="focus-visible:ring-[#BAD133]" /></div>
-              <div className="space-y-1.5"><Label className="text-slate-600">Phone</Label><Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} className="focus-visible:ring-[#BAD133]" /></div>
-            </div>
+            <div className="space-y-1.5"><Label className="text-slate-600">Full Name (As per Passport)</Label><Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. John Doe" className="focus-visible:ring-[#BAD133]" /></div>
+            <div className="grid grid-cols-2 gap-4"><div className="space-y-1.5"><Label className="text-slate-600">Email Address</Label><Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="john@example.com" className="focus-visible:ring-[#BAD133]" /></div><div className="space-y-1.5"><Label className="text-slate-600">Phone Number</Label><Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="+1 555..." className="focus-visible:ring-[#BAD133]" /></div></div>
             
             <div className="space-y-4 pt-4 border-t border-slate-100 mt-2">
-              
-              {/* Multi-File Report Card */}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">1. School Report Card (Optional)</Label>
-                <div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group">
-                  <Input 
-                    type="file" 
-                    multiple
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" 
-                    onChange={(e) => setReportCardFiles(Array.from(e.target.files || []))} 
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-                  />
-                  <div className="flex flex-col items-center justify-center pointer-events-none">
-                    <UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" />
-                    <span className="font-semibold text-[#282860] text-sm">Upload File</span>
-                    <span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - Bisa pilih lebih dari 1 file)</span>
-                  </div>
-                </div>
-                {reportCardFiles.length > 0 && (
-                  <div className="flex flex-col items-end">
-                    <p className="text-xs font-semibold text-[#BAD133] mt-1">{reportCardFiles.length} file(s) selected</p>
-                    {reportCardFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}
-                  </div>
-                )}
-              </div>
-
-              {/* Multi-File Psych Test */}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">2. Psychology / Profiling Test (Optional)</Label>
-                <div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group">
-                  <Input 
-                    type="file" 
-                    multiple
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" 
-                    onChange={(e) => setPsychTestFiles(Array.from(e.target.files || []))} 
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" 
-                  />
-                  <div className="flex flex-col items-center justify-center pointer-events-none">
-                    <UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" />
-                    <span className="font-semibold text-[#282860] text-sm">Upload File</span>
-                    <span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - Bisa pilih lebih dari 1 file)</span>
-                  </div>
-                </div>
-                {psychTestFiles.length > 0 && (
-                  <div className="flex flex-col items-end">
-                    <p className="text-xs font-semibold text-[#BAD133] mt-1">{psychTestFiles.length} file(s) selected</p>
-                    {psychTestFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}
-                  </div>
-                )}
-              </div>
-
+              <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">1. School Report Card (Optional)</Label><div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group"><Input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setReportCardFiles(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" /><div className="flex flex-col items-center justify-center pointer-events-none"><UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" /><span className="font-semibold text-[#282860] text-sm">Upload File</span><span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - You can select multiple files)</span></div></div>{reportCardFiles.length > 0 && (<div className="flex flex-col items-end"><p className="text-xs font-semibold text-[#BAD133] mt-1">{reportCardFiles.length} file(s) selected</p>{reportCardFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}</div>)}</div>
+              <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">2. Psychology / Profiling Test (Optional)</Label><div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group"><Input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setPsychTestFiles(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" /><div className="flex flex-col items-center justify-center pointer-events-none"><UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" /><span className="font-semibold text-[#282860] text-sm">Upload File</span><span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - You can select multiple files)</span></div></div>{psychTestFiles.length > 0 && (<div className="flex flex-col items-end"><p className="text-xs font-semibold text-[#BAD133] mt-1">{psychTestFiles.length} file(s) selected</p>{psychTestFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}</div>)}</div>
             </div>
             <button onClick={handleSaveLead} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white py-3 rounded-xl mt-4 font-medium disabled:opacity-50 transition-colors shadow-md shadow-[#282860]/10">{isSaving ? "Saving..." : "Create Profile"}</button>
           </div>
@@ -390,7 +330,7 @@ const fetchStudents = (role: string, agentName: string) => {
         {loading ? (
           <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing pipeline...</div>
         ) : students.length === 0 ? (
-           <div className="p-16 text-center text-slate-500"><FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" /><p className="font-medium text-slate-700">No students found.</p></div>
+           <div className="p-16 text-center text-slate-500"><FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" /><p className="font-medium text-slate-700">No assigned students found.</p></div>
         ) : (
           <table className="w-full text-left">
             <thead>
@@ -438,24 +378,12 @@ const fetchStudents = (role: string, agentName: string) => {
               <div className="p-6 pb-2 space-y-3">
                 <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest">Contact Information</p>
                 <div className="flex gap-2">
-                  <div className="flex-1 flex items-center gap-3 text-sm font-medium text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100">
-                    <Mail size={16} className="text-slate-400" /> {selectedStudent.email}
-                  </div>
-                  <button onClick={handleDraftEmail} disabled={isDraftingEmail} className="flex items-center justify-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI Email">
-                    <Sparkles size={14} className={isDraftingEmail ? "animate-spin text-[#BAD133]" : "text-[#BAD133]"} />
-                    {isDraftingEmail ? "Drafting..." : "AI Email"}
-                  </button>
+                  <div className="flex-1 flex items-center gap-3 text-sm font-medium text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100"><Mail size={16} className="text-slate-400" /> {selectedStudent.email}</div>
+                  <button onClick={handleDraftEmail} disabled={isDraftingEmail} className="flex items-center justify-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI Email"><Sparkles size={14} className={isDraftingEmail ? "animate-spin text-[#BAD133]" : "text-[#BAD133]"} />{isDraftingEmail ? "Drafting..." : "AI Email"}</button>
                 </div>
-
                 <div className="flex gap-2">
-                  <a href={`https://wa.me/${selectedStudent.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-3 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-sm shadow-emerald-100/50 group" title="Open empty WhatsApp chat">
-                    <MessageCircle size={18} className="text-emerald-500 group-hover:text-emerald-600" /> {selectedStudent.phone}
-                    <span className="text-[10px] bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded-full ml-auto uppercase tracking-wider">Empty Chat</span>
-                  </a>
-                  <button onClick={handleDraftWhatsApp} disabled={isDraftingWA} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI WhatsApp Message">
-                    <Sparkles size={14} className={isDraftingWA ? "animate-spin text-emerald-200" : "text-emerald-200"} />
-                    {isDraftingWA ? "Drafting..." : "AI Text"}
-                  </button>
+                  <a href={`https://wa.me/${selectedStudent.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-3 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-sm shadow-emerald-100/50 group" title="Open empty WhatsApp chat"><MessageCircle size={18} className="text-emerald-500 group-hover:text-emerald-600" /> {selectedStudent.phone}<span className="text-[10px] bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded-full ml-auto uppercase tracking-wider">Empty Chat</span></a>
+                  <button onClick={handleDraftWhatsApp} disabled={isDraftingWA} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI WhatsApp Message"><Sparkles size={14} className={isDraftingWA ? "animate-spin text-emerald-200" : "text-emerald-200"} />{isDraftingWA ? "Drafting..." : "AI Text"}</button>
                 </div>
               </div>
 
@@ -464,29 +392,13 @@ const fetchStudents = (role: string, agentName: string) => {
                 <div className="space-y-3 mb-5">
                   {selectedStudent.applications && selectedStudent.applications.length > 0 ? (
                     selectedStudent.applications.map((app: any) => (
-                      <div key={app.id} className="bg-white border border-slate-200 p-3.5 rounded-xl shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <p className="font-bold text-[#282860] text-sm flex items-center gap-1.5"><Building size={14} className="text-slate-400"/> {app.university}</p>
-                            <p className="text-xs text-slate-500 mt-0.5">{app.program}</p>
-                          </div>
-                          <select value={app.status} onChange={(e) => handleUpdateAppStatus(app.id, e.target.value)} className={`text-[10px] font-bold uppercase tracking-wider py-1 px-2 rounded-md outline-none border cursor-pointer ${getStatusColor(app.status)}`}>
-                            <option value="Pending">Pending</option>
-                            <option value="Offer Received">Offer Received</option>
-                            <option value="Accepted">Accepted (Enrolled)</option>
-                            <option value="Rejected">Rejected</option>
-                          </select>
-                        </div>
-                      </div>
+                      <div key={app.id} className="bg-white border border-slate-200 p-3.5 rounded-xl shadow-sm"><div className="flex justify-between items-start mb-2"><div><p className="font-bold text-[#282860] text-sm flex items-center gap-1.5"><Building size={14} className="text-slate-400"/> {app.university}</p><p className="text-xs text-slate-500 mt-0.5">{app.program}</p></div><select value={app.status} onChange={(e) => handleUpdateAppStatus(app.id, e.target.value)} className={`text-[10px] font-bold uppercase tracking-wider py-1 px-2 rounded-md outline-none border cursor-pointer ${getStatusColor(app.status)}`}><option value="Pending">Pending</option><option value="Offer Received">Offer Received</option><option value="Accepted">Accepted (Enrolled)</option><option value="Rejected">Rejected</option></select></div></div>
                     ))
                   ) : (<div className="text-xs text-slate-400 italic text-center py-2">No applications started yet.</div>)}
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                   <p className="text-xs font-bold text-slate-600">Add New Application</p>
-                  <div className="space-y-2">
-                    <Input placeholder="e.g. Monash University" value={newAppUni} onChange={(e) => setNewAppUni(e.target.value)} className="text-xs bg-white" />
-                    <Input placeholder="e.g. Bachelor of Business" value={newAppProg} onChange={(e) => setNewAppProg(e.target.value)} className="text-xs bg-white" />
-                  </div>
+                  <div className="space-y-2"><Input placeholder="e.g. Monash University" value={newAppUni} onChange={(e) => setNewAppUni(e.target.value)} className="text-xs bg-white" /><Input placeholder="e.g. Bachelor of Business" value={newAppProg} onChange={(e) => setNewAppProg(e.target.value)} className="text-xs bg-white" /></div>
                   <button onClick={handleAddApplication} disabled={!newAppUni || !newAppProg || isSaving} className="w-full bg-white hover:bg-slate-100 text-[#282860] border border-slate-200 font-bold py-2 rounded-lg text-xs transition-colors flex items-center justify-center gap-1 disabled:opacity-50"><Plus size={14}/> Add to Tracker</button>
                 </div>
               </div>
