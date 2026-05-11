@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Mail, Loader2, ArrowRight, ShieldCheck } from "lucide-react";
+import { Lock, Mail, Loader2, ArrowRight, ShieldCheck, Link } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -109,10 +109,15 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
+           <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Password</label>
-                  <a href="#" className="text-xs font-bold text-[#BAD133] hover:text-[#9bb029] transition-colors">Forgot Password?</a>
+                  
+                  {/* 🚨 CHANGED: a tag replaced with Next.js Link */}
+                  <Link href="/forgot-password" className="text-xs font-bold text-[#BAD133] hover:text-[#9bb029] transition-colors">
+                    Forgot Password?
+                  </Link>
+                  
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
