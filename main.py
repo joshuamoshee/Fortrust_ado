@@ -15,6 +15,9 @@ import io
 import jwt
 import PyPDF2
 import pandas as pd
+import requests
+from datetime import datetime, timedelta
+from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 from google import genai
 from supabase import create_client, Client 
@@ -626,3 +629,73 @@ async def bulk_upload_students(file: UploadFile = File(...)):
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
+
+# =====================================================================
+# --- 12. AUTHENTICATION & PASSWORD RESET ---
+# =====================================================================
+
+# Define what data we expect from Next.js
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(request: ForgotPasswordRequest):
+    # 1. Generate a secure reset token (valid for 1 hour)
+    # We use your existing JWT_SECRET from your .env file
+    secret_key = os.getenv("JWT_SECRET", "fallback-secret-key-change-me")
+    expiration = datetime.utcnow() + timedelta(hours=1)
+    
+    reset_token = jwt.encode(
+        {"sub": request.email, "exp": expiration.timestamp()}, 
+        secret_key, 
+        algorithm="HS256"
+    )
+
+    # 2. Build the clickable link that goes back to your Vercel website
+    # IMPORTANT: Change this to your ACTUAL live Vercel URL!
+    frontend_url = "https://fortrust-frontend.vercel.app" 
+    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+
+    # 3. Get SendGrid ready
+    sg_api_key = os.getenv("SENDGRID_API_KEY")
+    sg_from_email = os.getenv("SENDGRID_FROM_EMAIL")
+
+    if not sg_api_key or not sg_from_email:
+        raise HTTPException(status_code=500, detail="SendGrid keys are missing on the server.")
+
+    headers = {
+        "Authorization": f"Bearer {sg_api_key}",
+        "Content-Type": "application/json"
+    }
+
+    # 4. Draft the Email
+    payload = {
+        "personalizations": [{
+            "to": [{"email": request.email}],
+            "subject": "Fortrust - Password Reset Request"
+        }],
+        "from": {"email": sg_from_email, "name": "Fortrust System"},
+        "content": [{
+            "type": "text/html",
+            "value": f"""
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                <h2 style="color: #282860; margin-bottom: 24px;">Fortrust OS Password Reset</h2>
+                <p style="color: #475569; font-size: 16px;">Hello,</p>
+                <p style="color: #475569; font-size: 16px;">You recently requested to reset your password for your Fortrust account. Click the button below to proceed:</p>
+                <div style="text-align: center; margin: 32px 0;">
+                    <a href="{reset_link}" style="display: inline-block; padding: 14px 28px; background-color: #BAD133; color: #282860; font-weight: bold; text-decoration: none; border-radius: 8px;">Reset My Password</a>
+                </div>
+                <p style="margin-top: 32px; font-size: 13px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px;">If you did not request this, please ignore this email. This link will expire in 1 hour.</p>
+            </div>
+            """
+        }]
+    }
+
+    # 5. Fire the email off to SendGrid
+    response = requests.post("https://api.sendgrid.com/v3/mail/send", json=payload, headers=headers)
+
+    if response.status_code >= 400:
+        print("SendGrid Error:", response.text)
+        raise HTTPException(status_code=500, detail="Failed to send email.")
+
+    return {"status": "success", "message": "Password reset email sent!"}
