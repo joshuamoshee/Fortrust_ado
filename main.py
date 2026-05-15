@@ -699,3 +699,58 @@ def forgot_password(request: ForgotPasswordRequest):
         raise HTTPException(status_code=500, detail="Failed to send email.")
 
     return {"status": "success", "message": "Password reset email sent!"}
+
+# --- Pydantic model for the incoming data ---
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+# --- The actual reset endpoint ---
+@app.post("/api/auth/reset-password")
+def execute_reset_password(request: ResetPasswordRequest):
+    try:
+        # 1. Unlock the token to see who it belongs to
+        secret_key = os.getenv("JWT_SECRET", "fallback-secret-key-change-me")
+        
+        # This will automatically crash if the token is expired or fake!
+        payload = jwt.decode(request.token, secret_key, algorithms=["HS256"])
+        email = payload.get("sub")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid security token.")
+
+        # 2. Cryptographically hash the new password (NEVER save plain text passwords)
+        from passlib.context import CryptContext
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        hashed_password = pwd_context.hash(request.new_password)
+
+        # 3. Save it to the database
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        # IMPORTANT: Change 'users' and 'password' to match your actual database table/column names!
+        cur.execute("""
+            UPDATE users 
+            SET password = %s 
+            WHERE email = %s
+        """, (hashed_password, email))
+        
+        # If no rows were updated, the email doesn't exist in the database
+        if cur.rowcount == 0:
+            conn.rollback()
+            raise HTTPException(status_code=404, detail="User not found in the database.")
+
+        conn.commit()
+        return {"status": "success", "message": "Password updated successfully."}
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Invalid or corrupted security token.")
+    except Exception as e:
+        if 'conn' in locals(): conn.rollback()
+        print(f"Reset Password Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database error while saving new password.")
+    finally:
+        if 'cur' in locals(): cur.close()
+        if 'conn' in locals(): conn.close()
