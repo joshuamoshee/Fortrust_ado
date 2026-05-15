@@ -131,7 +131,7 @@ def login_user(req: LoginRequest):
             token_data = {
                 "id": user['id'], 
                 "role": user['role'], 
-                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+                "exp": datetime.utcnow() + timedelta(hours=24)
             }
             token = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
             return {
