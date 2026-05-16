@@ -21,6 +21,8 @@ from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 from google import genai
 from supabase import create_client, Client 
+from typing import Optional
+from passlib.context import CryptContext
 
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -754,3 +756,141 @@ def execute_reset_password(request: ResetPasswordRequest):
     finally:
         if 'cur' in locals(): cur.close()
         if 'conn' in locals(): conn.close()
+
+# 1. Define the password hasher globally right here!
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# 2. Your app starts here
+app = FastAPI()
+
+# =====================================================================
+# --- 13. RBAC SECURITY & USER CRUD ---
+# =====================================================================
+
+# --- 1. The RBAC Security Lock ---
+def get_current_master_admin(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authentication token.")
+    
+    token = authorization.split(" ")[1]
+    secret_key = os.getenv("JWT_SECRET", "fallback-secret-key-change-me")
+    
+    try:
+        # Open the token and read the payload
+        payload = jwt.decode(token, secret_key, algorithms=["HS256"])
+        role = payload.get("role")
+        
+        # THE BOUNCER: If they aren't a Master Admin, kick them out immediately
+        if role != "Master Admin":
+            raise HTTPException(status_code=403, detail="Access Forbidden: Master Admin privileges required.")
+            
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired. Please log in again.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token.")
+
+# --- 2. Data Models (What Next.js sends to Python) ---
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    role: str  # e.g., "Master Admin", "Agent", "Micro Agent"
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+
+# --- 3. The CRUD Endpoints ---
+
+# CREATE: Add a new employee
+@app.post("/api/users", dependencies=[Depends(get_current_master_admin)])
+def create_user(user: UserCreate):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Check if email already exists
+        cur.execute("SELECT id FROM users WHERE email = %s", (user.email,))
+        if cur.fetchone():
+            raise HTTPException(status_code=400, detail="Email already registered in the system.")
+            
+        # Hash the password securely
+        hashed_password = pwd_context.hash(user.password)
+        
+        # Insert new user
+        cur.execute("""
+            INSERT INTO users (name, email, password, role) 
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """, (user.name, user.email, hashed_password, user.role))
+        
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return {"status": "success", "message": "User created successfully", "user_id": new_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+        conn.close()
+
+# READ: Get a list of all employees (Hides passwords for security!)
+@app.get("/api/users", dependencies=[Depends(get_current_master_admin)])
+def get_all_users():
+    conn = get_db_connection()
+    # Use RealDictCursor so it returns JSON objects instead of arrays
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) 
+    try:
+        # Notice we DO NOT select the password column here. Never send hashes to the frontend.
+        cur.execute("SELECT id, name, email, role FROM users ORDER BY name ASC")
+        users = cur.fetchall()
+        return {"status": "success", "data": users}
+    finally:
+        cur.close()
+        conn.close()
+
+# UPDATE: Change an employee's name or role
+@app.put("/api/users/{user_id}", dependencies=[Depends(get_current_master_admin)])
+def update_user(user_id: int, user: UserUpdate):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Build the dynamic SQL query based on what Next.js actually sent
+        updates = []
+        params = []
+        if user.name:
+            updates.append("name = %s")
+            params.append(user.name)
+        if user.role:
+            updates.append("role = %s")
+            params.append(user.role)
+            
+        if not updates:
+            raise HTTPException(status_code=400, detail="No data provided to update.")
+            
+        params.append(user_id)
+        query = f"UPDATE users SET {', '.join(updates)} WHERE id = %s"
+        
+        cur.execute(query, tuple(params))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="User not found.")
+            
+        conn.commit()
+        return {"status": "success", "message": "User updated successfully."}
+    finally:
+        cur.close()
+        conn.close()
+
+# DELETE: Remove an employee
+@app.delete("/api/users/{user_id}", dependencies=[Depends(get_current_master_admin)])
+def delete_user(user_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="User not found.")
+        conn.commit()
+        return {"status": "success", "message": "User permanently deleted."}
+    finally:
+        cur.close()
+        conn.close()
