@@ -86,6 +86,22 @@ def verify_schema():
 
 verify_schema() 
 
+# --- AUDIT LOG ENGINE ---
+def log_audit_event(conn, action: str, entity: str, entity_id: str, changed_by: str, details: dict = None):
+    """
+    Silently records who did what in the database.
+    Does NOT commit the connection (relies on the parent function to commit).
+    """
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO audit_logs (action, entity, entity_id, changed_by, details)
+            VALUES (%s, %s, %s, %s, %s::jsonb)
+        """, (action, entity, str(entity_id), changed_by, json.dumps(details or {})))
+        cur.close()
+    except Exception as e:
+        print(f"⚠️ Audit Log Failed: {str(e)}") # We print but don't crash the main app
+
 # --- THE BOUNCER (Security Check) ---
 def verify_token(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
@@ -392,31 +408,51 @@ class UpdateLeadRequest(BaseModel):
     commission_rate: Optional[float] = None
     currency: Optional[str] = None
 
-# 1. Update Student Status & Assignment (Used by Admin Dashboard)
+# 1. Update Student Status & Assignment (Wired with Audit Log)
 @app.put("/api/pipeline/{case_id}")
-def update_lead(case_id: str, req: UpdateLeadRequest):
+def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         updates = []
         params = []
+        audit_details = {}
+        
         if req.status is not None:
             updates.append("status = %s")
             params.append(req.status)
+            audit_details["new_status"] = req.status
+            
         if req.assigned_to is not None:
             updates.append("assignee = %s")
             params.append(req.assigned_to)
+            audit_details["new_assignee"] = req.assigned_to
             
-        # Automatically log commission if a deal is closed in the dashboard
         if req.tuition and req.commission_rate:
+            earned = req.tuition * (req.commission_rate / 100)
             updates.append("commission_earned = %s")
-            params.append(req.tuition * (req.commission_rate / 100))
+            params.append(earned)
+            audit_details["commission_logged"] = earned
             
         if not updates:
             return {"status": "success", "message": "Nothing to update."}
 
         params.append(case_id)
         cur.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = %s", tuple(params))
+        
+        # 🚨 THE SURVEILLANCE CAMERA IN ACTION 🚨
+        # Extract the name of the person who clicked the button from the JWT Token
+        agent_name = user_data.get("name", "Unknown Admin") if user_data else "Unknown"
+        
+        log_audit_event(
+            conn=conn, 
+            action="UPDATE", 
+            entity="Student", 
+            entity_id=case_id, 
+            changed_by=agent_name, 
+            details=audit_details
+        )
+        
         conn.commit()
         return {"status": "success"}
     except Exception as e:
@@ -426,12 +462,13 @@ def update_lead(case_id: str, req: UpdateLeadRequest):
         cur.close()
         conn.close()
 
-# 2. Upload Documents to an Existing Student (Used by Agent Slide-out Panel)
+# 2. Upload Documents to an Existing Student (Wired with Audit Log)
 @app.put("/api/pipeline/{case_id}/document")
 async def upload_additional_document(
     case_id: str, 
     report_card: UploadFile = File(None), 
-    psych_test: UploadFile = File(None)
+    psych_test: UploadFile = File(None),
+    user_data: dict = Depends(verify_token)
 ):
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -449,6 +486,7 @@ async def upload_additional_document(
         if report_card: files_to_process.append((report_card, "REPORT CARD"))
         if psych_test: files_to_process.append((psych_test, "PSYCHOLOGY TEST"))
         
+        doc_titles = []
         for file, title in files_to_process:
             safe_filename = f"UPDATE_{title.replace(' ', '_')}_{file.filename}"
             file_bytes = await file.read()
@@ -459,6 +497,7 @@ async def upload_additional_document(
                     path=safe_filename, file=file_bytes, file_options={"content-type": file.content_type}
                 )
             current_docs.append({"title": f"{title} - {file.filename}", "filename": safe_filename})
+            doc_titles.append(f"{title} - {file.filename}")
             
             # Extract PDF text for Gemini AI reading
             if file.filename.endswith('.pdf'):
@@ -470,6 +509,19 @@ async def upload_additional_document(
 
         cur.execute("UPDATE students SET documents = %s::jsonb, pdf_text = %s WHERE id = %s", 
                     (json.dumps(current_docs), current_text, case_id))
+        
+        # 🚨 AUDIT LOG FOR DOCUMENT UPLOAD 🚨
+        agent_name = user_data.get("name", "Unknown Admin") if user_data else "Unknown"
+        if doc_titles:
+            log_audit_event(
+                conn=conn, 
+                action="UPLOAD_DOC", 
+                entity="Student", 
+                entity_id=case_id, 
+                changed_by=agent_name, 
+                details={"documents_added": doc_titles}
+            )
+
         conn.commit()
         return {"status": "success", "message": "Documents securely added to vault."}
     except Exception as e:
