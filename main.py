@@ -1002,6 +1002,45 @@ def get_all_users():
             return {"status": "success", "data": users}
     finally:
         conn.close()
+class UpdateSystemUser(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    branch: Optional[str] = None
+
+@app.put("/api/users/{user_id}")
+def update_system_user(user_id: int, req: UpdateSystemUser):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        updates = []
+        params = []
+        if req.name: updates.append("name = %s"); params.append(req.name)
+        if req.email: updates.append("email = %s"); params.append(req.email)
+        if req.role: updates.append("role = %s"); params.append(req.role)
+        if req.branch: updates.append("branch = %s"); params.append(req.branch)
+        
+        if not updates: return {"status": "success"}
+        
+        params.append(user_id)
+        cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", tuple(params))
+        conn.commit()
+        return {"status": "success", "message": "User updated"}
+    finally:
+        cur.close()
+        conn.close()
+
+@app.delete("/api/users/{user_id}")
+def delete_system_user(user_id: int):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        conn.commit()
+        return {"status": "success"}
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/api/users/{user_id}", dependencies=[Depends(get_current_master_admin)])
 def update_user(user_id: int, user: UserUpdate):

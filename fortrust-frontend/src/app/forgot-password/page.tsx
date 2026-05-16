@@ -74,6 +74,7 @@ export default function ForgotPasswordPage() {
             <input 
               required 
               type="email" 
+              autoComplete="off"
               value={email} 
               onChange={(e) => setEmail(e.target.value)}
               className="w-full border-2 border-slate-100 rounded-xl p-3.5 text-sm outline-none focus:border-[#BAD133] focus:bg-slate-50 transition-all font-medium text-slate-800" 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Users, Target, FileText, DollarSign, ChevronDown, X, PartyPopper, TrendingUp, Medal, Building2, Filter } from "lucide-react";
+import { Users, Target, FileText, DollarSign, ChevronDown, X, PartyPopper, TrendingUp, Medal, Building2, Filter, Trash2, Edit2 } from "lucide-react";
 
 const STATUS_OPTIONS = ["NEW LEAD", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"];
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
@@ -27,6 +27,10 @@ export default function MasterAdminDashboard() {
   
   const [timeframe, setTimeframe] = useState("all"); 
   
+  // NEW: UI Tab Switcher & Notifications
+  const [activeTab, setActiveTab] = useState<"pipeline" | "team">("pipeline");
+  const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
+
   // User Modal State
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [newUserName, setNewUserName] = useState("");
@@ -35,6 +39,9 @@ export default function MasterAdminDashboard() {
   const [newUserRole, setNewUserRole] = useState("Micro Agent");
   const [newUserBranch, setNewUserBranch] = useState("Jakarta");
   const [isSavingUser, setIsSavingUser] = useState(false);
+
+  // NEW: Edit User State
+  const [editingUser, setEditingUser] = useState<any>(null);
 
   // Commission Modal State
   const [isCommissionModalOpen, setIsCommissionModalOpen] = useState(false);
@@ -117,22 +124,60 @@ export default function MasterAdminDashboard() {
     executeLeadUpdate(studentId, currentStatus, newAgent, 0, 0, "USD");
   };
 
+  // UX UPGRADE: Added Success/Error Notifications
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingUser(true);
+    setNotification(null);
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newUserName, email: newUserEmail, password: newUserPassword, role: newUserRole, branch: newUserBranch }),
       });
+      const data = await response.json();
+      
       if (response.ok) {
-        setIsUserModalOpen(false);
-        setNewUserName(""); setNewUserEmail(""); setNewUserPassword("");
+        setNotification({type: 'success', message: '✅ Agent account created securely!'});
         fetchData(); 
+        setTimeout(() => { 
+          setIsUserModalOpen(false); 
+          setNewUserName(""); setNewUserEmail(""); setNewUserPassword(""); 
+          setNotification(null); 
+        }, 1500);
+      } else {
+        setNotification({type: 'error', message: `❌ ${data.detail || "Failed to create user."}`});
       }
+    } catch (err) {
+       setNotification({type: 'error', message: '❌ Network error.'});
     } finally {
       setIsSavingUser(false);
     }
+  };
+
+  // NEW: Update existing user (Email, Role, etc)
+  const handleEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNotification(null);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${editingUser.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editingUser.name, email: editingUser.email, role: editingUser.role, branch: editingUser.branch }),
+      });
+      if (response.ok) {
+        setNotification({type: 'success', message: '✅ Profile updated!'});
+        fetchData();
+        setTimeout(() => { setEditingUser(null); setNotification(null); }, 1500);
+      }
+    } catch (err) { setNotification({type: 'error', message: '❌ Network error.'}); }
+  };
+
+  // NEW: Delete User
+  const handleDeleteUser = async (userId: string) => {
+    if (!window.confirm("Are you sure you want to permanently delete this agent?")) return;
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { method: "DELETE" });
+      fetchData();
+    } catch (err) { alert("Failed to delete user"); }
   };
 
   const chartData = useMemo(() => {
@@ -241,6 +286,10 @@ export default function MasterAdminDashboard() {
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
             <div className="flex justify-between items-center p-6 border-b border-slate-100"><h2 className="text-xl font-bold text-[#282860]">Create New User</h2><button onClick={() => setIsUserModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button></div>
             <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+              
+              {/* UX UPGRADE: Notification Box */}
+              {notification && (<div className={`p-3 rounded-xl text-sm font-bold border ${notification.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{notification.message}</div>)}
+              
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Role</label><select value={newUserRole} onChange={(e)=>setNewUserRole(e.target.value)} className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm outline-none focus:border-[#BAD133]"><option value="Agent">Agent Branch</option><option value="Micro Agent">Micro Agent</option><option value="Counsellor">Counsellor</option><option value="Master Admin">Master Admin</option></select></div>
                 <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Branch / City</label><select value={newUserBranch} onChange={(e)=>setNewUserBranch(e.target.value)} className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm outline-none focus:border-[#BAD133]">{BRANCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}</select></div>
@@ -249,6 +298,25 @@ export default function MasterAdminDashboard() {
               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Email (Login ID)</label><input required type="email" value={newUserEmail} onChange={(e)=>setNewUserEmail(e.target.value)} placeholder="budi@example.com" className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm outline-none focus:border-[#BAD133]" /></div>
               <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Password</label><input required type="password" value={newUserPassword} onChange={(e)=>setNewUserPassword(e.target.value)} placeholder="••••••••" className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm outline-none focus:border-[#BAD133]" /></div>
               <button disabled={isSavingUser} type="submit" className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white font-bold py-3 rounded-xl mt-4 transition-colors disabled:opacity-50">{isSavingUser ? "Creating Account..." : "Save User Account"}</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT USER MODAL */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100"><h2 className="text-xl font-bold text-[#282860]">Edit Agent Profile</h2><button onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button></div>
+            <form onSubmit={handleEditUser} className="p-6 space-y-4">
+              {notification && (<div className={`p-3 rounded-xl text-sm font-bold border ${notification.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{notification.message}</div>)}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Role</label><select value={editingUser.role} onChange={(e)=>setEditingUser({...editingUser, role: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm"><option value="Agent">Agent Branch</option><option value="Micro Agent">Micro Agent</option><option value="Counsellor">Counsellor</option><option value="Master Admin">Master Admin</option></select></div>
+                <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Branch / City</label><select value={editingUser.branch} onChange={(e)=>setEditingUser({...editingUser, branch: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm">{BRANCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}</select></div>
+              </div>
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Display Name</label><input required type="text" value={editingUser.name} onChange={(e)=>setEditingUser({...editingUser, name: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm" /></div>
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 uppercase">Email</label><input required type="email" value={editingUser.email} onChange={(e)=>setEditingUser({...editingUser, email: e.target.value})} className="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm" /></div>
+              <button type="submit" className="w-full bg-[#BAD133] hover:bg-[#a5ba2e] text-[#282860] font-bold py-3 rounded-xl mt-4 transition-colors">Save Changes</button>
             </form>
           </div>
         </div>
@@ -366,104 +434,89 @@ export default function MasterAdminDashboard() {
         </div>
       )}
 
-      {/* 3. CHART & PIPELINE TABLE */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-        
-        {/* Chart */}
-        <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-base font-bold text-slate-900 mb-8">Branch Volume</h3>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={{stroke: '#cbd5e1'}} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}} angle={-45} textAnchor="end"/>
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}}/>
-                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: '1px solid #e2e8f0', fontWeight: 'bold'}}/>
-                <Bar dataKey="students" fill="#282860" radius={[6, 6, 0, 0]} barSize={45} />
-              </BarChart>
-            </ResponsiveContainer>
+      {/* UI TOGGLE TABS */}
+      <div className="flex gap-4 border-b border-slate-200 mt-8 mb-4">
+        <button onClick={() => setActiveTab('pipeline')} className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors ${activeTab === 'pipeline' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>Global Pipeline</button>
+        <button onClick={() => setActiveTab('team')} className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors ${activeTab === 'team' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>Team Directory</button>
+      </div>
+
+      {activeTab === 'pipeline' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Chart */}
+          <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 className="text-base font-bold text-slate-900 mb-8">Branch Volume</h3>
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 60 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" axisLine={{stroke: '#cbd5e1'}} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}} angle={-45} textAnchor="end"/><YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11, fontWeight: 600}}/><Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: '1px solid #e2e8f0', fontWeight: 'bold'}}/><Bar dataKey="students" fill="#282860" radius={[6, 6, 0, 0]} barSize={45} /></BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Master Pipeline Table */}
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[400px]">
+            <div className="p-4 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-900">Master Pipeline Control</h3></div>
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-slate-50 z-10 shadow-sm">
+                  <tr className="border-b border-slate-200 text-[10px] font-black text-slate-500 tracking-wider uppercase">
+                    <th className="px-5 py-4">Student Name</th>
+                    <th className="px-5 py-4">Assigned To</th>
+                    <th className="px-5 py-4">Pipeline Status</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm divide-y divide-slate-100">
+                  {students.map((student) => (
+                    <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-4"><span className="font-bold text-[#282860] block">{student.name}</span><span className="text-[11px] text-slate-500 block mt-0.5">{student.email}</span></td>
+                      <td className="px-5 py-4">
+                        <select value={student.assigned_to || "Unassigned"} onChange={(e) => handleAssignAgent(student.id, student.status, e.target.value)} className="w-full bg-white border border-slate-200 text-xs font-bold rounded-lg py-2 pl-3 shadow-sm outline-none cursor-pointer">
+                          <option value="Unassigned">Unassigned</option>
+                          {systemUsers.map(u => <option key={u.id} value={u.name}>{u.role} - {u.name}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-5 py-4">
+                        <select value={student.status?.toUpperCase() || "NEW LEAD"} onChange={(e) => handleStatusChange(student, e.target.value)} className="w-full font-black text-[9px] tracking-wider rounded-lg py-2 pl-3 outline-none shadow-sm cursor-pointer border border-slate-200">
+                          {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-
-        {/* Master Data Table 🚨 NOW WITH MARKETING DATA 🚨 */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[400px]">
-          <div className="p-4 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-900">Master Pipeline Control</h3></div>
+      ) : (
+        /* NEW: TEAM DIRECTORY TABLE */
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[500px]">
+          <div className="p-4 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-900">Fortrust Staff & Agents</h3></div>
           <div className="flex-1 overflow-y-auto">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-slate-50 z-10 shadow-sm">
                 <tr className="border-b border-slate-200 text-[10px] font-black text-slate-500 tracking-wider uppercase">
-                  <th className="px-5 py-4">Student Name</th>
-                  <th className="px-5 py-4">Marketing Profile</th> {/* NEW COLUMN */}
-                  <th className="px-5 py-4">Assigned To</th>
-                  <th className="px-5 py-4">Pipeline Status</th>
+                  <th className="px-5 py-4">Name & Email</th>
+                  <th className="px-5 py-4">Role</th>
+                  <th className="px-5 py-4">Branch</th>
+                  <th className="px-5 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="text-sm divide-y divide-slate-100">
-                {students.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50 transition-colors">
-                    
-                    {/* Column 1: Name & Contact */}
-                    <td className="px-5 py-4">
-                      <span className="font-bold text-[#282860] block">{student.name}</span>
-                      <span className="text-[11px] text-slate-500 block mt-0.5 truncate w-32">{student.email}</span>
-                      {student.phone && <span className="text-[11px] text-slate-500 block truncate w-32">WA: {student.phone}</span>}
+                {systemUsers.map((u) => (
+                  <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-4"><span className="font-bold text-[#282860] block">{u.name}</span><span className="text-[11px] text-slate-500 block mt-0.5">{u.email}</span></td>
+                    <td className="px-5 py-4"><span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-md text-[10px] font-bold">{u.role}</span></td>
+                    <td className="px-5 py-4 font-bold text-slate-600 text-xs">{u.branch}</td>
+                    <td className="px-5 py-4 flex justify-end gap-3">
+                      <button onClick={() => setEditingUser(u)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit Email/Role"><Edit2 size={16} /></button>
+                      <button onClick={() => handleDeleteUser(u.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete Agent"><Trash2 size={16} /></button>
                     </td>
-
-                    {/* 🚨 Column 2: The New "Marketing Profile" (Hot/Warm/Cold + Source) 🚨 */}
-                    <td className="px-5 py-4">
-                      <div className="flex flex-col items-start gap-1.5">
-                        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
-                          student.lead_temperature === 'Hot Leads' ? 'bg-red-100 text-red-700 border border-red-200' :
-                          student.lead_temperature === 'Warm Leads' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
-                          'bg-blue-100 text-blue-700 border border-blue-200'
-                        }`}>
-                          {student.lead_temperature || "Cold Leads"}
-                        </span>
-                        {student.program_interest && <p className="text-[10px] font-bold text-slate-600 truncate max-w-[120px]" title={student.program_interest}>🎓 {student.program_interest}</p>}
-                        {student.lead_source && <p className="text-[10px] text-slate-500 truncate max-w-[120px]" title={student.lead_source}>🌐 {student.lead_source}</p>}
-                      </div>
-                    </td>
-
-                    {/* Column 3: Assignment Dropdown */}
-                    <td className="px-5 py-4">
-                      <div className="relative inline-block w-40">
-                        <select 
-                          value={student.assigned_to || "Unassigned"}
-                          onChange={(e) => handleAssignAgent(student.id, student.status, e.target.value)}
-                          className="block w-full appearance-none bg-white border border-slate-200 text-slate-900 text-xs font-bold rounded-lg py-2 pl-3 pr-8 shadow-sm outline-none focus:border-[#282860] cursor-pointer"
-                        >
-                          <option value="Unassigned">Unassigned</option>
-                          {systemUsers.map(u => <option key={u.id} value={u.name}>{u.role} - {u.name}</option>)}
-                        </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400"><ChevronDown size={14} /></div>
-                      </div>
-                    </td>
-
-                    {/* Column 4: Status Dropdown */}
-                    <td className="px-5 py-4">
-                      <div className="relative inline-block w-36">
-                        <select 
-                          value={student.status?.toUpperCase() || "NEW LEAD"}
-                          onChange={(e) => handleStatusChange(student, e.target.value)}
-                          className={`block w-full appearance-none font-black text-[9px] tracking-wider rounded-lg py-2 pl-3 pr-8 outline-none shadow-sm cursor-pointer
-                            ${student.status?.toUpperCase() === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 
-                              student.status?.toUpperCase() === 'QUALIFIED LEADS' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 
-                              'bg-slate-100 text-slate-700 border border-slate-200'}`}
-                        >
-                          {STATUS_OPTIONS.map(opt => <option key={opt} value={opt} className="bg-white text-slate-900">{opt}</option>)}
-                        </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-current opacity-50"><ChevronDown size={14} /></div>
-                      </div>
-                    </td>
-
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
-      </div>
-
+      )}
     </div>
   );
 }
