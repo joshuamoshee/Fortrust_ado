@@ -1,16 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link"; 
-import { Lock, Mail, Loader2, ArrowRight, ShieldCheck } from "lucide-react"; 
+import { Lock, Mail, Loader2, ArrowRight, ShieldCheck, Eye, EyeOff } from "lucide-react"; 
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false); // NEW: Password visibility state
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+
+  // NEW: Auto-focus the email input when the page loads for faster UX
+  useEffect(() => {
+    emailInputRef.current?.focus();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,11 +34,9 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (res.ok && data.status === "success") {
-        // 1. Save the Security Token & User Data securely in the browser
         localStorage.setItem("fortrust_token", data.token);
         localStorage.setItem("fortrust_user", JSON.stringify(data.user));
 
-        // 2. Smart Routing based on User Role
         if (data.user.role === "MASTER_ADMIN") {
           router.push("/dashboard/admin");
         } else if (data.user.role === "Agent" || data.user.role === "Counsellor" || data.user.role === "Micro Agent") {
@@ -54,7 +59,6 @@ export default function LoginPage() {
       
       {/* LEFT SIDE - Enterprise Branding */}
       <div className="hidden lg:flex w-1/2 bg-[#1b1b42] flex-col justify-between p-12 relative overflow-hidden">
-        {/* Background Decorative Elements */}
         <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-[#282860] rounded-full blur-[100px] opacity-60 pointer-events-none"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-[#BAD133] rounded-full blur-[100px] opacity-10 pointer-events-none"></div>
 
@@ -100,25 +104,24 @@ export default function LoginPage() {
                     <Mail size={18} className="text-slate-400" />
                   </div>
                   <input 
+                    ref={emailInputRef}
                     required 
+                    disabled={isLoading}
                     type="email" 
                     value={email} 
                     onChange={(e) => setEmail(e.target.value)} 
                     placeholder="admin@fortrust.com" 
-                    className="w-full border-2 border-slate-100 rounded-xl pl-11 pr-4 py-3.5 text-sm outline-none focus:border-[#282860] focus:bg-slate-50 transition-all font-medium text-slate-800" 
+                    className="w-full border-2 border-slate-100 rounded-xl pl-11 pr-4 py-3.5 text-sm outline-none focus:border-[#282860] focus:bg-slate-50 transition-all font-medium text-slate-800 disabled:opacity-50 disabled:bg-slate-100" 
                   />
                 </div>
               </div>
 
-           <div className="space-y-2">
+              <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Password</label>
-                  
-                  {/* 🚨 CHANGED: a tag replaced with Next.js Link */}
                   <Link href="/forgot-password" className="text-xs font-bold text-[#BAD133] hover:text-[#9bb029] transition-colors">
                     Forgot Password?
                   </Link>
-                  
                 </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -126,17 +129,26 @@ export default function LoginPage() {
                   </div>
                   <input 
                     required 
-                    type="password" 
+                    disabled={isLoading}
+                    type={showPassword ? "text" : "password"} 
                     value={password} 
                     onChange={(e) => setPassword(e.target.value)} 
                     placeholder="••••••••" 
-                    className="w-full border-2 border-slate-100 rounded-xl pl-11 pr-4 py-3.5 text-sm outline-none focus:border-[#282860] focus:bg-slate-50 transition-all font-medium text-slate-800" 
+                    className="w-full border-2 border-slate-100 rounded-xl pl-11 pr-12 py-3.5 text-sm outline-none focus:border-[#282860] focus:bg-slate-50 transition-all font-medium text-slate-800 disabled:opacity-50 disabled:bg-slate-100" 
                   />
+                  {/* NEW: Show/Hide Password Toggle */}
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)} 
+                    className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600 transition-colors focus:outline-none"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
               </div>
 
               {error && (
-                <div className="p-3 bg-red-50 border border-red-100 text-red-600 text-xs font-bold rounded-lg text-center">
+                <div className="p-3 bg-red-50 border border-red-100 text-red-600 text-xs font-bold rounded-lg text-center animate-in fade-in duration-200">
                   {error}
                 </div>
               )}
@@ -144,7 +156,7 @@ export default function LoginPage() {
               <button 
                 disabled={isLoading || !email || !password} 
                 type="submit" 
-                className="w-full bg-[#282860] hover:bg-[#1a1a40] text-white font-black py-4 rounded-xl transition-all shadow-md shadow-[#282860]/20 flex justify-center items-center gap-2 disabled:opacity-70"
+                className="w-full bg-[#282860] hover:bg-[#1a1a40] text-white font-black py-4 rounded-xl transition-all shadow-md shadow-[#282860]/20 flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 {isLoading ? <><Loader2 className="animate-spin" size={18}/> Authenticating...</> : <>Secure Login <ArrowRight size={18}/></>}
               </button>
