@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from google import genai
 from supabase import create_client, Client 
-from passlib.context import CryptContext
+
 
 load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -44,8 +44,6 @@ else:
 # 1. Initialize the API
 app = FastAPI(title="Fortrust OS API", version="1.0")
 
-# Initialize the password hasher globally
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # --- CORS SECURITY FIX ---
 app.add_middleware(
@@ -948,7 +946,7 @@ def execute_reset_password(request: ResetPasswordRequest):
         if not email:
             raise HTTPException(status_code=400, detail="Invalid security token.")
 
-        hashed_password = pwd_context.hash(request.new_password)
+        hashed_password = bcrypt.hashpw(request.new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
         conn = get_db_connection()
         try:
@@ -1025,7 +1023,7 @@ def create_user(user: UserCreate):
             if cur.fetchone():
                 raise HTTPException(status_code=400, detail="Email already registered in the system.")
                 
-            hashed_password = pwd_context.hash(user.password)
+            hashed_password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             
             cur.execute("""
                 INSERT INTO users (name, email, password, role) 
