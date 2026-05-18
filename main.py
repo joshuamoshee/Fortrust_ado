@@ -890,7 +890,7 @@ def forgot_password(request: ForgotPasswordRequest):
         algorithm="HS256"
     )
 
-    frontend_url = "https://fortrust-frontend.vercel.app" 
+    frontend_url = "https://fortrust-ado.vercel.app"
     reset_link = f"{frontend_url}/reset-password?token={reset_token}"
 
     sg_api_key = os.getenv("SENDGRID_API_KEY")
