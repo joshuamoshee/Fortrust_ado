@@ -202,7 +202,7 @@ def create_user_legacy(req: NewUserRequest):
     finally:
         conn.close()
 
-@app.get("/api/users-legacy")
+@app.get("/api/users")
 def get_all_users_legacy():
     conn = get_db_connection()
     try:
