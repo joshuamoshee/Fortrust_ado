@@ -146,12 +146,17 @@ def login_user(req: LoginRequest):
     user = None
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT id, name, role, password FROM users WHERE email=%s", (req.email,))
+            # NEW: Fetches the is_active (freeze) status safely
+            cur.execute("SELECT id, name, role, password, COALESCE(is_active, true) as is_active FROM users WHERE email=%s", (req.email,))
             user = cur.fetchone()
     finally:
         conn.close()
     
     if user:
+        # NEW: Blocks the login if the account is frozen
+        if user['is_active'] is False:
+            raise HTTPException(status_code=403, detail="Your account has been frozen. Please contact the Master Admin.")
+            
         provided_password = req.password.encode('utf-8')
         stored_hash = user['password'].encode('utf-8')
         if bcrypt.checkpw(provided_password, stored_hash):
@@ -205,7 +210,13 @@ def get_all_users_legacy():
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT id, name, email, role, branch, phone, agent_type, corporation_name FROM users ORDER BY id DESC")
+            # NEW: Added all the bank columns and freeze status to the SELECT statement
+            cur.execute("""
+                SELECT id, name, email, role, branch, phone, agent_type, corporation_name, 
+                       office_address, bank_name, bank_branch, bank_address, bank_account, swift_code, 
+                       COALESCE(is_active, true) as is_active 
+                FROM users ORDER BY id DESC
+            """)
             users = cur.fetchall()
             return {"status": "success", "data": users}
     finally:
@@ -1012,6 +1023,13 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
+    office_address: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_branch: Optional[str] = None
+    bank_address: Optional[str] = None
+    bank_account: Optional[str] = None
+    swift_code: Optional[str] = None
+    is_active: Optional[bool] = None
 
 @app.post("/api/admin/users", dependencies=[Depends(get_current_master_admin)])
 def create_user(user: UserCreate):
@@ -1100,12 +1118,10 @@ def update_user(user_id: int, user: UserUpdate):
             updates = []
             params = []
             
-            if user.name:
-                updates.append("name = %s")
-                params.append(user.name)
-            if user.role:
-                updates.append("role = %s")
-                params.append(user.role)
+            # THE MAGIC FIX: Dynamically saves ANY field sent from React (Bank, Freeze, etc.)
+            for field, value in user.dict(exclude_unset=True).items():
+                updates.append(f"{field} = %s")
+                params.append(value)
                 
             if not updates:
                 raise HTTPException(status_code=400, detail="No data provided to update.")
@@ -1120,7 +1136,8 @@ def update_user(user_id: int, user: UserUpdate):
                 raise HTTPException(status_code=404, detail="User not found.")
                 
             conn.commit()
-            return {"status": "success", "message": "User updated successfully."}
+            return {"status": "success", "message": "Agent profile updated successfully."}
+            
     except HTTPException:
         raise
     except Exception as e:
