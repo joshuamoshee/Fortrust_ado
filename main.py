@@ -1333,18 +1333,36 @@ def delete_student(student_id: int):
         conn.close()
 
 # =====================================================================
-# --- NETWORK DIRECTORY (INSTITUTIONS) ---
+# --- NETWORK DIRECTORY & CONTRACT MANAGEMENT ---
 # =====================================================================
 
-class InstitutionCreate(BaseModel):
-    name: str
-    type: str
-    country: str
-    city: str
-    contact_name: str
-    contact_email: str
-    contact_phone: str
-    status: str = "Active"
+class InstitutionUpdate(BaseModel):
+    name: Optional[str] = None
+    type: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    status: Optional[str] = None
+    website: Optional[str] = None
+    establishment_year: Optional[str] = None
+    student_intake: Optional[str] = None
+    programs_offered: Optional[str] = None
+    agreement_id: Optional[str] = None
+    agreement_date: Optional[str] = None
+    agreement_type: Optional[str] = None
+    base_commission: Optional[str] = None
+    performance_bonus: Optional[str] = None
+    tiered_levels: Optional[str] = None
+    duration_start: Optional[str] = None
+    duration_end: Optional[str] = None
+    terms_conditions: Optional[str] = None
+    contacts: Optional[list] = None
+    total_referrals: Optional[int] = None
+    total_enrollment: Optional[int] = None
+    total_base_commission: Optional[str] = None
+    total_payable: Optional[str] = None
+    commission_status: Optional[str] = None
+    payment_date: Optional[str] = None
+    commission_notes: Optional[str] = None
 
 @app.get("/api/institutions")
 def get_institutions(user_data: dict = Depends(verify_token)):
@@ -1360,16 +1378,49 @@ def get_institutions(user_data: dict = Depends(verify_token)):
         conn.close()
 
 @app.post("/api/institutions")
-def create_institution(inst: InstitutionCreate, user_data: dict = Depends(verify_token)):
+def create_institution(inst: dict, user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO institutions (name, type, country, city, contact_name, contact_email, contact_phone, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-            """, (inst.name, inst.type, inst.country, inst.city, inst.contact_name, inst.contact_email, inst.contact_phone, inst.status))
+                INSERT INTO institutions (name, type, country, city, status)
+                VALUES (%s, %s, %s, %s, %s) RETURNING id
+            """, (inst.get('name', 'New Institution'), inst.get('type', ''), inst.get('country', ''), inst.get('city', ''), 'Active'))
             conn.commit()
-            return {"status": "success", "message": "Institution added"}
+            return {"status": "success", "message": "Institution shell created"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.put("/api/institutions/{inst_id}")
+def update_institution(inst_id: int, inst_data: dict, user_data: dict = Depends(verify_token)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            updates = []
+            params = []
+            
+            for field, value in inst_data.items():
+                if field == 'contacts':
+                    updates.append(f"{field} = %s::jsonb")
+                    params.append(json.dumps(value))
+                elif value == "": # Handle empty dates properly
+                    updates.append(f"{field} = NULL")
+                else:
+                    updates.append(f"{field} = %s")
+                    params.append(value)
+                
+            if not updates:
+                return {"status": "success"}
+                
+            params.append(inst_id)
+            query = f"UPDATE institutions SET {', '.join(updates)} WHERE id = %s"
+            
+            cur.execute(query, tuple(params))
+            conn.commit()
+            return {"status": "success", "message": "Institution updated successfully"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
