@@ -125,9 +125,10 @@ const executeLeadUpdate = async (caseId: string, status: string, assignedTo: str
     }
   };
 
-  const handleCloseDeal = () => {
+ const handleCloseDeal = () => {
     if (closingStudent) {
-      executeLeadUpdate(closingStudent.id, "COMPLETED", closingStudent.assigned_to, parseFloat(tuitionAmount), parseFloat(commissionPercent), dealCurrency);
+      // FIX: Changed closingStudent.assigned_to to closingStudent.assignee
+      executeLeadUpdate(closingStudent.id, "COMPLETED", closingStudent.assignee, parseFloat(tuitionAmount), parseFloat(commissionPercent), dealCurrency);
       setIsCommissionModalOpen(false);
       setClosingStudent(null);
       setTuitionAmount("");
@@ -217,7 +218,8 @@ const handleEditUser = async (e: React.FormEvent) => {
     const branchCounts: Record<string, number> = {};
     BRANCH_OPTIONS.forEach(b => branchCounts[b] = 0);
     students.forEach(student => {
-      const agent = systemUsers.find(u => u.name === student.assigned_to);
+      // FIX: Changed student.assigned_to to student.assignee
+      const agent = systemUsers.find(u => u.name === student.assignee);
       const branchName = agent ? agent.branch : "Unassigned";
       if (branchCounts[branchName] !== undefined) branchCounts[branchName] += 1;
       else branchCounts[branchName] = 1;
@@ -373,14 +375,16 @@ const handleEditUser = async (e: React.FormEvent) => {
                 </thead>
                 <tbody className="text-sm divide-y divide-slate-100">
                   {students.map((s) => {
-                    const agent = systemUsers.find((u) => u.name === s.assigned_to);
+                    // FIX: Changed s.assigned_to to s.assignee
+                    const agent = systemUsers.find((u) => u.name === s.assignee);
                     const branchName = agent ? agent.branch : "Unknown";
                     return (
                       <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-5 py-4"><span className="font-bold text-[#282860] block">{s.name}</span><span className="text-[11px] text-slate-400 block mt-0.5">{s.email}</span></td>
                         <td className="px-5 py-4">
                           <select className="bg-white border border-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold focus:border-[#282860] outline-none"
-                            value={s.assigned_to || "Unassigned"} onChange={(e) => handleAssignAgent(s.id, s.status, e.target.value)}>
+                            // FIX: Changed s.assigned_to to s.assignee
+                            value={s.assignee || "Unassigned"} onChange={(e) => handleAssignAgent(s.id, s.status, e.target.value)}>
                             <option value="Unassigned">Unassigned</option>
                             {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name} ({u.branch})</option>)}
                           </select>
