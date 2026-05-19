@@ -102,11 +102,12 @@ export default function MasterAdminDashboard() {
     }
   };
 
-  const executeLeadUpdate = async (caseId: string, status: string, assignedTo: string, tuition: number, commRate: number, currency: string) => {
+ const executeLeadUpdate = async (caseId: string, status: string, assignedTo: string, tuition: number, commRate: number, currency: string) => {
     try {
+      const token = localStorage.getItem("fortrust_token");
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ status, assigned_to: assignedTo, tuition, commission_rate: commRate, currency }),
       });
       fetchData(); 
@@ -134,8 +135,10 @@ export default function MasterAdminDashboard() {
     setIsSavingUser(true);
     setNotification(null);
     try {
+      const token = localStorage.getItem("fortrust_token");
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ name: newUserName, email: newUserEmail, password: newUserPassword, role: newUserRole, branch: newUserBranch }),
       });
       const data = await response.json();
@@ -158,13 +161,14 @@ export default function MasterAdminDashboard() {
     }
   };
 
-  // NEW: Update existing user (Bank Details, Freeze Status, Role, etc)
-  const handleEditUser = async (e: React.FormEvent) => {
+const handleEditUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setNotification(null);
     try {
+      const token = localStorage.getItem("fortrust_token");
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${editingUser.id}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ 
           name: editingUser.name, 
           role: editingUser.role, 
@@ -186,12 +190,16 @@ export default function MasterAdminDashboard() {
       }
     } catch (err) { setNotification({type: 'error', message: '❌ Network error.'}); }
   };
-
+  
   // NEW: Delete User
   const handleDeleteUser = async (userId: string) => {
     if (!window.confirm("Are you sure you want to permanently delete this agent?")) return;
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { method: "DELETE" });
+      const token = localStorage.getItem("fortrust_token");
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { 
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
       fetchData();
     } catch (err) { alert("Failed to delete user"); }
   };
