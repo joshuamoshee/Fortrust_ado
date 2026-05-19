@@ -299,6 +299,34 @@ def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify
         }
     }
 
+@app.get("/api/admin/audit-logs")
+def get_audit_logs(limit: int = 100, user_data: dict = Depends(verify_token)):
+    # Security check matching your other dashboard stats
+    if user_data.get("role") != "MASTER_ADMIN":
+        raise HTTPException(status_code=403, detail="Not authorized to view audit logs")
+        
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, action, entity, entity_id, changed_by, details, created_at 
+                FROM audit_logs 
+                ORDER BY created_at DESC 
+                LIMIT %s
+            """, (limit,))
+            logs = cur.fetchall()
+            
+            for log in logs:
+                if 'created_at' in log and log['created_at']:
+                    log['created_at'] = log['created_at'].isoformat()
+                    
+            return {"status": "success", "data": logs}
+    except Exception as e:
+        print(f"Error fetching audit logs: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load audit logs")
+    finally:
+        conn.close()
+
 @app.get("/api/programs/search")
 def ai_program_search(query: str = "Popular business degrees in Australia"):
     try:

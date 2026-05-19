@@ -28,7 +28,8 @@ export default function MasterAdminDashboard() {
   const [timeframe, setTimeframe] = useState("all"); 
   
   // NEW: UI Tab Switcher & Notifications
-  const [activeTab, setActiveTab] = useState<"pipeline" | "team">("pipeline");
+  const [activeTab, setActiveTab] = useState<"pipeline" | "team" | "audit">("pipeline");
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
 
   // User Modal State
@@ -50,20 +51,23 @@ export default function MasterAdminDashboard() {
   const [commissionPercent, setCommissionPercent] = useState("10"); 
   const [dealCurrency, setDealCurrency] = useState("AUD");
 
-  const fetchData = async () => {
+const fetchData = async () => {
     const token = localStorage.getItem("fortrust_token");
     const headers = { "Authorization": `Bearer ${token}` };
 
     try {
-      const [studentsRes, usersRes] = await Promise.all([
+      const [studentsRes, usersRes, auditRes] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=MASTER_ADMIN`, { headers }),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, { headers })
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, { headers }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs`, { headers }) // NEW: Fetch Logs
       ]);
       const studentsData = await studentsRes.json();
       const usersData = await usersRes.json();
+      const auditData = await auditRes.json(); // NEW: Parse Logs
       
       if (studentsData.status === "success") setStudents(studentsData.data);
       if (usersData.status === "success") setSystemUsers(usersData.data);
+      if (auditData.status === "success") setAuditLogs(auditData.data); // NEW: Save Logs
     } catch (error) {
       console.error("Failed to fetch initial data:", error);
     } finally {
@@ -438,6 +442,7 @@ export default function MasterAdminDashboard() {
       <div className="flex gap-4 border-b border-slate-200 mt-8 mb-4">
         <button onClick={() => setActiveTab('pipeline')} className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors ${activeTab === 'pipeline' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>Global Pipeline</button>
         <button onClick={() => setActiveTab('team')} className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors ${activeTab === 'team' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>Team Directory</button>
+        <button onClick={() => setActiveTab('audit')} className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors ${activeTab === 'audit' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>Activity Feed</button>
       </div>
 
       {activeTab === 'pipeline' ? (
@@ -512,6 +517,51 @@ export default function MasterAdminDashboard() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {/* --- AUDIT LOG TAB --- */}
+      {activeTab === 'audit' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-6 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
+            <h2 className="text-xl font-bold text-[#282860]">System Activity Feed</h2>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">LIVE CCTV</p>
+          </div>
+          <div className="p-0 overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-[#f1f5f9] text-[#64748b] text-[10px] uppercase tracking-widest">
+                <tr>
+                  <th className="px-5 py-4">Time</th>
+                  <th className="px-5 py-4">Agent Name</th>
+                  <th className="px-5 py-4">Action</th>
+                  <th className="px-5 py-4">Target Entity</th>
+                  <th className="px-5 py-4">Details</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm divide-y divide-slate-100">
+                {auditLogs.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-8 text-slate-500">No activity recorded yet.</td></tr>
+                ) : (
+                  auditLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-4 text-xs font-bold text-slate-500">
+                        {new Date(log.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-5 py-4 font-bold text-[#282860]">{log.changed_by}</td>
+                      <td className="px-5 py-4">
+                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-md text-[10px] font-bold">
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-xs text-slate-600">{log.entity} <span className="text-slate-400">({log.entity_id})</span></td>
+                      <td className="px-5 py-4 text-xs text-slate-500 max-w-xs truncate" title={JSON.stringify(log.details)}>
+                        {JSON.stringify(log.details)}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

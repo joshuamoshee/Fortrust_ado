@@ -158,18 +158,61 @@ export default function PipelinePage() {
     } catch (error) { alert("Error parsing document."); } finally { setIsSaving(false); }
   };
 
-  const handleUploadToExisting = async (caseId: string) => {
-    if (!slideOutReportCard && !slideOutPsychTest) return;
-    setIsSaving(true);
+const handleUploadToExisting = async (caseId: string) => {
+  // 1. Prevent empty uploads
+  if (reportCardFiles.length === 0 && psychTestFiles.length === 0) {
+    alert("Please select at least one file to upload.");
+    return;
+  }
+
+  setIsSaving(true);
+  try {
+    // 2. Package the files into FormData (Required for PDFs/Images)
     const formData = new FormData();
-    if (slideOutReportCard) formData.append("report_card", slideOutReportCard);
-    if (slideOutPsychTest) formData.append("psych_test", slideOutPsychTest);
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}/document`, { method: "PUT", body: formData });
-      setSlideOutReportCard(null); setSlideOutPsychTest(null);
-      fetchStudents(user.role, user.name); 
-    } catch (error) { alert("Failed to upload document."); } finally { setIsSaving(false); }
-  };
+    
+    reportCardFiles.forEach((file) => {
+      formData.append("file", file); // Appending Report Cards
+    });
+    
+    psychTestFiles.forEach((file) => {
+      formData.append("file", file); // Appending Psych Tests
+    });
+
+    // 3. Get the auth token securely
+    const userStorage = localStorage.getItem("fortrust_user");
+    const token = userStorage ? JSON.parse(userStorage).token : "";
+
+    // 4. Send to Python Backend
+    // CRITICAL: Do NOT set 'Content-Type' manually. Fetch handles the multipart boundary automatically.
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}/document`, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${token}`
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to upload to server");
+    }
+
+    alert("Documents successfully uploaded and saved to the student's profile!");
+    
+    // 5. Clean up the UI
+    setReportCardFiles([]);
+    setPsychTestFiles([]);
+    
+    // If you have a function to refresh the student list, call it here:
+    // fetchPipelineData(); 
+
+  } catch (error: any) {
+    console.error("Upload Error:", error);
+    alert(`Upload failed: ${error.message}`);
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   const handleAddNote = async () => {
     if (!newNote.trim() || !selectedStudent) return;
