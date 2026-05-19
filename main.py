@@ -1331,3 +1331,47 @@ def delete_student(student_id: int):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         conn.close()
+
+# =====================================================================
+# --- NETWORK DIRECTORY (INSTITUTIONS) ---
+# =====================================================================
+
+class InstitutionCreate(BaseModel):
+    name: str
+    type: str
+    country: str
+    city: str
+    contact_name: str
+    contact_email: str
+    contact_phone: str
+    status: str = "Active"
+
+@app.get("/api/institutions")
+def get_institutions(user_data: dict = Depends(verify_token)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM institutions ORDER BY name ASC")
+            institutions = cur.fetchall()
+            return {"status": "success", "data": institutions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/institutions")
+def create_institution(inst: InstitutionCreate, user_data: dict = Depends(verify_token)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO institutions (name, type, country, city, contact_name, contact_email, contact_phone, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (inst.name, inst.type, inst.country, inst.city, inst.contact_name, inst.contact_email, inst.contact_phone, inst.status))
+            conn.commit()
+            return {"status": "success", "message": "Institution added"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
