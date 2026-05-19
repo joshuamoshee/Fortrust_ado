@@ -437,7 +437,6 @@ def delete_lead(case_id: str):
         raise HTTPException(status_code=500, detail="Database deletion error.")
     finally:
         conn.close()
-
 class UpdateLeadRequest(BaseModel):
     status: Optional[str] = None
     assigned_to: Optional[str] = None
@@ -465,10 +464,13 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 params.append(req.assigned_to)
                 audit_details["new_assignee"] = req.assigned_to
                 
-            if req.tuition and req.commission_rate:
+            # THE FIX: Check if they are not None, rather than if they are truthy (because 0 is falsey)
+            if req.tuition is not None and req.commission_rate is not None:
                 earned = req.tuition * (req.commission_rate / 100)
                 updates.append("commission_earned = %s")
                 params.append(earned)
+                updates.append("currency = %s")
+                params.append(req.currency or "USD")
                 audit_details["commission_logged"] = earned
                 
             if not updates:
@@ -488,7 +490,6 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 details=audit_details
             )
             
-            # 🚨 THIS IS THE CRITICAL LINE THAT WAS MISSING 🚨
             conn.commit()
             
             return {"status": "success"}
