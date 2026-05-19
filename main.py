@@ -59,6 +59,7 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 # AUTO-UPGRADE SCHEMA
+# AUTO-UPGRADE SCHEMA
 def verify_schema():
     conn = get_db_connection()
     try:
@@ -76,6 +77,10 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS program_interest TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS lead_source TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS lead_temperature TEXT DEFAULT 'Cold Leads';")
+            
+            # 🚨 THE FIX: Automatically builds the missing currency column so the server doesn't crash 🚨
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'USD';")
+            
             conn.commit()
     except Exception as e:
         conn.rollback()
