@@ -102,17 +102,26 @@ export default function MasterAdminDashboard() {
     }
   };
 
- const executeLeadUpdate = async (caseId: string, status: string, assignedTo: string, tuition: number, commRate: number, currency: string) => {
+const executeLeadUpdate = async (caseId: string, status: string, assignedTo: string, tuition: number, commRate: number, currency: string) => {
     try {
       const token = localStorage.getItem("fortrust_token");
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ status, assigned_to: assignedTo, tuition, commission_rate: commRate, currency }),
       });
+      
+      // 🚨 FORCE AN ALERT IF THE BACKEND REJECTS THE UPDATE
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(`Server Error: ${errorData.detail || "Failed to update"}`);
+        return;
+      }
+      
       fetchData(); 
     } catch (error) {
       console.error("Update failed:", error);
+      alert("Network Error: Could not reach the backend.");
     }
   };
 

@@ -449,54 +449,53 @@ class UpdateLeadRequest(BaseModel):
 @app.put("/api/pipeline/{case_id}")
 def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        updates = []
-        params = []
-        audit_details = {}
-        
-        if req.status is not None:
-            updates.append("status = %s")
-            params.append(req.status)
-            audit_details["new_status"] = req.status
+        with conn.cursor() as cur:
+            updates = []
+            params = []
+            audit_details = {}
             
-        if req.assigned_to is not None:
-            updates.append("assignee = %s")
-            params.append(req.assigned_to)
-            audit_details["new_assignee"] = req.assigned_to
-            
-        if req.tuition and req.commission_rate:
-            earned = req.tuition * (req.commission_rate / 100)
-            updates.append("commission_earned = %s")
-            params.append(earned)
-            audit_details["commission_logged"] = earned
-            
-        if not updates:
-            return {"status": "success", "message": "Nothing to update."}
+            if req.status is not None:
+                updates.append("status = %s")
+                params.append(req.status)
+                audit_details["new_status"] = req.status
+                
+            if req.assigned_to is not None:
+                updates.append("assignee = %s")
+                params.append(req.assigned_to)
+                audit_details["new_assignee"] = req.assigned_to
+                
+            if req.tuition and req.commission_rate:
+                earned = req.tuition * (req.commission_rate / 100)
+                updates.append("commission_earned = %s")
+                params.append(earned)
+                audit_details["commission_logged"] = earned
+                
+            if not updates:
+                return {"status": "success", "message": "Nothing to update."}
 
-        params.append(case_id)
-        cur.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = %s", tuple(params))
-        
-        # 🚨 THE SURVEILLANCE CAMERA IN ACTION 🚨
-        # Extract the name of the person who clicked the button from the JWT Token
-        agent_name = user_data.get("name", "Unknown Admin") if user_data else "Unknown"
-        
-        log_audit_event(
-            conn=conn, 
-            action="UPDATE", 
-            entity="Student", 
-            entity_id=case_id, 
-            changed_by=agent_name, 
-            details=audit_details
-        )
-        
-        conn.commit()
-        return {"status": "success"}
+            params.append(case_id)
+            cur.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = %s", tuple(params))
+            
+            # --- CCTV SURVEILLANCE LOG ---
+            agent_name = user_data.get("name", "Unknown Admin") if user_data else "Unknown"
+            log_audit_event(
+                conn=conn, 
+                action="UPDATE", 
+                entity="Student", 
+                entity_id=case_id,
+                changed_by=agent_name,
+                details=audit_details
+            )
+            
+            # 🚨 THIS IS THE CRITICAL LINE THAT WAS MISSING 🚨
+            conn.commit()
+            
+            return {"status": "success"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        cur.close()
         conn.close()
 
 # 2. Upload Documents to an Existing Student (Wired with Audit Log)
