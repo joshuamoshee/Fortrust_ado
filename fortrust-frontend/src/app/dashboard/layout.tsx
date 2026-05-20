@@ -13,10 +13,10 @@ import {
   Users,
   BookOpen,
   Megaphone,
-  UserCircle,
   X,
   Lock,
-  CheckCircle
+  CheckCircle,
+  Menu // NEW: Added Hamburger Menu Icon
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -25,14 +25,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // --- NEW STATES FOR NOTIFICATIONS & SETTINGS ---
+  // --- STATES ---
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
+  
+  // NEW: Mobile Menu State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Fake notifications (You can wire this to an API later)
   const notifications = [
     { id: 1, text: "New Student Lead: John Doe", time: "10 min ago" },
     { id: 2, text: "Document uploaded for Sarah Smith", time: "1 hour ago" },
@@ -49,13 +51,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [router]);
 
+  // NEW: Auto-close mobile menu when route changes
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
   const handleLogout = () => {
     localStorage.removeItem("fortrust_user");
     localStorage.removeItem("fortrust_token");
     router.push("/");
   };
 
-  // --- NEW: HANDLE PASSWORD CHANGE ---
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsChangingPassword(true);
@@ -63,9 +69,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     try {
       const token = localStorage.getItem("fortrust_token");
-      
-      // We will create this specific endpoint in Python if it doesn't exist, 
-      // but this uses your existing user update route for now
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${user.id}`, {
         method: "PUT",
         headers: { 
@@ -95,16 +98,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!isLoaded || !user) return null;
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased">
+    <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased relative overflow-hidden">
       
-      {/* 1. THE REFINED SIDEBAR */}
-      <aside className="w-[260px] bg-[#1b1b42] text-slate-300 flex flex-col fixed h-full z-50 shadow-2xl border-r border-[#131333]">
+      {/* NEW: MOBILE BACKDROP OVERLAY */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* 1. THE RESPONSIVE SIDEBAR */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#1b1b42] text-slate-300 flex flex-col h-full shadow-2xl border-r border-[#131333] transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         
         {/* Sleek Logo Area */}
-        <div className="h-24 flex items-center px-6 border-b border-white/5 bg-[#171738]">
-          <div className="bg-white px-4 py-3 rounded-xl w-full flex items-center justify-center shadow-md">
-            <img src="/fortrust-logo.png" alt="Fortrust" className="h-8 w-auto object-contain" />
+        <div className="h-16 lg:h-24 flex items-center px-6 border-b border-white/5 bg-[#171738] justify-between">
+          <div className="bg-white px-4 py-2 lg:py-3 rounded-xl w-full flex items-center justify-center shadow-md">
+            <img src="/fortrust-logo.png" alt="Fortrust" className="h-6 lg:h-8 w-auto object-contain" />
           </div>
+          {/* Mobile Close Button */}
+          <button className="lg:hidden ml-4 text-slate-400 hover:text-white" onClick={() => setIsMobileMenuOpen(false)}>
+            <X size={24} />
+          </button>
         </div>
 
         {/* Navigation Links */}
@@ -112,24 +127,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           
           <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Main Menu</p>
           
-          <Link 
-            href="/dashboard/pipeline" 
-            className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
-              ${pathname === '/dashboard/pipeline' 
-                ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
-                : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
-          >
+          <Link href="/dashboard/pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
             <LayoutDashboard size={18} className={pathname === '/dashboard/pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
             Student Pipeline
           </Link>
 
-          <Link 
-            href="/dashboard/programs" 
-            className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
-              ${pathname === '/dashboard/programs' 
-                ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
-                : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
-          >
+          <Link href="/dashboard/programs" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/programs' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
             <BookOpen size={18} className={pathname === '/dashboard/programs' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
             Program Finder
           </Link>
@@ -139,49 +142,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <>
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-8">Admin Tools</p>
               
-              <Link 
-                href="/dashboard/agent-pipeline" 
-                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
-                  ${pathname === '/dashboard/agent-pipeline' 
-                    ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
-                    : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
-              >
+              <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 Agent Pipeline
               </Link>
               
-              <Link 
-                href="/dashboard/admin" 
-                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
-                  ${pathname === '/dashboard/admin' 
-                    ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
-                    : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
-              >
+              <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 Master Admin Panel
               </Link>
               
-              <Link 
-                  href="/dashboard/network" 
-                  className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
-                    ${pathname === '/dashboard/network' 
-                      ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
-                      : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
-                >
-                  <Users size={18} className={pathname === '/dashboard/network' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                  Network Directory
-                </Link>
+              <Link href="/dashboard/network" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/network' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Users size={18} className={pathname === '/dashboard/network' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Network Directory
+              </Link>
 
-                <Link 
-                  href="/dashboard/marketing" 
-                  className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
-                    ${pathname === '/dashboard/marketing' 
-                      ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
-                      : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
-                >
-                  <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                  <span className="font-bold">Marketing Hub</span>
-                </Link>
+              <Link href="/dashboard/marketing" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                <span className="font-bold">Marketing Hub</span>
+              </Link>
             </>
           )}
         </div>
@@ -198,11 +177,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{user.role}</p>
               </div>
             </div>
-            <button 
-              onClick={handleLogout}
-              className="p-2 text-slate-500 hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors"
-              title="Sign Out"
-            >
+            <button onClick={handleLogout} className="p-2 text-slate-500 hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors" title="Sign Out">
               <LogOut size={16} />
             </button>
           </div>
@@ -210,35 +185,46 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* 2. MAIN CONTENT WRAPPER */}
-      <div className="flex-1 flex flex-col ml-[260px] min-w-0">
+      <div className="flex-1 flex flex-col lg:ml-[260px] min-w-0 w-full transition-all duration-300">
         
         {/* Top Utility Header */}
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-40 shadow-sm">
+        <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
           
-          <div className="flex items-center text-slate-400 bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200 w-96 focus-within:border-[#282860] focus-within:ring-1 focus-within:ring-[#282860] transition-all">
-            <Search size={18} className="mr-3 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search students, emails, or agents..." 
-              className="bg-transparent border-none outline-none text-sm text-slate-700 w-full placeholder-slate-400 font-medium"
-            />
+          <div className="flex items-center flex-1 gap-4">
+            {/* NEW: MOBILE HAMBURGER MENU */}
+            <button 
+              className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+              onClick={() => setIsMobileMenuOpen(true)}
+            >
+              <Menu size={24} />
+            </button>
+
+            {/* Hide search bar on small phones to save space */}
+            <div className="hidden sm:flex items-center text-slate-400 bg-slate-50 px-4 py-2 lg:py-2.5 rounded-xl border border-slate-200 w-full max-w-md focus-within:border-[#282860] focus-within:ring-1 focus-within:ring-[#282860] transition-all">
+              <Search size={18} className="mr-3 text-slate-400 flex-shrink-0" />
+              <input 
+                type="text" 
+                placeholder="Search students or agents..." 
+                className="bg-transparent border-none outline-none text-sm text-slate-700 w-full placeholder-slate-400 font-medium min-w-0"
+              />
+            </div>
           </div>
 
-          <div className="flex items-center gap-5 relative">
+          <div className="flex items-center gap-2 lg:gap-5 flex-shrink-0">
             
             {/* --- BELL ICON & NOTIFICATION DROPDOWN --- */}
             <div className="relative">
               <button 
                 onClick={() => { setShowNotifications(!showNotifications); setShowSettings(false); }}
-                className={`p-2.5 rounded-full transition-colors relative ${showNotifications ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
+                className={`p-2 lg:p-2.5 rounded-full transition-colors relative ${showNotifications ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
               >
                 <Bell size={20} />
-                <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
               </button>
 
               {/* Notification Popup */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
+                <div className="absolute right-0 mt-2 w-72 lg:w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
                   <div className="p-4 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
                     <h3 className="font-bold text-[#282860]">Notifications</h3>
                     <span className="text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full">3 New</span>
@@ -264,7 +250,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {/* --- SETTINGS ICON --- */}
             <button 
               onClick={() => { setShowSettings(true); setShowNotifications(false); }}
-              className={`p-2.5 rounded-full transition-colors ${showSettings ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
+              className={`p-2 lg:p-2.5 rounded-full transition-colors ${showSettings ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
             >
               <Settings size={20} />
             </button>
@@ -272,7 +258,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 w-full max-w-[1600px] mx-auto overflow-x-hidden p-2">
+        <main className="flex-1 w-full max-w-[1600px] mx-auto overflow-x-hidden p-3 lg:p-6">
           {children}
         </main>
       </div>
@@ -281,8 +267,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
-              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2">
+            <div className="p-5 lg:p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
+              <h2 className="text-lg lg:text-xl font-bold text-[#282860] flex items-center gap-2">
                 <Settings size={20} className="text-[#BAD133]" />
                 Account Settings
               </h2>
@@ -291,7 +277,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </button>
             </div>
             
-            <div className="p-6">
+            <div className="p-5 lg:p-6">
               {/* Profile Overview */}
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
                 <div className="w-12 h-12 rounded-full bg-[#282860] flex items-center justify-center text-white font-black text-xl">
@@ -334,7 +320,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <button 
                     type="submit" 
                     disabled={isChangingPassword || !newPassword}
-                    className="bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                    className="w-full lg:w-auto bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
                   >
                     {isChangingPassword ? "Saving..." : "Update Password"}
                   </button>
