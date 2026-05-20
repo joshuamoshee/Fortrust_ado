@@ -29,7 +29,7 @@ export default function LoginPage() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Sends the rememberMe flag to Python!
+        // Sends the rememberMe flag to Python
         body: JSON.stringify({ email, password, remember_me: rememberMe })
       });
 
@@ -148,6 +148,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              {/* KEEP ME SIGNED IN CHECKBOX */}
               <div className="flex items-center gap-2 mt-4 mb-2">
                 <input 
                   type="checkbox" 
