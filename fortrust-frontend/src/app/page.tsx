@@ -9,12 +9,13 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false); // NEW: Password visibility state
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showPassword, setShowPassword] = useState(false); 
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const emailInputRef = useRef<HTMLInputElement>(null);
 
-  // NEW: Auto-focus the email input when the page loads for faster UX
+  // Auto-focus the email input when the page loads for faster UX
   useEffect(() => {
     emailInputRef.current?.focus();
   }, []);
@@ -28,7 +29,8 @@ export default function LoginPage() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        // Sends the rememberMe flag to Python!
+        body: JSON.stringify({ email, password, remember_me: rememberMe })
       });
 
       const data = await res.json();
@@ -136,7 +138,6 @@ export default function LoginPage() {
                     placeholder="••••••••" 
                     className="w-full border-2 border-slate-100 rounded-xl pl-11 pr-12 py-3.5 text-sm outline-none focus:border-[#282860] focus:bg-slate-50 transition-all font-medium text-slate-800 disabled:opacity-50 disabled:bg-slate-100" 
                   />
-                  {/* NEW: Show/Hide Password Toggle */}
                   <button 
                     type="button" 
                     onClick={() => setShowPassword(!showPassword)} 
@@ -145,6 +146,19 @@ export default function LoginPage() {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-4 mb-2">
+                <input 
+                  type="checkbox" 
+                  id="remember" 
+                  className="w-4 h-4 text-[#282860] rounded border-slate-300 focus:ring-[#BAD133] cursor-pointer"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <label htmlFor="remember" className="text-sm font-bold text-slate-600 cursor-pointer select-none">
+                  Keep me signed in for 30 days
+                </label>
               </div>
 
               {error && (

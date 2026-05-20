@@ -144,6 +144,7 @@ def create_emergency_admin():
 class LoginRequest(BaseModel):
     email: str
     password: str
+    remember_me: Optional[bool] = False  # NEW: Added Remember Me flag
 
 @app.post("/api/login")
 def login_user(req: LoginRequest):
@@ -151,24 +152,26 @@ def login_user(req: LoginRequest):
     user = None
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # NEW: Fetches the is_active (freeze) status safely
             cur.execute("SELECT id, name, role, password, COALESCE(is_active, true) as is_active FROM users WHERE email=%s", (req.email,))
             user = cur.fetchone()
     finally:
         conn.close()
     
     if user:
-        # NEW: Blocks the login if the account is frozen
         if user['is_active'] is False:
             raise HTTPException(status_code=403, detail="Your account has been frozen. Please contact the Master Admin.")
             
         provided_password = req.password.encode('utf-8')
         stored_hash = user['password'].encode('utf-8')
         if bcrypt.checkpw(provided_password, stored_hash):
+            
+            # THE FIX: If remember_me is true, token lasts 30 days. Otherwise, 24 hours.
+            expire_hours = 24 * 30 if req.remember_me else 24
+            
             token_data = {
                 "id": user['id'], 
                 "role": user['role'], 
-                "exp": datetime.utcnow() + timedelta(hours=24)
+                "exp": datetime.utcnow() + timedelta(hours=expire_hours)
             }
             token = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
             return {
