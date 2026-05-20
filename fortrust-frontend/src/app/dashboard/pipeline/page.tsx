@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sparkles, UploadCloud, Users, FileText, X, Phone, Mail, MessageSquare, Send, Clock, MessageCircle, GraduationCap, Building, Plus, Calendar, CheckCircle2, DownloadCloud, ShieldAlert } from "lucide-react";
+import { Sparkles, UploadCloud, Users, FileText, X, Phone, Mail, MessageSquare, Send, Clock, MessageCircle, GraduationCap, Building, Plus, Calendar, CheckCircle2, DownloadCloud, ShieldAlert, Building2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 export default function PipelinePage() {
   const [user, setUser] = useState<any>(null);
   const [students, setStudents] = useState<any[]>([]);
+  // NEW: State for Network Directory Institutions
+  const [institutions, setInstitutions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Modal States
@@ -40,7 +42,8 @@ export default function PipelinePage() {
   const [slideOutReportCard, setSlideOutReportCard] = useState<File | null>(null);
   const [slideOutPsychTest, setSlideOutPsychTest] = useState<File | null>(null);
 
-  // Anti-Cheat Verification States
+  // UPGRADED Anti-Cheat Verification States
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState("");
   const [verifyTuition, setVerifyTuition] = useState("");
   const [verifyRate, setVerifyRate] = useState("");
   const [verifyFile, setVerifyFile] = useState<File | null>(null);
@@ -58,12 +61,12 @@ export default function PipelinePage() {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
       fetchStudents(parsedUser.role, parsedUser.name);
+      fetchInstitutions(); // NEW: Grab the network list
     }
   }, []);
 
   const fetchStudents = (role: string, agentName: string) => {
     const token = localStorage.getItem("fortrust_token");
-
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`, {
       headers: { "Authorization": `Bearer ${token}` }
     })
@@ -89,6 +92,22 @@ export default function PipelinePage() {
         console.error("Fetch Error:", err);
         setLoading(false);
       });
+  };
+
+  // NEW: Fetch Institutions for the Dropdown
+  const fetchInstitutions = async () => {
+    const token = localStorage.getItem("fortrust_token");
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/institutions`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setInstitutions(data.data);
+      }
+    } catch (err) {
+      console.error("Failed to load network directory");
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -158,61 +177,38 @@ export default function PipelinePage() {
     } catch (error) { alert("Error parsing document."); } finally { setIsSaving(false); }
   };
 
-const handleUploadToExisting = async (caseId: string) => {
-  // 1. Prevent empty uploads
-  if (reportCardFiles.length === 0 && psychTestFiles.length === 0) {
-    alert("Please select at least one file to upload.");
-    return;
-  }
-
-  setIsSaving(true);
-  try {
-    // 2. Package the files into FormData (Required for PDFs/Images)
-    const formData = new FormData();
-    
-    reportCardFiles.forEach((file) => {
-      formData.append("file", file); // Appending Report Cards
-    });
-    
-    psychTestFiles.forEach((file) => {
-      formData.append("file", file); // Appending Psych Tests
-    });
-
-    // 3. Get the auth token securely
-    const userStorage = localStorage.getItem("fortrust_user");
-    const token = userStorage ? JSON.parse(userStorage).token : "";
-
-    // 4. Send to Python Backend
-    // CRITICAL: Do NOT set 'Content-Type' manually. Fetch handles the multipart boundary automatically.
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}/document`, {
-      method: "PUT",
-      headers: {
-        "Authorization": `Bearer ${token}`
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Failed to upload to server");
+  const handleUploadToExisting = async (caseId: string) => {
+    if (reportCardFiles.length === 0 && psychTestFiles.length === 0) {
+      alert("Please select at least one file to upload.");
+      return;
     }
+    setIsSaving(true);
+    try {
+      const formData = new FormData();
+      reportCardFiles.forEach((file) => formData.append("file", file));
+      psychTestFiles.forEach((file) => formData.append("file", file));
 
-    alert("Documents successfully uploaded and saved to the student's profile!");
-    
-    // 5. Clean up the UI
-    setReportCardFiles([]);
-    setPsychTestFiles([]);
-    
-    // If you have a function to refresh the student list, call it here:
-    // fetchPipelineData(); 
+      const userStorage = localStorage.getItem("fortrust_user");
+      const token = userStorage ? JSON.parse(userStorage).token : "";
 
-  } catch (error: any) {
-    console.error("Upload Error:", error);
-    alert(`Upload failed: ${error.message}`);
-  } finally {
-    setIsSaving(false);
-  }
-};
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}/document`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to upload to server");
+      }
+      alert("Documents successfully uploaded and saved to the student's profile!");
+      setReportCardFiles([]); setPsychTestFiles([]);
+    } catch (error: any) {
+      alert(`Upload failed: ${error.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleAddNote = async () => {
     if (!newNote.trim() || !selectedStudent) return;
@@ -228,9 +224,10 @@ const handleUploadToExisting = async (caseId: string) => {
   };
 
   const handleVerifyCommission = async () => {
-    if (!verifyFile || !verifyTuition || !verifyRate) return;
+    if (!verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId) return;
     setIsVerifying(true); setVerifyStatus(null);
     const formData = new FormData();
+    formData.append("institution_id", selectedInstitutionId); // NEW
     formData.append("tuition", verifyTuition);
     formData.append("commission_rate", verifyRate);
     formData.append("proof_document", verifyFile);
@@ -469,7 +466,7 @@ const handleUploadToExisting = async (caseId: string) => {
                 </div>
               )}
 
-              {/* ANTI-CHEAT COMMISSION CLAIMER */}
+              {/* NEW UPGRADED ANTI-CHEAT COMMISSION CLAIMER */}
               <div className="p-6 pt-4 pb-6 border-t border-slate-100 bg-slate-100/50">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 mb-4">
                   <ShieldAlert size={14} className="text-orange-500"/> Claim Commission
@@ -481,15 +478,31 @@ const handleUploadToExisting = async (caseId: string) => {
                   </div>
                 ) : (
                   <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm space-y-4">
+                    
+                    {/* NEW DROPDOWN: Map Deal to a University! */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-bold text-slate-600 flex items-center gap-1"><Building2 size={12}/> Select University</Label>
+                      <select 
+                        value={selectedInstitutionId} 
+                        onChange={(e) => setSelectedInstitutionId(e.target.value)}
+                        className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-[#BAD133] outline-none"
+                      >
+                        <option value="">-- Choose Partner --</option>
+                        {institutions.map(inst => (
+                          <option key={inst.id} value={inst.id}>{inst.name} ({inst.country})</option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Tuition Paid</Label><Input type="number" placeholder="$ USD" value={verifyTuition} onChange={(e) => setVerifyTuition(e.target.value)} className="text-xs" /></div>
-                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Rate</Label><Input type="number" step="0.01" value={verifyRate} onChange={(e) => setVerifyRate(e.target.value)} className="text-xs" /></div>
+                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Rate</Label><Input type="number" step="0.01" placeholder="e.g. 10%" value={verifyRate} onChange={(e) => setVerifyRate(e.target.value)} className="text-xs" /></div>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs font-bold text-slate-600">Proof (PDF)</Label>
                       <Input type="file" accept=".pdf" onChange={(e) => setVerifyFile(e.target.files?.[0] || null)} className="text-xs cursor-pointer" />
                     </div>
-                    <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50">
+                    <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50">
                       {isVerifying ? "Verifying..." : "Verify & Close Deal"}
                     </button>
                     {verifyStatus && (

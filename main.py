@@ -807,29 +807,36 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
         extracted_text = "".join([page.extract_text() or "" for page in reader.pages])
 
         prompt = f"""
-        You are a top-tier legal AI assistant for an education agency. Read the document.
-        CRITICAL FAIL-SAFE: If it is NOT a valid contract, or if you cannot find an Institution Name, return this exact JSON:
-        {{ "is_valid": false, "error_message": "Sorry, we can't find anything regarding an Institution Name or Commission Agreement in this document. Please upload a valid contract." }}
+        You are a top-tier legal AI assistant for an education agency. Read the uploaded University/College Commission Agreement.
+        CRITICAL FAIL-SAFE: If it is NOT a valid contract, return this exact JSON:
+        {{ "is_valid": false, "error_message": "Invalid contract document." }}
         
-        If valid, return ONLY raw JSON:
+        If valid, carefully extract the data and return ONLY raw JSON matching this exact structure:
         {{
             "is_valid": true,
             "institution_name": "...",
-            "expiry_date": "...",
-            "finance_pic_name": "...",
-            "finance_pic_email": "...",
-            "commission_structure": {{
-                "High School / Year 1": "...",
-                "English Course": "...",
-                "Foundation": "...",
-                "Diploma": "...",
-                "Bachelor Year 1": "...",
-                "Master Year 1": "...",
-                "PhD": "..."
-            }}
+            "institution_type": "University / College / Vocational",
+            "country": "...",
+            "website": "...",
+            "agreement_type": "Commission-based / Fixed Fee / Tiered",
+            "base_commission": "...",
+            "performance_bonus": "...",
+            "tiered_levels": "...",
+            "duration_start": "YYYY-MM-DD or Unknown",
+            "duration_end": "YYYY-MM-DD or Unknown",
+            "terms_conditions": "Short summary of main terms...",
+            "contacts": [
+                {{
+                    "name": "...",
+                    "title": "...",
+                    "department": "...",
+                    "email": "...",
+                    "phone": "..."
+                }}
+            ]
         }}
         
-        CONTRACT TEXT:
+        CONTRACT TEXT TO SCAN:
         {extracted_text}
         """
         
@@ -841,8 +848,6 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
         
         return {"status": "success", "data": json.loads(clean_json)}
         
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to parse University Contract.")
 

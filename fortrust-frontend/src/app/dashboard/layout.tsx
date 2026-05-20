@@ -16,7 +16,7 @@ import {
   X,
   Lock,
   CheckCircle,
-  Menu // NEW: Added Hamburger Menu Icon
+  Menu
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -25,22 +25,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [user, setUser] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // --- STATES ---
+  // --- UI STATES ---
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
-  
-  // NEW: Mobile Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const notifications = [
-    { id: 1, text: "New Student Lead: John Doe", time: "10 min ago" },
-    { id: 2, text: "Document uploaded for Sarah Smith", time: "1 hour ago" },
-    { id: 3, text: "System Update Complete", time: "2 hours ago" },
-  ];
+  // --- LIVE NOTIFICATION STATES ---
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
+  // 1. Initial User Load
   useEffect(() => {
     const storedUser = localStorage.getItem("fortrust_user");
     if (!storedUser) {
@@ -51,10 +48,39 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [router]);
 
-  // NEW: Auto-close mobile menu when route changes
+  // 2. Auto-close mobile menu when changing pages
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [pathname]);
+
+  // 3. LIVE FETCH LOGIC (Polls database every 30 seconds)
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      const token = localStorage.getItem("fortrust_token");
+      if (!token) return;
+      
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs?limit=5`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+          setNotifications(data.data);
+          // Set max 5 for the red unread badge
+          setUnreadCount(data.data.length > 5 ? 5 : data.data.length); 
+        }
+      } catch (error) {
+        console.error("Failed to fetch live notifications");
+      }
+    };
+
+    if (isLoaded && user) {
+      fetchNotifications();
+      // Auto-refresh every 30 seconds without reloading the page
+      const interval = setInterval(fetchNotifications, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [isLoaded, user]);
 
   const handleLogout = () => {
     localStorage.removeItem("fortrust_user");
@@ -100,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased relative overflow-hidden">
       
-      {/* NEW: MOBILE BACKDROP OVERLAY */}
+      {/* MOBILE BACKDROP OVERLAY */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
@@ -108,7 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
 
-      {/* 1. THE RESPONSIVE SIDEBAR */}
+      {/* THE RESPONSIVE SIDEBAR */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#1b1b42] text-slate-300 flex flex-col h-full shadow-2xl border-r border-[#131333] transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         
         {/* Sleek Logo Area */}
@@ -116,7 +142,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="bg-white px-4 py-2 lg:py-3 rounded-xl w-full flex items-center justify-center shadow-md">
             <img src="/fortrust-logo.png" alt="Fortrust" className="h-6 lg:h-8 w-auto object-contain" />
           </div>
-          {/* Mobile Close Button */}
           <button className="lg:hidden ml-4 text-slate-400 hover:text-white" onClick={() => setIsMobileMenuOpen(false)}>
             <X size={24} />
           </button>
@@ -184,14 +209,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* 2. MAIN CONTENT WRAPPER */}
+      {/* MAIN CONTENT WRAPPER */}
       <div className="flex-1 flex flex-col lg:ml-[260px] min-w-0 w-full transition-all duration-300">
         
         {/* Top Utility Header */}
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
           
           <div className="flex items-center flex-1 gap-4">
-            {/* NEW: MOBILE HAMBURGER MENU */}
+            {/* MOBILE HAMBURGER MENU */}
             <button 
               className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
               onClick={() => setIsMobileMenuOpen(true)}
@@ -199,7 +224,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Menu size={24} />
             </button>
 
-            {/* Hide search bar on small phones to save space */}
+            {/* Search Bar */}
             <div className="hidden sm:flex items-center text-slate-400 bg-slate-50 px-4 py-2 lg:py-2.5 rounded-xl border border-slate-200 w-full max-w-md focus-within:border-[#282860] focus-within:ring-1 focus-within:ring-[#282860] transition-all">
               <Search size={18} className="mr-3 text-slate-400 flex-shrink-0" />
               <input 
@@ -212,33 +237,41 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="flex items-center gap-2 lg:gap-5 flex-shrink-0">
             
-            {/* --- BELL ICON & NOTIFICATION DROPDOWN --- */}
+            {/* --- LIVE NOTIFICATION BELL --- */}
             <div className="relative">
               <button 
-                onClick={() => { setShowNotifications(!showNotifications); setShowSettings(false); }}
+                onClick={() => { setShowNotifications(!showNotifications); setShowSettings(false); setUnreadCount(0); }}
                 className={`p-2 lg:p-2.5 rounded-full transition-colors relative ${showNotifications ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
               >
                 <Bell size={20} />
-                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                {unreadCount > 0 && (
+                  <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                )}
               </button>
 
               {/* Notification Popup */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-72 lg:w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
+                <div className="absolute right-0 mt-2 w-72 lg:w-96 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
                   <div className="p-4 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
-                    <h3 className="font-bold text-[#282860]">Notifications</h3>
-                    <span className="text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full">3 New</span>
+                    <h3 className="font-bold text-[#282860]">Recent Activity</h3>
+                    {unreadCount > 0 && <span className="text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full">{unreadCount} New</span>}
                   </div>
                   <div className="max-h-80 overflow-y-auto">
-                    {notifications.map((note) => (
-                      <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer flex gap-3">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0"></div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-700">{note.text}</p>
-                          <p className="text-xs text-slate-400 mt-1">{note.time}</p>
+                    {notifications.length === 0 ? (
+                      <p className="text-center text-sm text-slate-500 py-6">No recent activity.</p>
+                    ) : (
+                      notifications.map((note) => (
+                        <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors flex gap-3">
+                          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${note.action === 'CREATE' ? 'bg-green-500' : note.action === 'DELETE' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-700">
+                              {note.changed_by} <span className="font-medium text-slate-500">{note.action.toLowerCase()}d</span> {note.entity}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">{new Date(note.created_at).toLocaleString()}</p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
                   <div className="p-3 text-center border-t border-slate-100 bg-slate-50">
                     <button className="text-xs font-bold text-[#282860] hover:underline">Mark all as read</button>
