@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, UploadCloud, Download, Flame, Thermometer, Snowflake, Plus, FileText, FileSpreadsheet, CheckCircle2, Loader2, X, AlertCircle, Search, Filter, Globe2, Copy, QrCode } from "lucide-react";
+import { 
+  Users, UploadCloud, Download, Flame, Thermometer, Snowflake, 
+  Plus, FileText, FileSpreadsheet, CheckCircle2, Loader2, X, 
+  AlertCircle, Search, Filter, Globe2, Copy, QrCode 
+} from "lucide-react";
 
 export default function MarketingDashboard() {
   const [leads, setLeads] = useState<any[]>([]);
@@ -27,8 +31,16 @@ export default function MarketingDashboard() {
   const publicUrl = typeof window !== 'undefined' ? `${window.location.origin}/apply` : 'https://yourwebsite.com/apply';
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=20&data=${encodeURIComponent(publicUrl)}`;
 
+  // --- NEW: Assignment State ---
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [leadToAssign, setLeadToAssign] = useState<any>(null);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState("");
+  const [isAssigning, setIsAssigning] = useState(false);
+
   useEffect(() => {
     fetchLeads();
+    fetchAgents();
   }, []);
 
   const fetchLeads = async () => {
@@ -46,6 +58,21 @@ export default function MarketingDashboard() {
       console.error("Failed to fetch leads:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchAgents = async () => {
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setAgents(data.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch agents:", error);
     }
   };
 
@@ -152,8 +179,37 @@ export default function MarketingDashboard() {
     }
   };
 
+  const handleAssignLead = async () => {
+    if (!leadToAssign || !selectedAgent) return;
+    setIsAssigning(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${leadToAssign.id}`, {
+        method: "PUT",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ assignee: selectedAgent, status: "NEW LEAD" }) 
+      });
+      
+      if (res.ok) {
+        setIsAssignModalOpen(false);
+        setLeadToAssign(null);
+        setSelectedAgent("");
+        fetchLeads(); 
+      } else {
+        alert("Failed to assign lead.");
+      }
+    } catch (error) {
+      alert("Network error.");
+    } finally {
+      setIsAssigning(false);
+    }
+  };
+
   // UX Analytics
-  const unassignedLeads = leads.filter(l => l.assignee === "Unassigned");
+  const unassignedLeads = leads.filter(l => l.assignee === "Unassigned" || !l.assignee);
   const hotLeads = unassignedLeads.filter(l => l.lead_temperature === "Hot Leads");
   const warmLeads = unassignedLeads.filter(l => l.lead_temperature === "Warm Leads");
   const coldLeads = unassignedLeads.filter(l => l.lead_temperature === "Cold Leads" || !l.lead_temperature);
@@ -170,7 +226,6 @@ export default function MarketingDashboard() {
             <p className="text-slate-500 text-sm mb-6">Students can scan this with their phone camera to instantly open the application form.</p>
             
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 inline-block mb-6 shadow-inner">
-              {/* Uses a free, fast API to generate the code dynamically based on your website URL */}
               <img src={qrUrl} alt="Registration QR Code" className="w-56 h-56 mx-auto rounded-lg mix-blend-multiply" crossOrigin="anonymous" />
             </div>
             
@@ -243,7 +298,7 @@ export default function MarketingDashboard() {
                     <th className="px-6 py-4">AI Temperature</th>
                     <th className="px-6 py-4">Program Interest</th>
                     <th className="px-6 py-4">Lead Source</th>
-                    <th className="px-6 py-4 text-right">Date Added</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-slate-100">
@@ -272,7 +327,14 @@ export default function MarketingDashboard() {
                         </td>
                         <td className="px-6 py-4 text-slate-600 text-xs font-medium">{lead.program_interest || <span className="text-slate-300 italic">Not specified</span>}</td>
                         <td className="px-6 py-4 text-slate-600 text-xs font-medium">{lead.lead_source || <span className="text-slate-300 italic">Not specified</span>}</td>
-                        <td className="px-6 py-4 text-right text-slate-400 text-xs">{new Date(lead.created_at).toLocaleDateString()}</td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            className="bg-white hover:bg-slate-50 text-[#282860] border border-slate-200 hover:border-[#282860] px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm"
+                            onClick={() => { setLeadToAssign(lead); setIsAssignModalOpen(true); }}
+                          >
+                            Assign
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -351,7 +413,6 @@ export default function MarketingDashboard() {
       {activeTab === "manual" && (
         <div className="max-w-xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           
-          {/* THE ENHANCED PUBLIC LINK CARD WITH QR CODE BUTTON */}
           <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-6 rounded-2xl shadow-sm border border-slate-700">
             <h2 className="text-lg font-black text-white mb-2 flex items-center gap-2"><Globe2 className="text-[#BAD133]"/> Public Registration Access</h2>
             <p className="text-slate-300 text-sm mb-5">Share this link directly with students or display the QR code at physical events. Submissions instantly appear in your Lead Database.</p>
@@ -408,6 +469,40 @@ export default function MarketingDashboard() {
         </div>
       )}
 
+      {/* ASSIGN LEAD MODAL */}
+      {isAssignModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-2xl shadow-xl max-w-sm w-full animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-[#282860]">Assign to Agent</h3>
+              <button onClick={() => setIsAssignModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={18}/></button>
+            </div>
+            
+            <p className="text-sm text-slate-600 mb-4">
+              Select an agent to handle <span className="font-bold">{leadToAssign?.name}</span>. This lead will be moved to their pipeline.
+            </p>
+
+            <select 
+              value={selectedAgent} 
+              onChange={(e) => setSelectedAgent(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg p-3 text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 mb-6 bg-slate-50"
+            >
+              <option value="">-- Choose Agent --</option>
+              {agents.map(agent => (
+                <option key={agent.id} value={agent.name}>{agent.name} ({agent.role})</option>
+              ))}
+            </select>
+
+            <button 
+              onClick={handleAssignLead} 
+              disabled={!selectedAgent || isAssigning}
+              className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white font-bold py-3 rounded-xl transition-colors disabled:opacity-50"
+            >
+              {isAssigning ? "Assigning..." : "Confirm Assignment"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

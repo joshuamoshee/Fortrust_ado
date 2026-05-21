@@ -4,15 +4,22 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sparkles, UploadCloud, Users, FileText, X, Phone, Mail, MessageSquare, Send, Clock, MessageCircle, GraduationCap, Building, Plus, Calendar, CheckCircle2, DownloadCloud, ShieldAlert, Building2 } from "lucide-react";
+import { 
+  Sparkles, UploadCloud, Users, FileText, X, Phone, Mail, 
+  MessageSquare, Send, Clock, MessageCircle, GraduationCap, 
+  Building, Plus, Calendar, CheckCircle2, DownloadCloud, 
+  ShieldAlert, Building2, DollarSign
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 
 export default function PipelinePage() {
   const [user, setUser] = useState<any>(null);
   const [students, setStudents] = useState<any[]>([]);
-  // NEW: State for Network Directory Institutions
   const [institutions, setInstitutions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // UX UPGRADE: Clean Tab Navigation
+  const [activeTab, setActiveTab] = useState<"pipeline" | "earnings">("pipeline");
   
   // Modal States
   const [isSingleModalOpen, setIsSingleModalOpen] = useState(false);
@@ -27,7 +34,7 @@ export default function PipelinePage() {
   const [isDraftingEmail, setIsDraftingEmail] = useState(false);
   const [isDraftingWA, setIsDraftingWA] = useState(false);
 
-  // Timeline & Reminder States
+  // Timeline States
   const [newNote, setNewNote] = useState("");
   const [newReminderDate, setNewReminderDate] = useState(""); 
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -42,7 +49,7 @@ export default function PipelinePage() {
   const [slideOutReportCard, setSlideOutReportCard] = useState<File | null>(null);
   const [slideOutPsychTest, setSlideOutPsychTest] = useState<File | null>(null);
 
-  // UPGRADED Anti-Cheat Verification States
+  // Anti-Cheat Commission States
   const [selectedInstitutionId, setSelectedInstitutionId] = useState("");
   const [verifyTuition, setVerifyTuition] = useState("");
   const [verifyRate, setVerifyRate] = useState("");
@@ -50,7 +57,7 @@ export default function PipelinePage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState<{verified?: boolean, reason?: string, message?: string} | null>(null);
 
-  // App Tracker Form States
+  // App Tracker States
   const [newAppUni, setNewAppUni] = useState("");
   const [newAppProg, setNewAppProg] = useState("");
   const [newAppStatus, setNewAppStatus] = useState("Pending");
@@ -61,7 +68,7 @@ export default function PipelinePage() {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
       fetchStudents(parsedUser.role, parsedUser.name);
-      fetchInstitutions(); // NEW: Grab the network list
+      fetchInstitutions(); 
     }
   }, []);
 
@@ -89,12 +96,10 @@ export default function PipelinePage() {
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Fetch Error:", err);
         setLoading(false);
       });
   };
 
-  // NEW: Fetch Institutions for the Dropdown
   const fetchInstitutions = async () => {
     const token = localStorage.getItem("fortrust_token");
     try {
@@ -127,36 +132,26 @@ export default function PipelinePage() {
     formData.append("phone", newPhone);
     formData.append("assignee", user?.name || "Unassigned");
     
-    if (reportCardFiles.length === 0) {
-      formData.append("report_cards", new File([""], "empty.txt", { type: "text/plain" }));
-    } else {
-      reportCardFiles.forEach(file => formData.append("report_cards", file));
-    }
+    if (reportCardFiles.length === 0) formData.append("report_cards", new File([""], "empty.txt", { type: "text/plain" }));
+    else reportCardFiles.forEach(file => formData.append("report_cards", file));
 
-    if (psychTestFiles.length === 0) {
-      formData.append("psych_tests", new File([""], "empty.txt", { type: "text/plain" }));
-    } else {
-      psychTestFiles.forEach(file => formData.append("psych_tests", file));
-    }
+    if (psychTestFiles.length === 0) formData.append("psych_tests", new File([""], "empty.txt", { type: "text/plain" }));
+    else psychTestFiles.forEach(file => formData.append("psych_tests", file));
 
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, { method: "POST", body: formData });
-      
       if (!res.ok) {
         const err = await res.json();
         alert(`Error: ${JSON.stringify(err.detail || "Failed to save lead.")}`);
         return;
       }
-
       setIsSingleModalOpen(false); 
       setNewName(""); setNewEmail(""); setNewPhone(""); 
       setReportCardFiles([]); setPsychTestFiles([]);
       fetchStudents(user.role, user.name);       
     } catch (error) { 
       alert("Network Error: Could not reach the server."); 
-    } finally { 
-      setIsSaving(false); 
-    }
+    } finally { setIsSaving(false); }
   };
 
   const handleBulkImport = async () => {
@@ -168,46 +163,27 @@ export default function PipelinePage() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/bulk`, { method: "POST", body: formData });
       const result = await response.json();
-      if (!response.ok) {
-        alert(result.detail || "Import failed.");
-        return;
-      }
+      if (!response.ok) return alert(result.detail || "Import failed.");
       alert(result.message || "Import complete.");
       setIsBulkModalOpen(false); setBulkFile(null); fetchStudents(user.role, user.name);
     } catch (error) { alert("Error parsing document."); } finally { setIsSaving(false); }
   };
 
   const handleUploadToExisting = async (caseId: string) => {
-    if (reportCardFiles.length === 0 && psychTestFiles.length === 0) {
-      alert("Please select at least one file to upload.");
-      return;
-    }
+    if (reportCardFiles.length === 0 && psychTestFiles.length === 0) return alert("Please select at least one file to upload.");
     setIsSaving(true);
     try {
       const formData = new FormData();
       reportCardFiles.forEach((file) => formData.append("file", file));
       psychTestFiles.forEach((file) => formData.append("file", file));
-
-      const userStorage = localStorage.getItem("fortrust_user");
-      const token = userStorage ? JSON.parse(userStorage).token : "";
-
+      const token = localStorage.getItem("fortrust_token");
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}/document`, {
-        method: "PUT",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: formData,
+        method: "PUT", headers: { "Authorization": `Bearer ${token}` }, body: formData,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to upload to server");
-      }
+      if (!response.ok) throw new Error("Failed to upload to server");
       alert("Documents successfully uploaded and saved to the student's profile!");
       setReportCardFiles([]); setPsychTestFiles([]);
-    } catch (error: any) {
-      alert(`Upload failed: ${error.message}`);
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (error: any) { alert(`Upload failed: ${error.message}`); } finally { setIsSaving(false); }
   };
 
   const handleAddNote = async () => {
@@ -227,13 +203,16 @@ export default function PipelinePage() {
     if (!verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId) return;
     setIsVerifying(true); setVerifyStatus(null);
     const formData = new FormData();
-    formData.append("institution_id", selectedInstitutionId); // NEW
+    const token = localStorage.getItem("fortrust_token");
+    formData.append("institution_id", selectedInstitutionId); 
     formData.append("tuition", verifyTuition);
     formData.append("commission_rate", verifyRate);
     formData.append("proof_document", verifyFile);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/verify-commission`, { method: "POST", body: formData });
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/verify-commission`, { 
+        method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: formData 
+      });
       const data = await response.json();
       setVerifyStatus(data);
       if (data.verified) fetchStudents(user.role, user.name); 
@@ -285,7 +264,7 @@ export default function PipelinePage() {
       if (data.status === "success") {
         const mailtoLink = `mailto:${selectedStudent.email}?subject=${encodeURIComponent(data.data.subject)}&body=${encodeURIComponent(data.data.body)}`;
         window.location.href = mailtoLink;
-      } else { alert("Failed to draft email."); }
+      } else alert("Failed to draft email.");
     } catch (error) { alert("Network error drafting email."); } finally { setIsDraftingEmail(false); }
   };
 
@@ -299,7 +278,7 @@ export default function PipelinePage() {
         const phone = selectedStudent.phone?.replace(/\D/g, '');
         const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(data.data.message)}`;
         window.open(waLink, '_blank');
-      } else { alert("Failed to draft WhatsApp message."); }
+      } else alert("Failed to draft WhatsApp message.");
     } catch (error) { alert("Network error drafting WhatsApp."); } finally { setIsDraftingWA(false); }
   };
 
@@ -310,37 +289,164 @@ export default function PipelinePage() {
   ).sort((a, b) => new Date(a.reminder_date).getTime() - new Date(b.reminder_date).getTime());
 
   return (
-    <div className="space-y-6 relative p-8">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 relative p-4 lg:p-8 max-w-[1400px] mx-auto">
+      
+      {/* HEADER */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Student Pipeline</h2>
-          <p className="text-sm text-slate-500 mt-1">Manage your assigned students and generate AI strategies.</p>
+          <h2 className="text-2xl font-black text-[#282860] tracking-tight">Agent Workspace</h2>
+          <p className="text-sm text-slate-500 mt-1">Manage your pipeline, hit targets, and track your commissions.</p>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setIsBulkModalOpen(true)} className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"><UploadCloud size={18} className="text-[#282860]" /> Bulk Expo Scan</button>
-          <button onClick={() => setIsSingleModalOpen(true)} className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-[#282860]/20">+ Add Student Data</button>
+        <div className="flex gap-3 w-full lg:w-auto">
+          <button onClick={() => setIsBulkModalOpen(true)} className="flex-1 lg:flex-none flex justify-center items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm"><UploadCloud size={18} className="text-[#282860]" /> Bulk Scan</button>
+          <button onClick={() => setIsSingleModalOpen(true)} className="flex-1 lg:flex-none flex justify-center items-center bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-md shadow-[#282860]/20"><Plus size={18}/> New Lead</button>
         </div>
       </div>
 
-      {activeTasks.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-          <div className="flex items-center gap-2 mb-4"><Calendar className="text-[#BAD133]" size={20} /><h3 className="text-lg font-bold text-[#282860]">My Action Items</h3><span className="bg-[#BAD133]/20 text-[#282860] text-xs font-bold px-2 py-0.5 rounded-full ml-2">{activeTasks.length}</span></div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {activeTasks.slice(0, 3).map((task, i) => (
-              <div key={i} className="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col justify-between group hover:border-[#BAD133] transition-colors">
-                <div>
-                  <div className="flex justify-between items-start mb-2"><span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded-md shadow-sm">Due: {task.reminder_date}</span><button className="text-slate-300 hover:text-emerald-500 transition-colors" title="Mark Complete"><CheckCircle2 size={18}/></button></div>
-                  <p className="font-bold text-slate-900 text-sm mt-3">{task.studentName}</p>
-                  <p className="text-xs text-slate-600 mt-1 line-clamp-2 leading-relaxed">{task.note}</p>
-                </div>
-                <button onClick={() => setSelectedStudent(students.find(s => s.id === task.studentId))} className="text-xs font-bold text-[#282860] mt-4 flex items-center gap-1 group-hover:text-[#BAD133] transition-colors">Open Profile &rarr;</button>
+      {/* --- DASHBOARD TABS --- */}
+      <div className="flex gap-6 border-b border-slate-200 mb-6 overflow-x-auto">
+        <button 
+          onClick={() => setActiveTab('pipeline')} 
+          className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors whitespace-nowrap ${activeTab === 'pipeline' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          My Student Pipeline
+        </button>
+        <button 
+          onClick={() => setActiveTab('earnings')} 
+          className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'earnings' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          Earnings & Payouts <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px]">Financials</span>
+        </button>
+      </div>
+
+      {/* --- TAB 1: WORK ROOM (PIPELINE) --- */}
+      {activeTab === 'pipeline' && (
+        <div className="animate-in fade-in">
+          {activeTasks.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
+              <div className="flex items-center gap-2 mb-4"><Calendar className="text-[#BAD133]" size={20} /><h3 className="text-lg font-bold text-[#282860]">My Action Items</h3><span className="bg-[#BAD133]/20 text-[#282860] text-xs font-bold px-2 py-0.5 rounded-full ml-2">{activeTasks.length}</span></div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {activeTasks.slice(0, 3).map((task, i) => (
+                  <div key={i} className="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col justify-between group hover:border-[#BAD133] transition-colors">
+                    <div>
+                      <div className="flex justify-between items-start mb-2"><span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded-md shadow-sm">Due: {task.reminder_date}</span><button className="text-slate-300 hover:text-emerald-500 transition-colors" title="Mark Complete"><CheckCircle2 size={18}/></button></div>
+                      <p className="font-bold text-slate-900 text-sm mt-3">{task.studentName}</p>
+                      <p className="text-xs text-slate-600 mt-1 line-clamp-2 leading-relaxed">{task.note}</p>
+                    </div>
+                    <button onClick={() => setSelectedStudent(students.find(s => s.id === task.studentId))} className="text-xs font-bold text-[#282860] mt-4 flex items-center gap-1 group-hover:text-[#BAD133] transition-colors">Open Profile &rarr;</button>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {loading ? (
+              <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing pipeline...</div>
+            ) : students.length === 0 ? (
+               <div className="p-16 text-center text-slate-500"><FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" /><p className="font-medium text-slate-700">No assigned students found.</p></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-200">
+                      <th className="px-6 py-4">Student Profile</th>
+                      <th className="px-6 py-4">Pipeline Status</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {students.map((student) => (
+                      <tr key={student.id} className="hover:bg-slate-50/80 transition-colors group cursor-pointer" onClick={() => setSelectedStudent(student)}>
+                        <td className="px-6 py-4">
+                          <div className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors">{student.name}</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">{student.phone} • {student.email}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-3 py-1 rounded-md text-[10px] font-bold tracking-wider border ${getStatusColor(student.status)}`}>{student.status || "NEW LEAD"}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => handleGenerateAI(student.id, student.name)} className="inline-flex items-center gap-2 bg-slate-50 hover:bg-[#BAD133]/20 text-[#282860] border border-slate-200 hover:border-[#BAD133] px-3 py-1.5 rounded-lg transition-all text-xs font-bold"><Sparkles size={14} className="text-[#BAD133]" /> AI Report</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* MODALS */}
+      {/* --- TAB 2: FINANCE ROOM (EARNINGS) --- */}
+      {activeTab === 'earnings' && (
+        <div className="space-y-6 animate-in fade-in">
+          
+          {/* Earnings KPIs */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5">
+              <div className="h-14 w-14 rounded-full bg-blue-50 flex items-center justify-center"><Users className="text-blue-600" size={24} /></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Closed Deals</p>
+              <p className="text-3xl font-black text-[#282860] mt-1">
+                {students.filter(s => s.status?.toUpperCase() === "COMPLETED").length}
+              </p></div>
+            </div>
+            
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5">
+              <div className="h-14 w-14 rounded-full bg-amber-50 flex items-center justify-center"><Clock className="text-amber-500" size={24} /></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Pending Payouts</p>
+              <p className="text-3xl font-black text-[#282860] mt-1">
+                ${students.filter(s => s.status?.toUpperCase() === "COMPLETED").reduce((acc, curr) => acc + (parseFloat(curr.agent_cut) || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              </p></div>
+            </div>
+
+            <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-6 rounded-2xl shadow-lg border border-[#3a3a7a] flex items-center gap-5 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-[#BAD133] rounded-full blur-3xl opacity-20 -mr-10 -mt-10"></div>
+              <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center relative z-10"><DollarSign className="text-[#BAD133]" size={24} /></div>
+              <div className="relative z-10">
+                <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Total Earned YTD</p>
+                <p className="text-3xl font-black text-white mt-1">$0.00</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Ledger Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
+              <h3 className="font-bold text-[#282860]">Commission Ledger</h3>
+              <span className="text-[10px] font-black bg-[#282860] text-white uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-sm">Your Tier Rate: {user?.role || "Agent"}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-white text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
+                  <tr>
+                    <th className="px-6 py-4">Student</th>
+                    <th className="px-6 py-4">Total Commission Generated</th>
+                    <th className="px-6 py-4">Your Cut</th>
+                    <th className="px-6 py-4">Payment Status</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm divide-y divide-slate-100">
+                  {students.filter(s => s.status?.toUpperCase() === "COMPLETED").length === 0 ? (
+                    <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">No closed deals yet. Move a student to 'Completed' to earn commissions!</td></tr>
+                  ) : (
+                    students.filter(s => s.status?.toUpperCase() === "COMPLETED").map(student => (
+                      <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 font-bold text-[#282860]">{student.name}</td>
+                        <td className="px-6 py-4 text-slate-500">${(student.commission_earned || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        <td className="px-6 py-4 font-black text-green-600">${(parseFloat(student.agent_cut) || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        <td className="px-6 py-4"><span className="bg-amber-100 text-amber-700 px-2 py-1 flex items-center gap-1 w-fit rounded-md text-[10px] font-bold"><Clock size={12}/> PENDING</span></td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- ALL MODALS REMAIN THE SAME --- */}
       <Dialog open={isBulkModalOpen} onOpenChange={setIsBulkModalOpen}>
         <DialogContent className="rounded-2xl">
           <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl"><Users className="text-[#BAD133]" /> AI Bulk Scanner</DialogTitle><DialogDescription className="text-slate-500 mt-2">Upload a raw PDF list from a school expo. Gemini AI will extract data.</DialogDescription></DialogHeader>
@@ -365,51 +471,16 @@ export default function PipelinePage() {
         </DialogContent>
       </Dialog>
 
-      {/* THE DATA TABLE */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing pipeline...</div>
-        ) : students.length === 0 ? (
-           <div className="p-16 text-center text-slate-500"><FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" /><p className="font-medium text-slate-700">No assigned students found.</p></div>
-        ) : (
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                <th className="px-6 py-4">Student Profile</th>
-                <th className="px-6 py-4">Pipeline Status</th>
-                <th className="px-6 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-sm">
-              {students.map((student) => (
-                <tr key={student.id} className="hover:bg-slate-50/80 transition-colors group cursor-pointer" onClick={() => setSelectedStudent(student)}>
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-900 group-hover:text-[#282860] transition-colors">{student.name}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{student.phone} • {student.email}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider border ${getStatusColor(student.status)}`}>{student.status || "NEW LEAD"}</span>
-                  </td>
-                  <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={() => handleGenerateAI(student.id, student.name)} className="inline-flex items-center gap-2 bg-slate-50 hover:bg-[#BAD133]/20 text-[#282860] border border-slate-200 hover:border-[#BAD133] px-3 py-1.5 rounded-lg transition-all text-xs font-bold"><Sparkles size={14} className="text-[#BAD133]" /> AI Report</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
       {/* STUDENT DETAIL SLIDE-OUT PANEL */}
       {selectedStudent && (
         <>
-          <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40" onClick={() => setSelectedStudent(null)}></div>
-          <div className="fixed inset-y-0 right-0 w-[480px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300">
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setSelectedStudent(null)}></div>
+          <div className="fixed inset-y-0 right-0 w-full sm:w-[480px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300">
             
             <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
               <div>
                 <h3 className="text-xl font-black text-[#282860]">{selectedStudent.name}</h3>
-                <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider border ${getStatusColor(selectedStudent.status)}`}>{selectedStudent.status || "NEW LEAD"}</span>
+                <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-md text-[10px] font-bold tracking-wider border ${getStatusColor(selectedStudent.status)}`}>{selectedStudent.status || "NEW LEAD"}</span>
               </div>
               <button onClick={() => setSelectedStudent(null)} className="text-slate-400 hover:text-slate-600 bg-white rounded-full p-1 shadow-sm border border-slate-200"><X size={18}/></button>
             </div>
@@ -418,11 +489,11 @@ export default function PipelinePage() {
               <div className="p-6 pb-2 space-y-3">
                 <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest">Contact Information</p>
                 <div className="flex gap-2">
-                  <div className="flex-1 flex items-center gap-3 text-sm font-medium text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100"><Mail size={16} className="text-slate-400" /> {selectedStudent.email}</div>
+                  <div className="flex-1 flex items-center gap-3 text-sm font-medium text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100"><Mail size={16} className="text-slate-400" /> <span className="truncate">{selectedStudent.email}</span></div>
                   <button onClick={handleDraftEmail} disabled={isDraftingEmail} className="flex items-center justify-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI Email"><Sparkles size={14} className={isDraftingEmail ? "animate-spin text-[#BAD133]" : "text-[#BAD133]"} />{isDraftingEmail ? "Drafting..." : "AI Email"}</button>
                 </div>
                 <div className="flex gap-2">
-                  <a href={`https://wa.me/${selectedStudent.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-3 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-sm shadow-emerald-100/50 group" title="Open empty WhatsApp chat"><MessageCircle size={18} className="text-emerald-500 group-hover:text-emerald-600" /> {selectedStudent.phone}<span className="text-[10px] bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded-full ml-auto uppercase tracking-wider">Empty Chat</span></a>
+                  <a href={`https://wa.me/${selectedStudent.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-3 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-sm shadow-emerald-100/50 group" title="Open empty WhatsApp chat"><MessageCircle size={18} className="text-emerald-500 group-hover:text-emerald-600" /> <span className="truncate">{selectedStudent.phone}</span><span className="hidden sm:inline-block text-[10px] bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded-full ml-auto uppercase tracking-wider">Empty Chat</span></a>
                   <button onClick={handleDraftWhatsApp} disabled={isDraftingWA} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI WhatsApp Message"><Sparkles size={14} className={isDraftingWA ? "animate-spin text-emerald-200" : "text-emerald-200"} />{isDraftingWA ? "Drafting..." : "AI Text"}</button>
                 </div>
               </div>
@@ -459,14 +530,14 @@ export default function PipelinePage() {
                     {selectedStudent.documents.map((doc: any, i: number) => (
                       <a key={i} href={`${process.env.NEXT_PUBLIC_API_URL}/api/documents/${doc.filename}`} target="_blank" rel="noopener noreferrer" className="bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-2 hover:border-[#BAD133] hover:shadow-sm transition-all group" title="Download Document">
                         <div className="p-1.5 bg-red-50 rounded text-red-500 group-hover:bg-red-100 transition-colors"><FileText size={16} /></div>
-                        <span className="text-xs font-bold text-slate-700 truncate w-full">{doc.title}</span>
+                        <span className="text-[10px] font-bold text-slate-700 truncate w-full">{doc.title}</span>
                       </a>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* NEW UPGRADED ANTI-CHEAT COMMISSION CLAIMER */}
+              {/* ANTI-CHEAT COMMISSION CLAIMER */}
               <div className="p-6 pt-4 pb-6 border-t border-slate-100 bg-slate-100/50">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 mb-4">
                   <ShieldAlert size={14} className="text-orange-500"/> Claim Commission
@@ -478,14 +549,12 @@ export default function PipelinePage() {
                   </div>
                 ) : (
                   <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm space-y-4">
-                    
-                    {/* NEW DROPDOWN: Map Deal to a University! */}
                     <div className="space-y-1.5">
                       <Label className="text-xs font-bold text-slate-600 flex items-center gap-1"><Building2 size={12}/> Select University</Label>
                       <select 
                         value={selectedInstitutionId} 
                         onChange={(e) => setSelectedInstitutionId(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:ring-[#BAD133] outline-none"
+                        className="w-full text-xs border border-slate-200 rounded-lg p-2.5 focus:ring-[#BAD133] outline-none bg-slate-50"
                       >
                         <option value="">-- Choose Partner --</option>
                         {institutions.map(inst => (
@@ -502,7 +571,7 @@ export default function PipelinePage() {
                       <Label className="text-xs font-bold text-slate-600">Proof (PDF)</Label>
                       <Input type="file" accept=".pdf" onChange={(e) => setVerifyFile(e.target.files?.[0] || null)} className="text-xs cursor-pointer" />
                     </div>
-                    <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50">
+                    <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50 shadow-md">
                       {isVerifying ? "Verifying..." : "Verify & Close Deal"}
                     </button>
                     {verifyStatus && (
