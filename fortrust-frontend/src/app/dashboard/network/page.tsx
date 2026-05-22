@@ -1,44 +1,142 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   Building2, MapPin, DollarSign, UploadCloud, Search, Plus, 
   Settings, Sparkles, CheckCircle, Clock, X, FileText,
-  UserCircle, Loader2 
+  UserCircle, ChevronRight, Loader2, Building, Trash2 
 } from "lucide-react";
 
 export default function NetworkDirectory() {
   const [activeTab, setActiveTab] = useState<"directory" | "claimed">("directory");
   
+  // Real Data States
+  const [institutions, setInstitutions] = useState<any[]>([]);
+  const [completedStudents, setCompletedStudents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
   // Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  // THE NEW, CLEANER TABS
   const [modalTab, setModalTab] = useState<"profile" | "terms" | "commission" | "contacts">("profile");
+  
+  // Payout Drill-Down State
+  const [selectedPayout, setSelectedPayout] = useState<any>(null);
   
   // AI Scanner States
   const [isScanning, setIsScanning] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Empty Form State for New/Editing
   const [formData, setFormData] = useState({
-    institution_name: "Monash University",
+    id: "",
+    institution_name: "",
     institution_type: "University",
-    country: "Australia",
-    website: "monash.edu",
+    country: "",
+    website: "",
     status: "Active",
-    agreement_id: "MON-2026-001",
-    agreement_date: "2024-01-15",
-    duration_start: "2024-01-01",
-    duration_end: "2027-12-31",
-    terms_conditions: "Standard 30-day payout terms.",
+    agreement_id: "",
+    agreement_date: "",
+    duration_start: "",
+    duration_end: "",
+    terms_conditions: "",
     agreement_type: "Tiered",
-    base_commission: "10%",
-    performance_bonus: "2% if > 50 students",
-    tiered_levels: "10% base, 12.5% silver, 15% gold",
-    contacts: [
-      { name: "Sarah Jenkins", title: "International Relations Manager", department: "Admissions", email: "sarah@monash.edu", phone: "+61 400 000 000", primary: true }
-    ],
+    base_commission: "",
+    performance_bonus: "",
+    tiered_levels: "",
+    contacts: [] as any[],
   });
+
+  useEffect(() => {
+    fetchNetworkData();
+  }, []);
+
+  const fetchNetworkData = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      
+      // Fetch Institutions AND Completed Students for the Ledger
+      const [instRes, studentsRes] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/institutions`, { headers: { "Authorization": `Bearer ${token}` } }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=MASTER_ADMIN`, { headers: { "Authorization": `Bearer ${token}` } })
+      ]);
+
+      const instData = await instRes.json();
+      const studentsData = await studentsRes.json();
+
+      if (instData.status === "success") setInstitutions(instData.data || []);
+      if (studentsData.status === "success") {
+        // Only keep students who have completed and paid
+        const closedDeals = studentsData.data.filter((s: any) => s.status?.toUpperCase() === "COMPLETED");
+        setCompletedStudents(closedDeals);
+      }
+    } catch (error) {
+      console.error("Failed to fetch network data", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- NEW: Save Institution Logic ---
+  const handleSaveInstitution = async () => {
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const isEditing = !!formData.id;
+      const url = isEditing 
+        ? `${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${formData.id}` 
+        : `${process.env.NEXT_PUBLIC_API_URL}/api/institutions`;
+      const method = isEditing ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method: method,
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(formData)
+      });
+
+      if (res.ok) {
+        setIsEditModalOpen(false);
+        fetchNetworkData(); // Refresh the table
+      } else {
+        alert("Failed to save the institution. Check backend connection.");
+      }
+    } catch (error) {
+      alert("Network Error.");
+    }
+  };
+
+  // --- NEW: Delete Institution Logic ---
+  const handleDeleteInstitution = async (id: string) => {
+    if (!window.confirm("Are you absolutely sure you want to delete this institution? This cannot be undone.")) return;
+    
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        fetchNetworkData(); // Refresh the table
+      } else {
+        alert("Failed to delete the institution.");
+      }
+    } catch (error) {
+      alert("Network Error.");
+    }
+  };
+
+  const openNewInstitution = () => {
+    setFormData({
+      id: "", institution_name: "", institution_type: "University", country: "", website: "", status: "Active",
+      agreement_id: `AGR-${Date.now()}`, agreement_date: "", duration_start: "", duration_end: "", terms_conditions: "",
+      agreement_type: "Tiered", base_commission: "", performance_bonus: "", tiered_levels: "", contacts: []
+    });
+    setIsEditModalOpen(true);
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -50,16 +148,12 @@ export default function NetworkDirectory() {
     try {
       const payload = new FormData();
       payload.append("contract", file);
-
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/extract-commission`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: payload
+        method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: payload
       });
 
       const result = await res.json();
-      
       if (result.status === "success" && result.data.is_valid) {
         setFormData(prev => ({
           ...prev,
@@ -82,14 +176,23 @@ export default function NetworkDirectory() {
         alert("AI could not detect a valid contract.");
       }
     } catch (err) {
-      alert("AI Scanning failed. Please check the backend connection.");
+      alert("AI Scanning failed.");
     } finally {
       setIsScanning(false);
     }
   };
 
+  // Group completed students by institution for the ledger
+  const payoutsByInstitution = institutions.map(inst => {
+    const studentsForInst = completedStudents.filter(s => s.institution_id === inst.id);
+    const totalClaimed = studentsForInst.reduce((sum, s) => sum + (parseFloat(s.commission_earned) || 0), 0);
+    return { ...inst, students: studentsForInst, totalClaimed };
+  }).filter(inst => inst.totalClaimed > 0);
+
+  const grandTotalClaimed = payoutsByInstitution.reduce((sum, inst) => sum + inst.totalClaimed, 0);
+
   return (
-    <div className="p-4 lg:p-8 max-w-[1400px] mx-auto w-full">
+    <div className="p-4 lg:p-8 max-w-[1400px] mx-auto w-full relative">
       
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-8 gap-4">
@@ -101,7 +204,7 @@ export default function NetworkDirectory() {
           <p className="text-slate-500 mt-2 font-medium">Manage university partnerships and track commission agreements.</p>
         </div>
         <button 
-          onClick={() => setIsEditModalOpen(true)}
+          onClick={openNewInstitution}
           className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-md flex items-center gap-2"
         >
           <Plus size={18} /> Add Institution
@@ -124,113 +227,156 @@ export default function NetworkDirectory() {
         </button>
       </div>
 
-      {/* DIRECTORY VIEW */}
-      {activeTab === 'directory' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-            <div className="relative w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input type="text" placeholder="Search institutions..." className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-[#282860]" />
+      {loading ? (
+        <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-[#BAD133]" size={40}/></div>
+      ) : (
+        <>
+          {/* DIRECTORY VIEW */}
+          {activeTab === 'directory' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                <div className="relative w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input type="text" placeholder="Search institutions..." className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:border-[#282860]" />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[800px]">
+                  <thead className="bg-[#f8fafc] text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
+                    <tr>
+                      <th className="px-5 py-4">Institution</th>
+                      <th className="px-5 py-4">Region</th>
+                      <th className="px-5 py-4">Base Comm.</th>
+                      <th className="px-5 py-4">Status</th>
+                      <th className="px-5 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-sm divide-y divide-slate-100">
+                    {institutions.length === 0 ? (
+                      <tr><td colSpan={5} className="p-8 text-center text-slate-500">No institutions added yet. Click "Add Institution".</td></tr>
+                    ) : institutions.map((inst) => (
+                      <tr key={inst.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-5 py-4 flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-black">{inst.name.charAt(0)}</div>
+                          <div>
+                            <p className="font-bold text-[#282860]">{inst.name}</p>
+                            <p className="text-[11px] text-slate-400">{inst.website}</p>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-slate-600 font-medium flex items-center gap-1"><MapPin size={14}/> {inst.country}</td>
+                        <td className="px-5 py-4 font-bold text-green-600">{inst.base_commission || "-"}</td>
+                        <td className="px-5 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded-md text-[10px] font-bold uppercase">{inst.status || "ACTIVE"}</span></td>
+                        <td className="px-5 py-4 flex justify-end gap-2">
+                          <button 
+                            onClick={() => { setFormData(inst); setIsEditModalOpen(true); }} 
+                            className="text-[#BAD133] hover:text-[#9bb029] font-bold text-xs uppercase tracking-wider bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteInstitution(inst.id)} 
+                            className="text-red-400 hover:text-white hover:bg-red-500 bg-red-50 px-2 py-1.5 rounded-lg border border-red-100 transition-colors"
+                            title="Delete Institution"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <button className="text-slate-500 hover:text-slate-800"><Settings size={18}/></button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-[#f8fafc] text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
-                <tr>
-                  <th className="px-5 py-4">Institution</th>
-                  <th className="px-5 py-4">Region</th>
-                  <th className="px-5 py-4">Base Comm.</th>
-                  <th className="px-5 py-4">Status</th>
-                  <th className="px-5 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm divide-y divide-slate-100">
-                <tr className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-black">M</div>
-                    <div>
-                      <p className="font-bold text-[#282860]">Monash University</p>
-                      <p className="text-[11px] text-slate-400">monash.edu</p>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 text-slate-600 font-medium flex items-center gap-1"><MapPin size={14}/> Australia</td>
-                  <td className="px-5 py-4 font-bold text-green-600">10%</td>
-                  <td className="px-5 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded-md text-[10px] font-bold">ACTIVE</span></td>
-                  <td className="px-5 py-4 text-right">
-                    <button onClick={() => setIsEditModalOpen(true)} className="text-[#BAD133] hover:text-[#9bb029] font-bold text-xs uppercase tracking-wider bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">Edit Contract</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* CLAIMED HISTORY VIEW */}
-      {activeTab === 'claimed' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
-            <div>
-              <h2 className="text-lg font-bold text-[#282860]">Commission Payout Ledger</h2>
-              <p className="text-xs text-slate-500">Historical record of all funds received from institutions.</p>
+          {/* CLAIMED HISTORY VIEW */}
+          {activeTab === 'claimed' && (
+            <div className="flex gap-6">
+              {/* Main Ledger Table */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex-1">
+                <div className="p-6 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
+                  <div>
+                    <h2 className="text-lg font-bold text-[#282860]">Commission Payout Ledger</h2>
+                    <p className="text-xs text-slate-500">Historical record grouped by institution.</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Claimed (Global)</p>
+                    <p className="text-2xl font-black text-green-600">${grandTotalClaimed.toLocaleString()}</p>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[600px]">
+                    <thead className="bg-white text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
+                      <tr>
+                        <th className="px-5 py-4">Institution</th>
+                        <th className="px-5 py-4 text-center">Total Students</th>
+                        <th className="px-5 py-4 text-right">Total Payout</th>
+                        <th className="px-5 py-4 text-center">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm divide-y divide-slate-100">
+                      {payoutsByInstitution.length === 0 ? (
+                        <tr><td colSpan={4} className="p-8 text-center text-slate-500">No paid commissions recorded yet.</td></tr>
+                      ) : payoutsByInstitution.map((inst) => (
+                        <tr key={inst.id} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => setSelectedPayout(inst)}>
+                          <td className="px-5 py-4 font-bold text-[#282860] flex items-center gap-2"><Building size={16} className="text-slate-400"/> {inst.name}</td>
+                          <td className="px-5 py-4 text-center font-bold text-slate-600 bg-slate-50">{inst.students.length}</td>
+                          <td className="px-5 py-4 font-black text-green-600 text-right">${inst.totalClaimed.toLocaleString()}</td>
+                          <td className="px-5 py-4 text-center">
+                            <button className="text-[#BAD133] group-hover:text-white group-hover:bg-[#BAD133] border border-[#BAD133] rounded-full p-1 transition-colors mx-auto block"><ChevronRight size={18}/></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* SLIDE-OUT: Students Detail Panel */}
+              {selectedPayout && (
+                <div className="w-[400px] bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden flex flex-col animate-in slide-in-from-right-8 shrink-0">
+                  <div className="p-5 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-[#BAD133]">Payout Details</p>
+                      <h3 className="font-bold text-lg">{selectedPayout.name}</h3>
+                    </div>
+                    <button onClick={() => setSelectedPayout(null)} className="p-1 hover:bg-white/20 rounded-full transition-colors"><X size={20}/></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50">
+                    {selectedPayout.students.map((student: any) => (
+                      <div key={student.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-[#282860]">{student.name}</p>
+                          <p className="text-xs text-slate-500 mt-1">Closed by: <span className="font-bold">{student.assignee}</span></p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-slate-400 uppercase font-bold tracking-widest mb-1">Generated</p>
+                          <p className="font-black text-green-600">${parseFloat(student.commission_earned).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Claimed (2026)</p>
-              <p className="text-2xl font-black text-green-600">$142,500</p>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-white text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
-                <tr>
-                  <th className="px-5 py-4">Date Paid</th>
-                  <th className="px-5 py-4">Institution</th>
-                  <th className="px-5 py-4">Total Enrollments</th>
-                  <th className="px-5 py-4">Amount Claimed</th>
-                  <th className="px-5 py-4">Status</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm divide-y divide-slate-100">
-                <tr className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-4 text-slate-600 font-bold">15 May 2026</td>
-                  <td className="px-5 py-4 font-bold text-[#282860]">Deakin University</td>
-                  <td className="px-5 py-4 text-slate-500">12 Students</td>
-                  <td className="px-5 py-4 font-black text-green-600">$24,000</td>
-                  <td className="px-5 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 flex items-center gap-1 w-fit rounded-md text-[10px] font-bold"><CheckCircle size={12}/> PAID</span></td>
-                </tr>
-                <tr className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-4 text-slate-600 font-bold">01 Jun 2026</td>
-                  <td className="px-5 py-4 font-bold text-[#282860]">Monash University</td>
-                  <td className="px-5 py-4 text-slate-500">38 Students</td>
-                  <td className="px-5 py-4 font-black text-slate-400">$45,000</td>
-                  <td className="px-5 py-4"><span className="bg-amber-100 text-amber-700 px-2 py-1 flex items-center gap-1 w-fit rounded-md text-[10px] font-bold"><Clock size={12}/> PENDING</span></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       {/* --- RESTRUCTURED EDIT MODAL --- */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl h-[85vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-            
-            {/* Modal Header */}
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#1b1b42] text-white">
               <div>
                 <h2 className="text-2xl font-black flex items-center gap-2">
-                  <Building2 className="text-[#BAD133]" /> {formData.institution_name}
+                  <Building2 className="text-[#BAD133]" /> {formData.institution_name || "New Institution"}
                 </h2>
                 <p className="text-slate-300 text-sm mt-1">Master Agreement & Contact Profile</p>
               </div>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-white transition-colors bg-white/10 p-2 rounded-full">
-                <X size={24} />
-              </button>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-white transition-colors bg-white/10 p-2 rounded-full"><X size={24} /></button>
             </div>
 
-            {/* AI Scanner Bar */}
             <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-4 border-b border-indigo-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><Sparkles size={20}/></div>
@@ -239,25 +385,14 @@ export default function NetworkDirectory() {
                   <p className="text-xs text-slate-500">Upload a PDF agreement to extract terms instantly.</p>
                 </div>
               </div>
-              
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf" className="hidden" />
-              
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isScanning}
-                className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50"
-              >
+              <button onClick={() => fileInputRef.current?.click()} disabled={isScanning} className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50">
                 {isScanning ? <><Loader2 size={16} className="animate-spin" /> Scanning...</> : <><UploadCloud size={16} /> Upload PDF</>}
               </button>
             </div>
 
-            {scanSuccess && (
-              <div className="bg-green-50 text-green-700 p-2 text-center text-xs font-bold border-b border-green-100">
-                ✅ AI successfully extracted contract data!
-              </div>
-            )}
+            {scanSuccess && <div className="bg-green-50 text-green-700 p-2 text-center text-xs font-bold border-b border-green-100">✅ AI successfully extracted contract data!</div>}
 
-            {/* Cleaner Modal Tabs */}
             <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6">
               <button onClick={() => setModalTab('profile')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors ${modalTab === 'profile' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>A. Profile</button>
               <button onClick={() => setModalTab('terms')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors ${modalTab === 'terms' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>B. Contract Terms</button>
@@ -265,83 +400,46 @@ export default function NetworkDirectory() {
               <button onClick={() => setModalTab('contacts')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors ${modalTab === 'contacts' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>D. Contacts</button>
             </div>
 
-            {/* Scrollable Form Area */}
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50">
-              
-              {/* TAB A: PROFILE */}
               {modalTab === 'profile' && (
                 <div className="grid grid-cols-2 gap-6 animate-in fade-in">
                   <div className="col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Institution Name</label><input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl font-bold text-[#282860]" value={formData.institution_name} onChange={e=>setFormData({...formData, institution_name: e.target.value})}/></div>
                   <div><label className="text-xs font-bold text-slate-500 uppercase">Type</label><input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.institution_type} onChange={e=>setFormData({...formData, institution_type: e.target.value})}/></div>
                   <div><label className="text-xs font-bold text-slate-500 uppercase">Country/Region</label><input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.country} onChange={e=>setFormData({...formData, country: e.target.value})}/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Website</label><input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-blue-600 underline" value={formData.website} onChange={e=>setFormData({...formData, website: e.target.value})}/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl bg-white" value={formData.status} onChange={e=>setFormData({...formData, status: e.target.value})}>
-                      <option value="Active">Active</option><option value="Inactive">Inactive</option>
-                    </select>
-                  </div>
                 </div>
               )}
-
-              {/* TAB B: CONTRACT TERMS */}
               {modalTab === 'terms' && (
                 <div className="grid grid-cols-2 gap-6 animate-in fade-in">
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Agreement ID</label><input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl bg-slate-100" value={formData.agreement_id} readOnly/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Date Signed</label><input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.agreement_date} onChange={e=>setFormData({...formData, agreement_date: e.target.value})}/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Valid From</label><input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.duration_start} onChange={e=>setFormData({...formData, duration_start: e.target.value})}/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Valid Until</label><input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.duration_end} onChange={e=>setFormData({...formData, duration_end: e.target.value})}/></div>
-                  <div className="col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Legal Terms & Conditions</label><textarea rows={4} className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-sm" value={formData.terms_conditions} onChange={e=>setFormData({...formData, terms_conditions: e.target.value})}></textarea></div>
+                  <div className="col-span-2"><label className="text-xs font-bold text-slate-500 uppercase">Terms & Conditions</label><textarea rows={4} className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-sm" value={formData.terms_conditions} onChange={e=>setFormData({...formData, terms_conditions: e.target.value})}></textarea></div>
                 </div>
               )}
-
-              {/* TAB C: COMMISSION STRUCTURE (NEW) */}
               {modalTab === 'commission' && (
                 <div className="grid grid-cols-1 gap-6 animate-in fade-in">
                   <div className="bg-green-50 p-6 rounded-2xl border border-green-100">
                     <label className="text-xs font-black text-green-800 uppercase tracking-widest block mb-2">Base Commission Percentage</label>
                     <input type="text" className="w-full p-4 border-2 border-green-200 rounded-xl text-2xl font-black text-green-700 bg-white" placeholder="e.g. 10%" value={formData.base_commission} onChange={e=>setFormData({...formData, base_commission: e.target.value})}/>
                   </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Agreement Type</label>
-                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl bg-white" value={formData.agreement_type} onChange={e=>setFormData({...formData, agreement_type: e.target.value})}>
-                      <option value="Tiered">Tiered Commission</option><option value="Fixed">Fixed Fee</option><option value="Flat">Flat Percentage</option>
-                    </select>
-                  </div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Performance Bonus Rules</label><input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" placeholder="e.g. Extra 2% if > 50 students" value={formData.performance_bonus} onChange={e=>setFormData({...formData, performance_bonus: e.target.value})}/></div>
-                  <div><label className="text-xs font-bold text-slate-500 uppercase">Tiered Commission Levels</label><textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-sm" placeholder="e.g. 10% for 1-10 students, 12% for 11-20..." value={formData.tiered_levels} onChange={e=>setFormData({...formData, tiered_levels: e.target.value})}></textarea></div>
                 </div>
               )}
-
-              {/* TAB D: CONTACTS */}
               {modalTab === 'contacts' && (
                 <div className="space-y-4 animate-in fade-in">
-                  {formData.contacts.map((contact, i) => (
-                    <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative flex items-start gap-4">
-                      {contact.primary && <span className="absolute top-4 right-4 bg-amber-100 text-amber-700 px-2 py-1 rounded text-[10px] font-black tracking-widest">PRIMARY</span>}
-                      <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 flex-shrink-0"><UserCircle size={24}/></div>
-                      <div className="grid grid-cols-2 gap-4 w-full pt-1">
-                        <div className="col-span-2 sm:col-span-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Full Name</label><p className="font-bold text-[#282860]">{contact.name}</p></div>
-                        <div className="col-span-2 sm:col-span-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Title & Dept</label><p className="text-sm font-medium text-slate-600">{contact.title} ({contact.department})</p></div>
-                        <div className="col-span-2 sm:col-span-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Email</label><p className="text-sm text-blue-600">{contact.email}</p></div>
-                        <div className="col-span-2 sm:col-span-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Phone</label><p className="text-sm text-slate-600">{contact.phone}</p></div>
-                      </div>
-                    </div>
-                  ))}
                   <button className="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-500 font-bold hover:bg-slate-100 hover:text-[#282860] transition-colors">+ Add Another Contact</button>
                 </div>
               )}
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-200 bg-white flex justify-end gap-3 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-10">
               <button onClick={() => setIsEditModalOpen(false)} className="px-6 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800">Cancel</button>
-              <button className="bg-[#282860] hover:bg-[#1b1b42] text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md">Save Master Agreement</button>
+              <button 
+                onClick={handleSaveInstitution}
+                className="bg-[#282860] hover:bg-[#1b1b42] text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md transition-colors"
+              >
+                Save Master Agreement
+              </button>
             </div>
-            
           </div>
         </div>
       )}
-
     </div>
   );
 }
