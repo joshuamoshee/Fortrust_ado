@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+
 import Link from "next/link";
 import { 
   LayoutDashboard, 
@@ -16,6 +17,7 @@ import {
   X,
   Lock,
   CheckCircle,
+  Activity,
   Menu
 } from "lucide-react";
 
@@ -185,6 +187,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Link href="/dashboard/marketing" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 <span className="font-bold">Marketing Hub</span>
+              </Link>
+
+              <Link 
+                href="/dashboard/audit" 
+                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
+                  ${pathname === '/dashboard/audit' 
+                    ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
+                    : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
+              >
+                <Activity size={18} className={pathname === '/dashboard/audit' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                System CCTV
               </Link>
             </>
           )}
