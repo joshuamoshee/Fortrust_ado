@@ -18,7 +18,9 @@ import {
   Lock,
   CheckCircle,
   Activity,
-  Menu
+  Menu,
+  Building2,
+  DollarSign
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -171,22 +173,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               
               <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                Agent List
+                Agents
               </Link>
               
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 Master Admin Panel
               </Link>
-              
-              <Link href="/dashboard/network" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/network' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                <Users size={18} className={pathname === '/dashboard/network' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                Network Directory
-              </Link>
 
               <Link href="/dashboard/marketing" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                <span className="font-bold">Marketing Hub</span>
+                Marketing Hub
+              </Link>
+              
+              <Link href="/dashboard/network" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/network' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Building2 size={18} className={pathname === '/dashboard/network' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Institution Partners
+              </Link>
+
+              <Link href="/dashboard/claimed" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/claimed' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <DollarSign size={18} className={pathname === '/dashboard/claimed' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Claimed Commission
               </Link>
 
               <Link 
