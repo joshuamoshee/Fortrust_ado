@@ -8,9 +8,12 @@ import {
   Sparkles, UploadCloud, Users, FileText, X, Phone, Mail, 
   MessageSquare, Send, Clock, MessageCircle, GraduationCap, 
   Building, Plus, Calendar, CheckCircle2, DownloadCloud, 
-  ShieldAlert, Building2, DollarSign
+  ShieldAlert, Building2, DollarSign, Activity, BrainCircuit,
+  BookOpen, Search, Download, FileSignature, Target, ChevronRight, Filter
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+
+const STATUS_OPTIONS = ["NEW LEAD", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"];
 
 export default function PipelinePage() {
   const [user, setUser] = useState<any>(null);
@@ -20,12 +23,16 @@ export default function PipelinePage() {
   
   // UX UPGRADE: Clean Tab Navigation
   const [activeTab, setActiveTab] = useState<"pipeline" | "earnings">("pipeline");
+  const [searchQuery, setSearchQuery] = useState("");
   
   // Modal States
   const [isSingleModalOpen, setIsSingleModalOpen] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  
+  // Panel States
   const [selectedStudent, setSelectedStudent] = useState<any>(null); 
+  const [panelTab, setPanelTab] = useState<"overview" | "consultation" | "application">("overview");
   
   // Loading & Action States
   const [isSaving, setIsSaving] = useState(false);
@@ -122,6 +129,22 @@ export default function PipelinePage() {
     if (s.includes("COMPLETED") || s.includes("ACCEPTED") || s.includes("RECEIVED")) return "bg-emerald-100 text-emerald-800 border-emerald-200";
     if (s.includes("REJECTED")) return "bg-red-100 text-red-800 border-red-200";
     return "bg-slate-100 text-slate-700 border-slate-200";
+  };
+
+  const updateStudentStatus = async (studentId: string, newStatus: string) => {
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (res.ok) {
+        fetchStudents(user.role, user.name);
+      }
+    } catch (error) {
+      alert("Network error updating status");
+    }
   };
 
   const handleSaveLead = async () => {
@@ -288,13 +311,18 @@ export default function PipelinePage() {
       .map((t: any) => ({ ...t, studentName: student.name, studentId: student.id }))
   ).sort((a, b) => new Date(a.reminder_date).getTime() - new Date(b.reminder_date).getTime());
 
+  const filteredStudents = students.filter(s => 
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    s.email.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="space-y-6 relative p-4 lg:p-8 max-w-[1400px] mx-auto">
       
       {/* HEADER */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-black text-[#282860] tracking-tight">Agent Workspace</h2>
+          <h2 className="text-2xl font-black text-[#282860] tracking-tight flex items-center gap-2"><Target className="text-[#BAD133]" /> Agent Workspace</h2>
           <p className="text-sm text-slate-500 mt-1">Manage your pipeline, hit targets, and track your commissions.</p>
         </div>
         <div className="flex gap-3 w-full lg:w-auto">
@@ -333,47 +361,62 @@ export default function PipelinePage() {
                       <p className="font-bold text-slate-900 text-sm mt-3">{task.studentName}</p>
                       <p className="text-xs text-slate-600 mt-1 line-clamp-2 leading-relaxed">{task.note}</p>
                     </div>
-                    <button onClick={() => setSelectedStudent(students.find(s => s.id === task.studentId))} className="text-xs font-bold text-[#282860] mt-4 flex items-center gap-1 group-hover:text-[#BAD133] transition-colors">Open Profile &rarr;</button>
+                    <button onClick={() => { setSelectedStudent(students.find(s => s.id === task.studentId)); setPanelTab("overview"); }} className="text-xs font-bold text-[#282860] mt-4 flex items-center gap-1 group-hover:text-[#BAD133] transition-colors">Open Profile &rarr;</button>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            {loading ? (
-              <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing pipeline...</div>
-            ) : students.length === 0 ? (
-               <div className="p-16 text-center text-slate-500"><FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" /><p className="font-medium text-slate-700">No assigned students found.</p></div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-200">
-                      <th className="px-6 py-4">Student Profile</th>
-                      <th className="px-6 py-4">Pipeline Status</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {students.map((student) => (
-                      <tr key={student.id} className="hover:bg-slate-50/80 transition-colors group cursor-pointer" onClick={() => setSelectedStudent(student)}>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[600px]">
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+              <div className="relative w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-[#282860]" />
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[800px]">
+                <thead className="sticky top-0 bg-[#f8fafc] border-b border-slate-200 text-[10px] font-black text-slate-500 tracking-wider uppercase z-10">
+                  <tr>
+                    <th className="px-6 py-4">Student Profile</th>
+                    <th className="px-6 py-4">Program Interest</th>
+                    <th className="px-6 py-4">Pipeline Status</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {loading ? (
+                    <tr><td colSpan={4} className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing pipeline...</td></tr>
+                  ) : filteredStudents.length === 0 ? (
+                    <tr><td colSpan={4} className="p-16 text-center text-slate-500"><FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" /><p className="font-medium text-slate-700">No students found.</p></td></tr>
+                  ) : (
+                    filteredStudents.map((student) => (
+                      <tr key={student.id} className="hover:bg-slate-50/80 transition-colors group cursor-pointer" onClick={() => { setSelectedStudent(student); setPanelTab("overview"); }}>
                         <td className="px-6 py-4">
                           <div className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors">{student.name}</div>
                           <div className="text-[11px] text-slate-500 mt-0.5">{student.phone} • {student.email}</div>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className={`px-3 py-1 rounded-md text-[10px] font-bold tracking-wider border ${getStatusColor(student.status)}`}>{student.status || "NEW LEAD"}</span>
+                        <td className="px-6 py-4 text-slate-600 font-medium">{student.program_interest || <span className="text-slate-300 italic">Not specified</span>}</td>
+                        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                          <select 
+                            className={`text-[10px] font-black tracking-wider uppercase px-3 py-1.5 rounded-lg border outline-none cursor-pointer ${getStatusColor(student.status)}`}
+                            value={student.status || "NEW LEAD"}
+                            onChange={(e) => updateStudentStatus(student.id, e.target.value)}
+                          >
+                            {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                          </select>
                         </td>
                         <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => handleGenerateAI(student.id, student.name)} className="inline-flex items-center gap-2 bg-slate-50 hover:bg-[#BAD133]/20 text-[#282860] border border-slate-200 hover:border-[#BAD133] px-3 py-1.5 rounded-lg transition-all text-xs font-bold"><Sparkles size={14} className="text-[#BAD133]" /> AI Report</button>
+                          <button className="text-[#BAD133] group-hover:text-white group-hover:bg-[#BAD133] border border-[#BAD133] rounded-full p-1.5 transition-colors inline-block"><ChevronRight size={18}/></button>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -381,32 +424,24 @@ export default function PipelinePage() {
       {/* --- TAB 2: FINANCE ROOM (EARNINGS) --- */}
       {activeTab === 'earnings' && (
         <div className="space-y-6 animate-in fade-in">
-          
           {/* Earnings KPIs */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5">
               <div className="h-14 w-14 rounded-full bg-blue-50 flex items-center justify-center"><Users className="text-blue-600" size={24} /></div>
               <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Closed Deals</p>
-              <p className="text-3xl font-black text-[#282860] mt-1">
-                {students.filter(s => s.status?.toUpperCase() === "COMPLETED").length}
-              </p></div>
+              <p className="text-3xl font-black text-[#282860] mt-1">{students.filter(s => s.status?.toUpperCase() === "COMPLETED").length}</p></div>
             </div>
             
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5">
               <div className="h-14 w-14 rounded-full bg-amber-50 flex items-center justify-center"><Clock className="text-amber-500" size={24} /></div>
               <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Pending Payouts</p>
-              <p className="text-3xl font-black text-[#282860] mt-1">
-                ${students.filter(s => s.status?.toUpperCase() === "COMPLETED").reduce((acc, curr) => acc + (parseFloat(curr.agent_cut) || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-              </p></div>
+              <p className="text-3xl font-black text-[#282860] mt-1">${students.filter(s => s.status?.toUpperCase() === "COMPLETED").reduce((acc, curr) => acc + (parseFloat(curr.agent_cut) || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p></div>
             </div>
 
             <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-6 rounded-2xl shadow-lg border border-[#3a3a7a] flex items-center gap-5 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-[#BAD133] rounded-full blur-3xl opacity-20 -mr-10 -mt-10"></div>
               <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center relative z-10"><DollarSign className="text-[#BAD133]" size={24} /></div>
-              <div className="relative z-10">
-                <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Total Earned YTD</p>
-                <p className="text-3xl font-black text-white mt-1">$0.00</p>
-              </div>
+              <div className="relative z-10"><p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Total Earned YTD</p><p className="text-3xl font-black text-white mt-1">$0.00</p></div>
             </div>
           </div>
 
@@ -419,12 +454,7 @@ export default function PipelinePage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-white text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
-                  <tr>
-                    <th className="px-6 py-4">Student</th>
-                    <th className="px-6 py-4">Total Commission Generated</th>
-                    <th className="px-6 py-4">Your Cut</th>
-                    <th className="px-6 py-4">Payment Status</th>
-                  </tr>
+                  <tr><th className="px-6 py-4">Student</th><th className="px-6 py-4">Total Commission Generated</th><th className="px-6 py-4">Your Cut</th><th className="px-6 py-4">Payment Status</th></tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-slate-100">
                   {students.filter(s => s.status?.toUpperCase() === "COMPLETED").length === 0 ? (
@@ -444,6 +474,185 @@ export default function PipelinePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* --- STUDENT DETAIL SLIDE-OUT PANEL --- */}
+      {selectedStudent && (
+        <>
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setSelectedStudent(null)}></div>
+          <div className="fixed inset-y-0 right-0 w-full sm:w-[600px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300">
+            
+            <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-[#1b1b42] text-white">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#BAD133] mb-1 block">Student Case File</span>
+                <h3 className="text-2xl font-black">{selectedStudent.name}</h3>
+                <div className="flex gap-3 mt-2 text-xs text-slate-300">
+                  <span className="flex items-center gap-1"><Mail size={12}/> {selectedStudent.email}</span>
+                  {selectedStudent.phone && <span className="flex items-center gap-1"><Phone size={12}/> {selectedStudent.phone}</span>}
+                </div>
+              </div>
+              <button onClick={() => setSelectedStudent(null)} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+
+            <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6">
+              <button onClick={() => setPanelTab('overview')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'overview' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'} `}><Activity size={16}/> Overview</button>
+              <button onClick={() => setPanelTab('consultation')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'consultation' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'} `}><BrainCircuit size={16}/> Consultation & Report</button>
+              <button onClick={() => setPanelTab('application')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'application' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'} `}><FileSignature size={16}/> Application</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 p-6">
+              {/* TAB 1: OVERVIEW */}
+              {panelTab === "overview" && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Pipeline Status</p>
+                    <select className="w-full bg-slate-50 border border-slate-200 text-[#282860] rounded-xl px-4 py-3 text-sm font-black tracking-wider uppercase outline-none focus:border-[#BAD133]" value={selectedStudent.status || "NEW LEAD"} onChange={(e) => updateStudentStatus(selectedStudent.id, e.target.value)}>
+                      {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button onClick={handleDraftEmail} disabled={isDraftingEmail} className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-[#282860] py-3 rounded-xl font-bold transition-colors disabled:opacity-50 text-xs shadow-sm"><Sparkles size={14} className="text-[#BAD133]" /> AI Email</button>
+                    <button onClick={handleDraftWhatsApp} disabled={isDraftingWA} className="flex-1 flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 py-3 rounded-xl font-bold transition-colors disabled:opacity-50 text-xs shadow-sm"><Sparkles size={14} className="text-emerald-500" /> AI WhatsApp</button>
+                  </div>
+
+                  <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm min-h-[250px]">
+                    <p className="text-[10px] font-bold text-[#282860] uppercase tracking-widest flex items-center gap-2 mb-4"><MessageSquare size={14}/> Activity Timeline</p>
+                    <div className="relative mb-6">
+                      <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Log a call, text, or set a reminder..." className="w-full border border-slate-200 rounded-xl p-3 pr-12 pb-10 text-sm outline-none focus:border-[#282860] focus:ring-2 focus:ring-[#282860]/10 resize-none h-24 shadow-sm" />
+                      <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                        <button onClick={() => setShowDatePicker(!showDatePicker)} className={`p-1.5 rounded-md text-xs font-bold transition-colors flex items-center gap-1 ${newReminderDate ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}><Calendar size={14} /> {newReminderDate ? "Task Set" : "Set Reminder"}</button>
+                        {showDatePicker && (<input type="date" value={newReminderDate} onChange={(e) => { setNewReminderDate(e.target.value); setShowDatePicker(false); }} className="text-xs border border-slate-300 rounded p-1 outline-none text-slate-600 bg-white" />)}
+                      </div>
+                      <button onClick={handleAddNote} disabled={isSaving || !newNote.trim()} className="absolute bottom-3 right-3 bg-[#282860] text-white p-1.5 rounded-lg hover:bg-[#1b1b42] transition-colors disabled:opacity-50"><Send size={14} /></button>
+                    </div>
+
+                    <div className="space-y-4">
+                      {selectedStudent.timeline && selectedStudent.timeline.length > 0 ? (
+                        [...selectedStudent.timeline].reverse().map((entry: any, index: number) => (
+                          <div key={index} className="flex gap-3 relative">
+                            {index !== selectedStudent.timeline.length - 1 && (<div className="absolute left-3.5 top-8 bottom-[-16px] w-[2px] bg-slate-200"></div>)}
+                            <div className="w-7 h-7 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center flex-shrink-0 z-10">{entry.reminder_date ? <Calendar size={12} className="text-[#BAD133]"/> : <Clock size={12} className="text-slate-400" />}</div>
+                            <div className="flex-1 bg-slate-50 border border-slate-100 p-3 rounded-lg shadow-sm">
+                              <div className="flex justify-between items-start mb-1"><span className="text-xs font-bold text-slate-900">{entry.author}</span><span className="text-[10px] text-slate-400 font-medium">{entry.date}</span></div>
+                              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{entry.note}</p>
+                              {entry.reminder_date && (<div className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-[#BAD133] bg-[#BAD133]/10 px-2 py-1 rounded-md"><Calendar size={10}/> Reminder: {entry.reminder_date}</div>)}
+                            </div>
+                          </div>
+                        ))
+                      ) : (<div className="text-center text-slate-400 text-sm italic py-4">No activity logged yet.</div>)}
+                    </div>
+                  </div>
+
+                  <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 mb-4"><ShieldAlert size={14} className="text-orange-500"/> Verify Commission Check</p>
+                    {selectedStudent.status?.toUpperCase().includes("COMPLETED") ? (
+                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center">
+                        <CheckCircle2 size={24} className="text-emerald-500 mx-auto mb-2" />
+                        <p className="font-bold text-emerald-800 text-sm">Deal Verified & Commission Logged</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-bold text-slate-600 flex items-center gap-1"><Building2 size={12}/> University Partner</Label>
+                          <select value={selectedInstitutionId} onChange={(e) => setSelectedInstitutionId(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg p-2.5 focus:ring-[#BAD133] outline-none bg-slate-50">
+                            <option value="">-- Choose Partner --</option>
+                            {institutions.map(inst => <option key={inst.id} value={inst.id}>{inst.name} ({inst.country})</option>)}
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Tuition ($)</Label><Input type="number" placeholder="Tuition" value={verifyTuition} onChange={(e) => setVerifyTuition(e.target.value)} className="text-xs" /></div>
+                          <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Rate (%)</Label><Input type="number" step="0.01" placeholder="e.g. 10%" value={verifyRate} onChange={(e) => setVerifyRate(e.target.value)} className="text-xs" /></div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-bold text-slate-600">Proof Document (PDF)</Label>
+                          <Input type="file" accept=".pdf" onChange={(e) => setVerifyFile(e.target.files?.[0] || null)} className="text-xs cursor-pointer" />
+                        </div>
+                        <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50 shadow-md">
+                          {isVerifying ? "Verifying..." : "Verify Deal"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: CONSULTATION & REPORT */}
+              {panelTab === "consultation" && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-6 rounded-xl border border-slate-700 shadow-sm text-white">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="font-black text-lg flex items-center gap-2"><BrainCircuit className="text-[#BAD133]"/> AI Profiling Test</h3>
+                        <p className="text-xs text-slate-300 mt-1">Send a dynamic assessment to align the student's skills with the best university programs.</p>
+                      </div>
+                    </div>
+                    <div className="bg-white/10 p-4 rounded-lg flex items-center justify-between border border-white/10">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Status</p>
+                        <p className="font-black text-[#BAD133]">Completed</p>
+                      </div>
+                      <button className="bg-[#BAD133] text-[#1b1b42] px-4 py-2 rounded-lg text-xs font-bold shadow-md hover:bg-[#a4b82d] transition-colors">
+                        Resend Test Link
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
+                      <h3 className="font-bold text-[#282860] flex items-center gap-2"><BookOpen size={18} className="text-[#BAD133]"/> AI Profiling Hasil Report</h3>
+                      <button onClick={() => handleGenerateAI(selectedStudent.id, selectedStudent.name)} className="text-xs font-bold bg-[#BAD133]/20 text-[#282860] px-3 py-1 rounded-md hover:bg-[#BAD133] hover:text-white transition-colors">Regenerate AI</button>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4">
+                      <div className="w-12 h-12 bg-red-100 text-red-600 rounded-lg flex items-center justify-center font-black text-xs border border-red-200">PDF</div>
+                      <div className="flex-1">
+                        <p className="font-bold text-sm text-[#282860]">Report_{selectedStudent.name.replace(/\s+/g, '_')}.pdf</p>
+                        <p className="text-xs text-slate-500">Generated automatically via AI Scoring Engine</p>
+                      </div>
+                      <a href={`${process.env.NEXT_PUBLIC_API_URL}/api/documents/Report_${selectedStudent.name.replace(/\s+/g, '_')}.pdf`} target="_blank" rel="noopener noreferrer" className="p-2 bg-white border border-slate-200 text-slate-600 hover:text-[#282860] hover:border-[#282860] rounded-lg transition-all shadow-sm">
+                        <Download size={18} />
+                      </a>
+                    </div>
+
+                    <div className="space-y-1 mt-6">
+                       <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Consultor Notes</label>
+                       <textarea rows={4} className="w-full p-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] bg-white" placeholder="Add your analysis and recommendations based on the AI report here..."></textarea>
+                       <div className="flex justify-end mt-2"><button className="bg-slate-100 text-slate-600 hover:bg-[#282860] hover:text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">Save Notes</button></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: APPLICATION TRACKER */}
+              {panelTab === "application" && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="space-y-3 mb-5">
+                    {selectedStudent.applications && selectedStudent.applications.length > 0 ? (
+                      selectedStudent.applications.map((app: any) => (
+                        <div key={app.id} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm"><div className="flex justify-between items-start mb-2"><div><p className="font-bold text-[#282860] text-sm flex items-center gap-1.5"><Building size={14} className="text-slate-400"/> {app.university}</p><p className="text-xs text-slate-500 mt-0.5">{app.program}</p></div><select value={app.status} onChange={(e) => handleUpdateAppStatus(app.id, e.target.value)} className={`text-[10px] font-bold uppercase tracking-wider py-1 px-2 rounded-md outline-none border cursor-pointer ${getStatusColor(app.status)}`}><option value="Pending">Pending</option><option value="Offer Received">Offer Received</option><option value="Accepted">Accepted (Enrolled)</option><option value="Rejected">Rejected</option></select></div></div>
+                      ))
+                    ) : (<div className="text-xs text-slate-400 italic text-center py-8">No applications started yet.</div>)}
+                  </div>
+                  <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-3">
+                    <p className="text-xs font-bold text-slate-600">Add New Application</p>
+                    <div className="space-y-2"><Input placeholder="e.g. Monash University" value={newAppUni} onChange={(e) => setNewAppUni(e.target.value)} className="text-sm bg-white" /><Input placeholder="e.g. Bachelor of Business" value={newAppProg} onChange={(e) => setNewAppProg(e.target.value)} className="text-sm bg-white" /></div>
+                    <button onClick={handleAddApplication} disabled={!newAppUni || !newAppProg || isSaving} className="w-full bg-white hover:bg-slate-100 text-[#282860] border border-slate-200 font-bold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1 disabled:opacity-50"><Plus size={16}/> Add to Tracker</button>
+                  </div>
+                  
+                  <div className="p-6 mt-4 border border-slate-200 bg-white rounded-xl">
+                    <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest flex items-center gap-2 mb-4"><FileText size={14}/> Student Documents</p>
+                    <div className="space-y-4">
+                      <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">School Report Card (Grades)</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutReportCard(e.target.files?.[0] || null)} /></div></div>
+                      <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Psychology Test</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutPsychTest(e.target.files?.[0] || null)} /></div></div>
+                      {(slideOutReportCard || slideOutPsychTest) && (<button onClick={() => handleUploadToExisting(selectedStudent.id)} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white font-bold py-2.5 rounded-lg mt-2 text-sm transition-colors shadow-md disabled:opacity-50">{isSaving ? "Uploading..." : "Save Documents"}</button>)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* --- ALL MODALS REMAIN THE SAME --- */}
@@ -470,156 +679,6 @@ export default function PipelinePage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* STUDENT DETAIL SLIDE-OUT PANEL */}
-      {selectedStudent && (
-        <>
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setSelectedStudent(null)}></div>
-          <div className="fixed inset-y-0 right-0 w-full sm:w-[480px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300">
-            
-            <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-              <div>
-                <h3 className="text-xl font-black text-[#282860]">{selectedStudent.name}</h3>
-                <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-md text-[10px] font-bold tracking-wider border ${getStatusColor(selectedStudent.status)}`}>{selectedStudent.status || "NEW LEAD"}</span>
-              </div>
-              <button onClick={() => setSelectedStudent(null)} className="text-slate-400 hover:text-slate-600 bg-white rounded-full p-1 shadow-sm border border-slate-200"><X size={18}/></button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <div className="p-6 pb-2 space-y-3">
-                <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest">Contact Information</p>
-                <div className="flex gap-2">
-                  <div className="flex-1 flex items-center gap-3 text-sm font-medium text-slate-700 bg-slate-50 p-3 rounded-lg border border-slate-100"><Mail size={16} className="text-slate-400" /> <span className="truncate">{selectedStudent.email}</span></div>
-                  <button onClick={handleDraftEmail} disabled={isDraftingEmail} className="flex items-center justify-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI Email"><Sparkles size={14} className={isDraftingEmail ? "animate-spin text-[#BAD133]" : "text-[#BAD133]"} />{isDraftingEmail ? "Drafting..." : "AI Email"}</button>
-                </div>
-                <div className="flex gap-2">
-                  <a href={`https://wa.me/${selectedStudent.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center gap-3 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-3 rounded-lg border border-emerald-200 transition-colors cursor-pointer shadow-sm shadow-emerald-100/50 group" title="Open empty WhatsApp chat"><MessageCircle size={18} className="text-emerald-500 group-hover:text-emerald-600" /> <span className="truncate">{selectedStudent.phone}</span><span className="hidden sm:inline-block text-[10px] bg-emerald-200/50 text-emerald-800 px-2 py-0.5 rounded-full ml-auto uppercase tracking-wider">Empty Chat</span></a>
-                  <button onClick={handleDraftWhatsApp} disabled={isDraftingWA} className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 rounded-lg font-bold transition-colors disabled:opacity-50 text-xs shadow-sm" title="Draft AI WhatsApp Message"><Sparkles size={14} className={isDraftingWA ? "animate-spin text-emerald-200" : "text-emerald-200"} />{isDraftingWA ? "Drafting..." : "AI Text"}</button>
-                </div>
-              </div>
-
-              <div className="p-6 pt-6 pb-4 border-t border-slate-100 mt-4">
-                <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest flex items-center gap-2 mb-4"><GraduationCap size={16}/> University Applications</p>
-                <div className="space-y-3 mb-5">
-                  {selectedStudent.applications && selectedStudent.applications.length > 0 ? (
-                    selectedStudent.applications.map((app: any) => (
-                      <div key={app.id} className="bg-white border border-slate-200 p-3.5 rounded-xl shadow-sm"><div className="flex justify-between items-start mb-2"><div><p className="font-bold text-[#282860] text-sm flex items-center gap-1.5"><Building size={14} className="text-slate-400"/> {app.university}</p><p className="text-xs text-slate-500 mt-0.5">{app.program}</p></div><select value={app.status} onChange={(e) => handleUpdateAppStatus(app.id, e.target.value)} className={`text-[10px] font-bold uppercase tracking-wider py-1 px-2 rounded-md outline-none border cursor-pointer ${getStatusColor(app.status)}`}><option value="Pending">Pending</option><option value="Offer Received">Offer Received</option><option value="Accepted">Accepted (Enrolled)</option><option value="Rejected">Rejected</option></select></div></div>
-                    ))
-                  ) : (<div className="text-xs text-slate-400 italic text-center py-2">No applications started yet.</div>)}
-                </div>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                  <p className="text-xs font-bold text-slate-600">Add New Application</p>
-                  <div className="space-y-2"><Input placeholder="e.g. Monash University" value={newAppUni} onChange={(e) => setNewAppUni(e.target.value)} className="text-xs bg-white" /><Input placeholder="e.g. Bachelor of Business" value={newAppProg} onChange={(e) => setNewAppProg(e.target.value)} className="text-xs bg-white" /></div>
-                  <button onClick={handleAddApplication} disabled={!newAppUni || !newAppProg || isSaving} className="w-full bg-white hover:bg-slate-100 text-[#282860] border border-slate-200 font-bold py-2 rounded-lg text-xs transition-colors flex items-center justify-center gap-1 disabled:opacity-50"><Plus size={14}/> Add to Tracker</button>
-                </div>
-              </div>
-
-              <div className="p-6 pt-4 pb-4 border-t border-slate-100">
-                <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest flex items-center gap-2 mb-4"><FileText size={14}/> Document Management</p>
-                <div className="space-y-4">
-                  <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">School Report Card (Grades)</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutReportCard(e.target.files?.[0] || null)} /></div></div>
-                  <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Psychology Test</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutPsychTest(e.target.files?.[0] || null)} /></div></div>
-                  {(slideOutReportCard || slideOutPsychTest) && (<button onClick={() => handleUploadToExisting(selectedStudent.id)} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white font-bold py-2.5 rounded-lg mt-2 text-sm transition-colors shadow-md disabled:opacity-50">{isSaving ? "Uploading..." : "Save Documents"}</button>)}
-                </div>
-              </div>
-
-              {selectedStudent.documents && selectedStudent.documents.length > 0 && (
-                <div className="p-6 pt-2 pb-6 border-t border-slate-100 bg-slate-50">
-                  <p className="text-[10px] font-bold text-[#282860] uppercase tracking-widest flex items-center gap-2 mb-3"><DownloadCloud size={14}/> Secure Vault</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {selectedStudent.documents.map((doc: any, i: number) => (
-                      <a key={i} href={`${process.env.NEXT_PUBLIC_API_URL}/api/documents/${doc.filename}`} target="_blank" rel="noopener noreferrer" className="bg-white border border-slate-200 p-3 rounded-lg flex items-center gap-2 hover:border-[#BAD133] hover:shadow-sm transition-all group" title="Download Document">
-                        <div className="p-1.5 bg-red-50 rounded text-red-500 group-hover:bg-red-100 transition-colors"><FileText size={16} /></div>
-                        <span className="text-[10px] font-bold text-slate-700 truncate w-full">{doc.title}</span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* ANTI-CHEAT COMMISSION CLAIMER */}
-              <div className="p-6 pt-4 pb-6 border-t border-slate-100 bg-slate-100/50">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 mb-4">
-                  <ShieldAlert size={14} className="text-orange-500"/> Claim Commission
-                </p>
-                {selectedStudent.status?.toUpperCase().includes("COMPLETED") ? (
-                  <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center">
-                    <CheckCircle2 size={24} className="text-emerald-500 mx-auto mb-2" />
-                    <p className="font-bold text-emerald-800 text-sm">Deal Verified</p>
-                  </div>
-                ) : (
-                  <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm space-y-4">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-600 flex items-center gap-1"><Building2 size={12}/> Select University</Label>
-                      <select 
-                        value={selectedInstitutionId} 
-                        onChange={(e) => setSelectedInstitutionId(e.target.value)}
-                        className="w-full text-xs border border-slate-200 rounded-lg p-2.5 focus:ring-[#BAD133] outline-none bg-slate-50"
-                      >
-                        <option value="">-- Choose Partner --</option>
-                        {institutions.map(inst => (
-                          <option key={inst.id} value={inst.id}>{inst.name} ({inst.country})</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Tuition Paid</Label><Input type="number" placeholder="$ USD" value={verifyTuition} onChange={(e) => setVerifyTuition(e.target.value)} className="text-xs" /></div>
-                      <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Rate</Label><Input type="number" step="0.01" placeholder="e.g. 10%" value={verifyRate} onChange={(e) => setVerifyRate(e.target.value)} className="text-xs" /></div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-600">Proof (PDF)</Label>
-                      <Input type="file" accept=".pdf" onChange={(e) => setVerifyFile(e.target.files?.[0] || null)} className="text-xs cursor-pointer" />
-                    </div>
-                    <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50 shadow-md">
-                      {isVerifying ? "Verifying..." : "Verify & Close Deal"}
-                    </button>
-                    {verifyStatus && (
-                      <div className={`p-3 rounded-lg text-xs font-medium border ${verifyStatus.verified ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
-                        <span className="font-bold block mb-1">{verifyStatus.message}</span>{verifyStatus.reason}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="p-6 pt-4 border-t border-slate-100 bg-slate-50 min-h-[300px]">
-                <p className="text-[10px] font-bold text-[#282860] uppercase tracking-widest flex items-center gap-2 mb-4"><MessageSquare size={14}/> Activity Timeline</p>
-                <div className="relative mb-6">
-                  <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Log a call, text, or set a reminder..." className="w-full border border-slate-200 rounded-xl p-3 pr-12 pb-10 text-sm outline-none focus:border-[#282860] focus:ring-2 focus:ring-[#282860]/10 resize-none h-24 shadow-sm" />
-                  <div className="absolute bottom-3 left-3 flex items-center gap-2">
-                    <button onClick={() => setShowDatePicker(!showDatePicker)} className={`p-1.5 rounded-md text-xs font-bold transition-colors flex items-center gap-1 ${newReminderDate ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}><Calendar size={14} /> {newReminderDate ? "Task Set" : "Set Reminder"}</button>
-                    {showDatePicker && (<input type="date" value={newReminderDate} onChange={(e) => { setNewReminderDate(e.target.value); setShowDatePicker(false); }} className="text-xs border border-slate-300 rounded p-1 outline-none text-slate-600 bg-white" />)}
-                  </div>
-                  <button onClick={handleAddNote} disabled={isSaving || !newNote.trim()} className="absolute bottom-3 right-3 bg-[#282860] text-white p-1.5 rounded-lg hover:bg-[#1b1b42] transition-colors disabled:opacity-50"><Send size={14} /></button>
-                </div>
-
-                <div className="space-y-4">
-                  {selectedStudent.timeline && selectedStudent.timeline.length > 0 ? (
-                    [...selectedStudent.timeline].reverse().map((entry: any, index: number) => (
-                      <div key={index} className="flex gap-3 relative">
-                        {index !== selectedStudent.timeline.length - 1 && (<div className="absolute left-3.5 top-8 bottom-[-16px] w-[2px] bg-slate-200"></div>)}
-                        <div className="w-7 h-7 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center flex-shrink-0 z-10">{entry.reminder_date ? <Calendar size={12} className="text-[#BAD133]"/> : <Clock size={12} className="text-slate-400" />}</div>
-                        <div className="flex-1 bg-white border border-slate-100 p-3 rounded-lg shadow-sm">
-                          <div className="flex justify-between items-start mb-1"><span className="text-xs font-bold text-slate-900">{entry.author}</span><span className="text-[10px] text-slate-400 font-medium">{entry.date}</span></div>
-                          <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{entry.note}</p>
-                          {entry.reminder_date && (<div className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-[#BAD133] bg-[#BAD133]/10 px-2 py-1 rounded-md"><Calendar size={10}/> Reminder: {entry.reminder_date}</div>)}
-                        </div>
-                      </div>
-                    ))
-                  ) : (<div className="text-center text-slate-400 text-sm italic py-4">No activity logged yet.</div>)}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-slate-100 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
-              <button onClick={() => handleGenerateAI(selectedStudent.id, selectedStudent.name)} className="w-full flex items-center justify-center gap-2 bg-[#BAD133] hover:bg-[#a3b827] text-[#282860] font-bold py-3.5 rounded-xl transition-all shadow-sm">
-                <Sparkles size={18}/> Generate AI Strategy
-              </button>
-            </div>
-          </div>
-        </>
-      )}
 
       <Dialog open={isAiModalOpen} onOpenChange={setIsAiModalOpen}>
         <DialogContent className="sm:max-w-[850px] max-h-[85vh] flex flex-col rounded-2xl p-0 overflow-hidden"><div className="bg-[#1b1b42] p-5 flex items-center gap-3"><div className="p-2 bg-[#282860] rounded-lg border border-[#BAD133]/30"><Sparkles className="text-[#BAD133]" size={20} /></div><DialogTitle className="text-white text-lg font-bold tracking-wide">AI Strategic Assessment</DialogTitle></div><div className="flex-1 overflow-y-auto p-8 bg-white">{isGenerating ? (<div className="flex flex-col items-center justify-center h-64 text-[#282860]"><Sparkles className="animate-spin mb-4 text-[#BAD133]" size={40} /><p className="whitespace-pre-line text-center font-semibold text-slate-600 leading-relaxed">{aiReport}</p></div>) : (<div className="text-sm text-slate-800 leading-relaxed prose prose-blue max-w-none"><ReactMarkdown>{aiReport}</ReactMarkdown></div>)}</div></DialogContent>

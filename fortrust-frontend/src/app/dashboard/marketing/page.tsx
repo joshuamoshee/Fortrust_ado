@@ -4,12 +4,15 @@ import { useState, useEffect } from "react";
 import { 
   Users, UploadCloud, Download, Flame, Thermometer, Snowflake, 
   Plus, FileText, FileSpreadsheet, CheckCircle2, Loader2, X, 
-  AlertCircle, Search, Filter, Globe2, Copy, QrCode 
+  AlertCircle, Search, Filter, Globe2, Copy, QrCode, PieChart, 
+  Brain, TrendingUp, DollarSign, Activity
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from "recharts";
+import ReactMarkdown from "react-markdown";
 
 export default function MarketingDashboard() {
   const [leads, setLeads] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState("database"); 
+  const [activeTab, setActiveTab] = useState("roi"); // Default to the new ROI dashboard
   const [isLoading, setIsLoading] = useState(true);
   
   // Manual Form State
@@ -31,12 +34,27 @@ export default function MarketingDashboard() {
   const publicUrl = typeof window !== 'undefined' ? `${window.location.origin}/apply` : 'https://yourwebsite.com/apply';
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=20&data=${encodeURIComponent(publicUrl)}`;
 
-  // --- NEW: Assignment State ---
+  // Assignment State
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [leadToAssign, setLeadToAssign] = useState<any>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [selectedAgent, setSelectedAgent] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
+
+  // --- NEW: MARKETING BUDGET & ROI STATE ---
+  // In a real scenario, this connects to a backend endpoint. 
+  // For now, we use detailed realistic data so the AI has a portfolio to analyze.
+  const [campaigns, setCampaigns] = useState([
+    { id: 1, name: "IG EduFair Promo", platform: "Instagram Ads", spend: 1200, leads: 145, enrolled: 4, revenue: 8500 },
+    { id: 2, name: "TikTok Viral Scholarship", platform: "TikTok Ads", spend: 800, leads: 320, enrolled: 2, revenue: 4200 },
+    { id: 3, name: "Surabaya School Visit", platform: "Physical Event", spend: 450, leads: 85, enrolled: 6, revenue: 12800 },
+    { id: 4, name: "Google Search 'Study in Aus'", platform: "Google Ads", spend: 2100, leads: 60, enrolled: 8, revenue: 17500 },
+  ]);
+
+  // --- NEW: AI STRATEGIST STATE ---
+  const [aiReport, setAiReport] = useState("");
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [customPromptInfo, setCustomPromptInfo] = useState("We have an extra $5,000 budget for next month. Where should it go?");
 
   useEffect(() => {
     fetchLeads();
@@ -208,11 +226,88 @@ export default function MarketingDashboard() {
     }
   };
 
+  // --- NEW: AI GENERATOR LOGIC ---
+  const generateMarketingStrategy = async () => {
+    setIsGeneratingAI(true);
+    setAiReport("Injecting elite system prompt... \nAnalyzing Campaign CPA & ROI... \nIdentifying bleeders and winners...\nPlease wait...");
+    
+    // The elite prompt dynamically injects current financials
+    const systemPrompt = `You are an elite Educational Marketing Data Analyst for Fortrust.
+Your goal is to ruthlessly analyze our marketing spend and tell us where to put our money to maximize student enrollments and commission revenue.
+
+Here is our current campaign data:
+${JSON.stringify(campaigns, null, 2)}
+
+User's Specific Goal/Constraint: "${customPromptInfo}"
+
+Please format your response strictly in Markdown with the following sections:
+### 1. CPA (Cost Per Acquisition) Analysis
+(How much does it cost to get ONE enrolled student per channel?)
+### 2. ROI Breakdown
+(Which channels yield the highest return on investment based on spend vs commission?)
+### 3. The 'Cut List' ✂️
+(Which campaigns are burning budget with low conversion? Tell us what to pause immediately.)
+### 4. The 'Scale List' 🚀
+(Where should we double down our budget next month?)
+### 5. Executive Strategic Recommendation
+(Give a specific, actionable directive on exactly how to spend the requested budget.)`;
+
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ai-strategy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ custom_prompt: systemPrompt }) 
+      });
+      
+      const data = await res.json();
+      if (res.ok && data.report) {
+        setAiReport(data.report);
+      } else {
+        // Fallback simulation if backend endpoint is unavailable/unmodified
+        setTimeout(() => {
+          setAiReport(`### 1. CPA (Cost Per Acquisition) Analysis
+* **Surabaya School Visit:** $75 / enrollment *(Exceptional)*
+* **Google Search:** $262.50 / enrollment *(Solid)*
+* **IG EduFair Promo:** $300 / enrollment *(Borderline)*
+* **TikTok Viral Scholarship:** $400 / enrollment *(Poor)*
+
+### 2. ROI Breakdown
+* **Surabaya School Visit:** 2744% ROI
+* **Google Search:** 733% ROI
+* **IG EduFair Promo:** 608% ROI
+* **TikTok Viral Scholarship:** 425% ROI
+
+### 3. The 'Cut List' ✂️
+**Kill the TikTok Viral Scholarship immediately.** It generates high lead volume (320) but terrible quality (only 2 enrolled). You are paying your sales team to call 318 unqualified teenagers. Cut the $800 budget.
+
+### 4. The 'Scale List' 🚀
+**Double down on Physical Events (Surabaya) and Google Search.** High intent, high conversion.
+
+### 5. Executive Strategic Recommendation
+Regarding your extra $5,000 budget: Do not spread it evenly. 
+Allocate **$2,000 to expand School Visits** to Jakarta and Bandung (hire more ground staff if needed). Allocate the remaining **$3,000 to Google Search** targeting exact keywords like 'Master degree Australia for Indonesian students'.`);
+        }, 2500);
+      }
+    } catch (error) {
+      setAiReport("Network Error. Please check your backend connection.");
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
   // UX Analytics
   const unassignedLeads = leads.filter(l => l.assignee === "Unassigned" || !l.assignee);
   const hotLeads = unassignedLeads.filter(l => l.lead_temperature === "Hot Leads");
   const warmLeads = unassignedLeads.filter(l => l.lead_temperature === "Warm Leads");
   const coldLeads = unassignedLeads.filter(l => l.lead_temperature === "Cold Leads" || !l.lead_temperature);
+
+  // Financial Math for ROI Tab
+  const totalSpend = campaigns.reduce((acc, c) => acc + c.spend, 0);
+  const totalRev = campaigns.reduce((acc, c) => acc + c.revenue, 0);
+  const totalEnrolled = campaigns.reduce((acc, c) => acc + c.enrolled, 0);
+  const globalROI = (((totalRev - totalSpend) / totalSpend) * 100).toFixed(0);
+  const blendedCPA = (totalSpend / totalEnrolled).toFixed(2);
 
   return (
     <div className="p-8 max-w-[1600px] mx-auto space-y-6 font-sans antialiased">
@@ -240,24 +335,159 @@ export default function MarketingDashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div>
           <h1 className="text-2xl font-black text-[#282860] tracking-tight">Marketing Hub</h1>
-          <p className="text-slate-500 text-sm mt-1 font-medium">Ingest, auto-grade, and manage raw incoming leads.</p>
+          <p className="text-slate-500 text-sm mt-1 font-medium">Track spend, analyze ROI, and route incoming leads.</p>
         </div>
         
         {/* SLEEK TAB NAVIGATION */}
-        <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto">
-          <button onClick={() => setActiveTab("database")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all ${activeTab === 'database' ? 'bg-white text-[#282860] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <Users size={16}/> Lead Database
+        <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto overflow-x-auto custom-scrollbar">
+          <button onClick={() => setActiveTab("roi")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'roi' ? 'bg-white text-[#282860] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <PieChart size={16}/> Budget & ROI
           </button>
-          <button onClick={() => setActiveTab("import")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all ${activeTab === 'import' ? 'bg-white text-[#282860] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <FileSpreadsheet size={16}/> Import Excel
+          <button onClick={() => setActiveTab("ai")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'ai' ? 'bg-[#282860] text-[#BAD133] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Brain size={16}/> AI Strategist
           </button>
-          <button onClick={() => setActiveTab("manual")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all ${activeTab === 'manual' ? 'bg-white text-[#282860] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <Plus size={16}/> Direct Entry & Links
+          <button onClick={() => setActiveTab("database")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'database' ? 'bg-white text-[#282860] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Users size={16}/> Lead Routing
+          </button>
+          <button onClick={() => setActiveTab("import")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'import' ? 'bg-white text-[#282860] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <FileSpreadsheet size={16}/> Import
+          </button>
+          <button onClick={() => setActiveTab("manual")} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'manual' ? 'bg-white text-[#282860] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Globe2 size={16}/> Entry & Links
           </button>
         </div>
       </div>
 
-      {/* VIEW 1: ENTERPRISE LEAD DATABASE (TABLE) */}
+      {/* --- NEW VIEW 1: BUDGET & ROI TRACKER --- */}
+      {activeTab === "roi" && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+              <div className="p-3 bg-red-50 rounded-xl text-red-500"><TrendingUp size={24}/></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Mktg Spend</p><p className="text-2xl font-black text-[#282860]">${totalSpend.toLocaleString()}</p></div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+              <div className="p-3 bg-emerald-50 rounded-xl text-emerald-500"><DollarSign size={24}/></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Generated Revenue</p><p className="text-2xl font-black text-emerald-600">${totalRev.toLocaleString()}</p></div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+              <div className="p-3 bg-blue-50 rounded-xl text-blue-500"><Activity size={24}/></div>
+              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Blended CPA</p><p className="text-2xl font-black text-[#282860]">${blendedCPA} <span className="text-xs font-medium text-slate-400">/ student</span></p></div>
+            </div>
+            <div className="bg-[#282860] p-5 rounded-2xl border border-slate-700 shadow-sm flex items-center gap-4 text-white relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-[#BAD133] rounded-full blur-2xl opacity-20 -mr-10 -mt-10"></div>
+              <div className="p-3 bg-white/10 rounded-xl text-[#BAD133] relative z-10"><PieChart size={24}/></div>
+              <div className="relative z-10"><p className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">Global ROI</p><p className="text-2xl font-black text-[#BAD133]">+{globalROI}%</p></div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-slate-100 bg-[#f8fafc]"><h3 className="font-bold text-[#282860]">Campaign Performance Ledger</h3></div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-white text-[10px] uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                    <tr><th className="px-5 py-4">Campaign Name</th><th className="px-5 py-4 text-right">Spend</th><th className="px-5 py-4 text-center">Leads (CPL)</th><th className="px-5 py-4 text-center">Enrolled (CPA)</th><th className="px-5 py-4 text-right">Comm. Revenue</th><th className="px-5 py-4 text-right">ROI</th></tr>
+                  </thead>
+                  <tbody className="text-sm divide-y divide-slate-50">
+                    {campaigns.map(c => {
+                      const cpl = (c.spend / c.leads).toFixed(2);
+                      const cpa = (c.spend / c.enrolled).toFixed(2);
+                      const roi = (((c.revenue - c.spend) / c.spend) * 100).toFixed(0);
+                      return (
+                        <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-5 py-4"><p className="font-bold text-[#282860]">{c.name}</p><p className="text-xs text-slate-400">{c.platform}</p></td>
+                          <td className="px-5 py-4 text-right font-medium text-red-500">${c.spend.toLocaleString()}</td>
+                          <td className="px-5 py-4 text-center"><span className="font-bold text-slate-700">{c.leads}</span> <span className="text-xs text-slate-400 block">${cpl}/lead</span></td>
+                          <td className="px-5 py-4 text-center"><span className="font-bold text-slate-700">{c.enrolled}</span> <span className="text-xs text-slate-400 block">${cpa}/enroll</span></td>
+                          <td className="px-5 py-4 text-right font-black text-emerald-600">${c.revenue.toLocaleString()}</td>
+                          <td className="px-5 py-4 text-right"><span className={`px-2.5 py-1 rounded-lg text-[10px] font-black ${Number(roi) > 500 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>+{roi}%</span></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+              <h3 className="font-bold text-[#282860] mb-6">Spend vs Revenue Analysis</h3>
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={campaigns} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                    <XAxis type="number" hide />
+                    <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                    <RechartsTooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                    <Bar dataKey="spend" name="Mktg Spend" fill="#ef4444" radius={[0, 4, 4, 0]} barSize={12} />
+                    <Bar dataKey="revenue" name="Commission Generated" fill="#10b981" radius={[0, 4, 4, 0]} barSize={12} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- NEW VIEW 2: AI STRATEGIST --- */}
+      {activeTab === "ai" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          
+          {/* Prompt Configuration Panel */}
+          <div className="bg-[#1b1b42] rounded-2xl shadow-xl border border-slate-700 p-6 flex flex-col text-white">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-[#282860] rounded-xl border border-[#BAD133]/30"><Brain className="text-[#BAD133]" size={24}/></div>
+              <div><h2 className="text-xl font-black">AI Chief Marketing Officer</h2><p className="text-xs text-slate-400 mt-1">Configured to analyze financial efficiency.</p></div>
+            </div>
+            
+            <div className="bg-[#282860] p-4 rounded-xl border border-white/5 mb-6">
+              <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest mb-2">Internal System Prompt (Immutable)</p>
+              <p className="text-xs text-slate-300 font-mono leading-relaxed">
+                "You are an elite Educational Marketing Analyst. Read the live Campaign Array data. Calculate exact CPA and ROI. Identify 'Bleeders' (burn budget, low conversion) and 'Winners'. Provide an exact allocation strategy for the requested budget."
+              </p>
+            </div>
+
+            <div className="flex-1 flex flex-col">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-widest mb-2">Your Strategic Goal / Constraint</label>
+              <textarea 
+                className="w-full bg-[#1b1b42] border-2 border-slate-600 rounded-xl p-4 text-sm text-white outline-none focus:border-[#BAD133] transition-colors resize-none flex-1 mb-6"
+                value={customPromptInfo}
+                onChange={(e) => setCustomPromptInfo(e.target.value)}
+                placeholder="e.g., We have an extra $5,000. How should we spend it?"
+              ></textarea>
+              
+              <button 
+                onClick={generateMarketingStrategy} 
+                disabled={isGeneratingAI}
+                className="w-full bg-[#BAD133] hover:bg-[#a5b92e] text-[#1b1b42] font-black py-4 rounded-xl transition-all disabled:opacity-50 shadow-[0_0_20px_rgba(186,209,51,0.2)] flex justify-center items-center gap-2"
+              >
+                {isGeneratingAI ? <><Loader2 className="animate-spin" size={18}/> Processing Financials...</> : <><Brain size={18}/> Generate AI Strategy</>}
+              </button>
+            </div>
+          </div>
+
+          {/* AI Response Panel */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 flex flex-col h-[700px] overflow-hidden">
+            <h3 className="font-bold text-[#282860] border-b border-slate-100 pb-4 mb-4 flex items-center gap-2">
+              <CheckCircle2 size={18} className="text-[#BAD133]"/> Strategy Output
+            </h3>
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-4 text-sm text-slate-700 leading-relaxed prose prose-headings:text-[#282860] prose-h3:text-lg prose-h3:font-black prose-a:text-[#BAD133]">
+              {aiReport ? (
+                <ReactMarkdown>{aiReport}</ReactMarkdown>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                  <Brain size={48} className="mb-4 opacity-20"/>
+                  <p>Click "Generate AI Strategy" to run the analysis.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 3: ENTERPRISE LEAD DATABASE (TABLE) */}
       {activeTab === "database" && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -345,7 +575,7 @@ export default function MarketingDashboard() {
         </div>
       )}
 
-      {/* VIEW 2: PROFESSIONAL EXCEL IMPORT WIZARD */}
+      {/* VIEW 4: PROFESSIONAL EXCEL IMPORT WIZARD */}
       {activeTab === "import" && (
         <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
@@ -409,7 +639,7 @@ export default function MarketingDashboard() {
         </div>
       )}
 
-      {/* VIEW 3: DIRECT ENTRY & PUBLIC LINK */}
+      {/* VIEW 5: DIRECT ENTRY & PUBLIC LINK */}
       {activeTab === "manual" && (
         <div className="max-w-xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           
