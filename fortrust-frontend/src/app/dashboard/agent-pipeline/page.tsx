@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, X, ShieldAlert, CheckCircle, Edit2, Trash2, Plus, DollarSign, Activity, Target, Mail, MapPin } from "lucide-react";
+import { Users, X, ShieldAlert, CheckCircle, Edit2, Trash2, Plus, DollarSign, Activity, Target, Mail, MapPin, Building, Clock, History } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
 const ROLE_OPTIONS = ["Corporate Agent", "Student Counselor", "Individual Agent", "MASTER_ADMIN"];
@@ -23,8 +23,9 @@ export default function AgentsDirectory() {
   const [isSavingUser, setIsSavingUser] = useState(false);
 
   // Detail & Edit States
-  const [selectedAgent, setSelectedAgent] = useState<any>(null); // Controls the Slide-Out Panel
-  const [editingUser, setEditingUser] = useState<any>(null); // Controls the Edit Bank Details Modal
+  const [selectedAgent, setSelectedAgent] = useState<any>(null); 
+  const [panelTab, setPanelTab] = useState<"overview" | "financials" | "history">("overview");
+  const [editingUser, setEditingUser] = useState<any>(null); 
 
   const fetchData = async () => {
     const token = localStorage.getItem("fortrust_token");
@@ -105,9 +106,8 @@ export default function AgentsDirectory() {
     } catch (err) { alert("Failed to delete user"); }
   };
 
-  // Helper functions for the slide-out panel metrics
   const getAgentStudents = (agentName: string) => allStudents.filter(s => s.assignee === agentName);
-  const getAgentLogs = (agentName: string) => auditLogs.filter(log => log.changed_by === agentName).slice(0, 10); // Show last 10 actions
+  const getAgentLogs = (agentName: string) => auditLogs.filter(log => log.changed_by === agentName);
 
   if (loading) return <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Loading Agents...</div>;
 
@@ -124,7 +124,7 @@ export default function AgentsDirectory() {
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3"><Users className="text-[#BAD133]" size={36} /> Agent Directory</h1>
-          <p className="text-slate-500 mt-2 font-medium">Manage team access, monitor performance, and review agent activity.</p>
+          <p className="text-slate-500 mt-2 font-medium">Manage team access, monitor performance, and review activity history.</p>
         </div>
         <button onClick={() => setIsUserModalOpen(true)} className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-md flex items-center gap-2">
           <Plus size={18} /> Add Agent
@@ -139,7 +139,7 @@ export default function AgentsDirectory() {
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
               {systemUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => setSelectedAgent(u)}>
+                <tr key={u.id} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => { setSelectedAgent(u); setPanelTab("overview"); }}>
                   <td className="px-5 py-4"><span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block">{u.name}</span><span className="text-[11px] text-slate-500 block mt-0.5">{u.email}</span></td>
                   <td className="px-5 py-4">
                     <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded-md text-[10px] font-bold mr-2">{u.role}</span>
@@ -162,7 +162,7 @@ export default function AgentsDirectory() {
       {selectedAgent && (
         <>
           <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setSelectedAgent(null)}></div>
-          <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300">
+          <div className="fixed inset-y-0 right-0 w-full sm:w-[600px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300">
             
             {/* Panel Header */}
             <div className="p-6 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-start">
@@ -171,62 +171,93 @@ export default function AgentsDirectory() {
                 <h3 className="text-2xl font-black">{selectedAgent.name}</h3>
                 <p className="text-xs text-slate-300 mt-1 flex items-center gap-1.5"><Mail size={12}/> {selectedAgent.email}</p>
               </div>
-              <button onClick={() => setSelectedAgent(null)} className="p-1 hover:bg-white/20 rounded-full transition-colors"><X size={20}/></button>
+              <button onClick={() => setSelectedAgent(null)} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+
+            {/* Panel Tabs */}
+            <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6">
+              <button onClick={() => setPanelTab('overview')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'overview' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}>
+                <Target size={16}/> Overview
+              </button>
+              <button onClick={() => setPanelTab('financials')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'financials' ? 'border-b-2 border-green-600 text-green-700' : 'text-slate-400 hover:text-slate-600'}`}>
+                <DollarSign size={16}/> Financials
+              </button>
+              <button onClick={() => setPanelTab('history')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'history' ? 'border-b-2 border-blue-600 text-blue-700' : 'text-slate-400 hover:text-slate-600'}`}>
+                <History size={16}/> Activity History
+              </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
+            <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 p-6">
               
-              {/* Performance Metrics */}
-              <div className="p-6 pb-2">
-                <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest flex items-center gap-2 mb-3"><Target size={14}/> Pipeline Performance</p>
-                <div className="grid grid-cols-2 gap-3 mb-6">
-                  <div className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm text-center">
-                    <p className="text-xs font-bold text-slate-500 uppercase">Active Students</p>
-                    <p className="text-2xl font-black text-[#282860] mt-1">{getAgentStudents(selectedAgent.name).length}</p>
+              {/* TAB 1: OVERVIEW */}
+              {panelTab === 'overview' && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white border border-slate-200 p-5 rounded-xl shadow-sm text-center">
+                      <p className="text-xs font-bold text-slate-500 uppercase">Active Students</p>
+                      <p className="text-3xl font-black text-[#282860] mt-2">{getAgentStudents(selectedAgent.name).length}</p>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-xl shadow-sm text-center">
+                      <p className="text-xs font-bold text-emerald-700 uppercase">Closed Deals</p>
+                      <p className="text-3xl font-black text-emerald-600 mt-2">{getAgentStudents(selectedAgent.name).filter(s => s.status?.toUpperCase() === "COMPLETED").length}</p>
+                    </div>
                   </div>
-                  <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl shadow-sm text-center">
-                    <p className="text-xs font-bold text-emerald-700 uppercase">Closed Deals</p>
-                    <p className="text-2xl font-black text-emerald-600 mt-1">{getAgentStudents(selectedAgent.name).filter(s => s.status?.toUpperCase() === "COMPLETED").length}</p>
-                  </div>
-                  <div className="col-span-2 bg-gradient-to-br from-[#282860] to-[#1b1b42] p-4 rounded-xl border border-slate-700 shadow-inner flex justify-between items-center text-white">
-                    <div className="flex items-center gap-2"><DollarSign className="text-[#BAD133]" size={20}/> <span className="font-bold text-sm">Commission Generated</span></div>
-                    <span className="font-black text-lg text-[#BAD133]">
-                      ${getAgentStudents(selectedAgent.name).reduce((sum, s) => sum + (parseFloat(s.agent_cut || 0)), 0).toLocaleString()}
-                    </span>
+
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">System Identity</p>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between border-b border-slate-50 pb-2"><span className="text-slate-500">System Role:</span> <span className="font-bold text-[#282860]">{selectedAgent.role}</span></div>
+                      <div className="flex justify-between border-b border-slate-50 pb-2"><span className="text-slate-500">Base Branch:</span> <span className="font-bold text-[#282860]">{selectedAgent.branch}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Access Status:</span> <span className={`font-black ${selectedAgent.is_active === false ? 'text-red-500' : 'text-emerald-500'}`}>{selectedAgent.is_active === false ? "FROZEN" : "ACTIVE"}</span></div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Security & Bank Config */}
-              <div className="px-6 py-4 border-t border-slate-200 bg-white">
-                 <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest mb-3">System Configuration</p>
-                 <div className="space-y-2 text-sm text-slate-600">
-                    <div className="flex justify-between border-b border-slate-100 pb-2"><span className="font-bold">Role:</span> <span>{selectedAgent.role}</span></div>
-                    <div className="flex justify-between border-b border-slate-100 pb-2"><span className="font-bold">Branch:</span> <span>{selectedAgent.branch}</span></div>
-                    <div className="flex justify-between border-b border-slate-100 pb-2"><span className="font-bold">Bank Name:</span> <span>{selectedAgent.bank_name || <span className="italic text-slate-400">Not Setup</span>}</span></div>
-                    <div className="flex justify-between pb-1"><span className="font-bold">Bank Acc:</span> <span className="font-mono text-xs">{selectedAgent.bank_account || <span className="italic text-slate-400">Not Setup</span>}</span></div>
-                 </div>
-              </div>
+              {/* TAB 2: FINANCIALS */}
+              {panelTab === 'financials' && (
+                <div className="space-y-6 animate-in fade-in">
+                  <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-6 rounded-xl border border-slate-700 shadow-sm text-white">
+                    <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest mb-1">Total Commission Generated</p>
+                    <p className="text-4xl font-black text-[#BAD133]">${getAgentStudents(selectedAgent.name).reduce((sum, s) => sum + (parseFloat(s.agent_cut || 0)), 0).toLocaleString()}</p>
+                  </div>
 
-              {/* Agent Activity Feed (CCTV) */}
-              <div className="p-6 border-t border-slate-200">
-                <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest flex items-center gap-2 mb-4"><Activity size={14}/> Recent Activity (CCTV)</p>
-                <div className="space-y-4">
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Bank & Payout Details</p>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between border-b border-slate-50 pb-2"><span className="text-slate-500">Bank Name:</span> <span className="font-bold text-[#282860]">{selectedAgent.bank_name || <span className="italic text-slate-300">Not Setup</span>}</span></div>
+                      <div className="flex justify-between border-b border-slate-50 pb-2"><span className="text-slate-500">Account No:</span> <span className="font-mono text-[#282860]">{selectedAgent.bank_account || <span className="italic text-slate-300">Not Setup</span>}</span></div>
+                      <div className="flex justify-between border-b border-slate-50 pb-2"><span className="text-slate-500">Branch:</span> <span className="font-bold text-[#282860]">{selectedAgent.bank_branch || <span className="italic text-slate-300">Not Setup</span>}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">SWIFT Code:</span> <span className="font-mono text-[#282860]">{selectedAgent.swift_code || <span className="italic text-slate-300">Not Setup</span>}</span></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: ACTIVITY HISTORY (CCTV) */}
+              {panelTab === 'history' && (
+                <div className="space-y-4 animate-in fade-in">
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest flex items-center gap-2"><Activity size={14}/> Live CCTV Feed</p>
+                    <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">{getAgentLogs(selectedAgent.name).length} Logs</span>
+                  </div>
+                  
                   {getAgentLogs(selectedAgent.name).length === 0 ? (
-                    <p className="text-center text-sm text-slate-400 italic">No actions logged recently.</p>
+                    <p className="text-center text-sm text-slate-400 italic py-10">No actions logged by this agent yet.</p>
                   ) : (
                     getAgentLogs(selectedAgent.name).map(log => (
-                      <div key={log.id} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-start gap-3">
-                        <div className={`mt-1 flex-shrink-0 w-2 h-2 rounded-full ${log.action === 'CREATE' ? 'bg-green-500' : log.action === 'UPDATE' ? 'bg-blue-500' : 'bg-amber-500'}`}></div>
+                      <div key={log.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4">
+                        <div className={`mt-1 flex-shrink-0 w-2.5 h-2.5 rounded-full ${log.action === 'CREATE' ? 'bg-green-500' : log.action === 'UPDATE' ? 'bg-blue-500' : 'bg-amber-500'}`}></div>
                         <div>
                           <p className="text-sm font-bold text-slate-700">{log.action === 'UPDATE' ? 'Updated' : log.action === 'CREATE' ? 'Created' : 'Action on'} <span className="text-[#282860]">{log.entity}</span></p>
-                          <p className="text-xs text-slate-400 mt-0.5">{new Date(log.created_at).toLocaleString()}</p>
+                          <p className="text-xs text-slate-400 mt-1 flex items-center gap-1"><Clock size={12}/> {new Date(log.created_at).toLocaleString()}</p>
+                          <p className="text-xs text-slate-500 mt-2 bg-slate-50 p-2 rounded border border-slate-100 font-mono line-clamp-2" title={JSON.stringify(log.details)}>{JSON.stringify(log.details)}</p>
                         </div>
                       </div>
                     ))
                   )}
                 </div>
-              </div>
+              )}
 
             </div>
           </div>

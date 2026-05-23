@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { 
-  Building2, MapPin, DollarSign, UploadCloud, Search, Plus, 
-  Sparkles, X, Loader2, Trash2, Building, Briefcase, FileText, Phone, Calculator
+  Building2, MapPin, DollarSign, UploadCloud, Plus, 
+  Sparkles, X, Loader2, Trash2, Building, FileText, Phone, Calculator
 } from "lucide-react";
 
 export default function InstitutionPartners() {
@@ -29,7 +29,7 @@ export default function InstitutionPartners() {
     base_commission: "", performance_bonus: "", tiered_levels: "",
     duration_start: "", duration_end: "", terms_conditions: "", document_link: "",
     // C. Contacts
-    contacts: [] as any[], // Complex array support
+    contacts: [] as any[], 
     // D. Commission Calculation
     total_referrals: "", total_enrollment: "", base_amount: "", calc_bonus: "", 
     total_payable: "", comm_status: "Pending", payment_date: "", calc_notes: ""
@@ -64,17 +64,30 @@ export default function InstitutionPartners() {
         : `${process.env.NEXT_PUBLIC_API_URL}/api/institutions`;
       const method = isEditing ? "PUT" : "POST";
 
+      // PRE-EMPTIVE FIX: Remove empty ID so backend auto-generates it for new entries
+      const payload = { ...formData };
+      if (!isEditing) {
+        delete (payload as any).id;
+      }
+
       const res = await fetch(url, {
         method: method,
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
         setIsEditModalOpen(false);
         fetchInstitutions(); 
-      } else alert("Failed to save the institution.");
-    } catch (error) { alert("Network Error."); }
+      } else {
+        // ERROR REVEAL: This will show exactly what the Python backend is complaining about
+        const errorData = await res.json();
+        console.error("Backend Error Details:", errorData);
+        alert(`Backend Rejected Save:\n\n${JSON.stringify(errorData.detail || errorData, null, 2)}`);
+      }
+    } catch (error) { 
+      alert("Network Error: Could not connect to the Python backend."); 
+    }
   };
 
   const handleDeleteInstitution = async (id: string) => {
@@ -91,6 +104,24 @@ export default function InstitutionPartners() {
   const handleAddContact = () => {
     const newContact = { id: `C-${Date.now()}`, full_name: "", title: "", department: "", email: "", phone: "", mobile: "", office_address: "", whatsapp: "", method: "Email", primary: "No", status: "Active" };
     setFormData({ ...formData, contacts: [...formData.contacts, newContact] });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsScanning(true);
+    try {
+      const payload = new FormData(); payload.append("contract", file);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/extract-commission`, {
+        method: "POST", headers: { "Authorization": `Bearer ${localStorage.getItem("fortrust_token")}` }, body: payload
+      });
+      const result = await res.json();
+      if (result.status === "success") {
+        setFormData(prev => ({ ...prev, ...result.data }));
+        setScanSuccess(true);
+        setTimeout(() => setScanSuccess(false), 3000);
+      }
+    } finally { setIsScanning(false); }
   };
 
   return (
@@ -138,14 +169,14 @@ export default function InstitutionPartners() {
               ) : institutions.map((inst) => (
                 <tr key={inst.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-5 py-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-black">{inst.institution_name?.charAt(0) || "U"}</div>
+                    <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-black">{inst.institution_name?.charAt(0) || inst.name?.charAt(0) || "U"}</div>
                     <div>
-                      <p className="font-bold text-[#282860]">{inst.institution_name || "Unnamed"}</p>
+                      <p className="font-bold text-[#282860]">{inst.institution_name || inst.name || "Unnamed"}</p>
                       <p className="text-[11px] text-slate-400">{inst.website}</p>
                     </div>
                   </td>
                   <td className="px-5 py-4 text-slate-600 font-medium">{inst.country || "N/A"}</td>
-                  <td className="px-5 py-4 font-bold text-green-600">{inst.base_commission || "-"}</td>
+                  <td className="px-5 py-4 font-bold text-green-600">{inst.base_commission || inst.commission_rate || "-"}%</td>
                   <td className="px-5 py-4"><span className="bg-green-100 text-green-700 px-2 py-1 rounded-md text-[10px] font-bold uppercase">{inst.status || "ACTIVE"}</span></td>
                   <td className="px-5 py-4 flex justify-end gap-2">
                     <button onClick={() => { setFormData({...formData, ...inst, contacts: inst.contacts || []}); setIsEditModalOpen(true); setModalTab("profile"); }} className="text-[#BAD133] hover:text-[#9bb029] font-bold text-xs uppercase tracking-wider bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors">Edit</button>
@@ -175,8 +206,13 @@ export default function InstitutionPartners() {
             {/* AI Banner */}
             <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-4 border-b border-indigo-100 flex items-center justify-between">
               <div className="flex items-center gap-3"><div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><Sparkles size={20}/></div><div><p className="text-sm font-bold text-[#282860]">AI Contract Auto-Fill</p><p className="text-xs text-slate-500">Upload a PDF agreement to extract terms instantly.</p></div></div>
-              <button className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2"><UploadCloud size={16} /> Upload PDF</button>
+              <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf" className="hidden" />
+              <button onClick={() => fileInputRef.current?.click()} disabled={isScanning} className="bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-600 hover:text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50">
+                {isScanning ? <><Loader2 size={16} className="animate-spin" /> Scanning...</> : <><UploadCloud size={16} /> Upload PDF</>}
+              </button>
             </div>
+            {scanSuccess && <div className="bg-green-50 text-green-700 p-2 text-center text-xs font-bold border-b border-green-100">✅ AI successfully extracted contract data!</div>}
+
 
             {/* Tabs */}
             <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6 overflow-x-auto">

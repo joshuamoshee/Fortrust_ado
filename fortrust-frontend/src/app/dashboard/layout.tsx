@@ -17,7 +17,6 @@ import {
   X,
   Lock,
   CheckCircle,
-  Activity,
   Menu,
   Building2,
   DollarSign
@@ -57,7 +56,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // 3. LIVE FETCH LOGIC (Polls database every 30 seconds)
+  // 3. LIVE FETCH LOGIC
   useEffect(() => {
     const fetchNotifications = async () => {
       const token = localStorage.getItem("fortrust_token");
@@ -70,7 +69,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         const data = await res.json();
         if (data.status === "success") {
           setNotifications(data.data);
-          // Set max 5 for the red unread badge
           setUnreadCount(data.data.length > 5 ? 5 : data.data.length); 
         }
       } catch (error) {
@@ -80,7 +78,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     if (isLoaded && user) {
       fetchNotifications();
-      // Auto-refresh every 30 seconds without reloading the page
       const interval = setInterval(fetchNotifications, 30000);
       return () => clearInterval(interval);
     }
@@ -130,7 +127,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased relative overflow-hidden">
       
-      {/* MOBILE BACKDROP OVERLAY */}
       {isMobileMenuOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
@@ -138,10 +134,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
 
-      {/* THE RESPONSIVE SIDEBAR */}
+      {/* SIDEBAR */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#1b1b42] text-slate-300 flex flex-col h-full shadow-2xl border-r border-[#131333] transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         
-        {/* Sleek Logo Area */}
         <div className="h-16 lg:h-24 flex items-center px-6 border-b border-white/5 bg-[#171738] justify-between">
           <div className="bg-white px-4 py-2 lg:py-3 rounded-xl w-full flex items-center justify-center shadow-md">
             <img src="/fortrust-logo.png" alt="Fortrust" className="h-6 lg:h-8 w-auto object-contain" />
@@ -151,7 +146,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
 
-        {/* Navigation Links */}
         <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
           
           <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Main Menu</p>
@@ -173,7 +167,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               
               <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                Agents
+                Agents Directory
               </Link>
               
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
@@ -195,22 +189,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <DollarSign size={18} className={pathname === '/dashboard/claimed' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 Claimed Commission
               </Link>
-
-              <Link 
-                href="/dashboard/audit" 
-                className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group
-                  ${pathname === '/dashboard/audit' 
-                    ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' 
-                    : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}
-              >
-                <Activity size={18} className={pathname === '/dashboard/audit' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                System CCTV
-              </Link>
             </>
           )}
         </div>
 
-        {/* User Profile & Logout */}
         <div className="p-4 bg-[#171738] border-t border-white/5">
           <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setShowSettings(true)}>
@@ -236,7 +218,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
           
           <div className="flex items-center flex-1 gap-4">
-            {/* MOBILE HAMBURGER MENU */}
             <button 
               className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
               onClick={() => setIsMobileMenuOpen(true)}
@@ -244,7 +225,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <Menu size={24} />
             </button>
 
-            {/* Search Bar */}
             <div className="hidden sm:flex items-center text-slate-400 bg-slate-50 px-4 py-2 lg:py-2.5 rounded-xl border border-slate-200 w-full max-w-md focus-within:border-[#282860] focus-within:ring-1 focus-within:ring-[#282860] transition-all">
               <Search size={18} className="mr-3 text-slate-400 flex-shrink-0" />
               <input 
@@ -257,7 +237,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="flex items-center gap-2 lg:gap-5 flex-shrink-0">
             
-            {/* --- LIVE NOTIFICATION BELL --- */}
             <div className="relative">
               <button 
                 onClick={() => { setShowNotifications(!showNotifications); setShowSettings(false); setUnreadCount(0); }}
@@ -269,7 +248,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 )}
               </button>
 
-              {/* Notification Popup */}
               {showNotifications && (
                 <div className="absolute right-0 mt-2 w-72 lg:w-96 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
                   <div className="p-4 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
@@ -300,7 +278,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               )}
             </div>
 
-            {/* --- SETTINGS ICON --- */}
             <button 
               onClick={() => { setShowSettings(true); setShowNotifications(false); }}
               className={`p-2 lg:p-2.5 rounded-full transition-colors ${showSettings ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
@@ -310,13 +287,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* Page Content */}
         <main className="flex-1 w-full max-w-[1600px] mx-auto overflow-x-hidden p-3 lg:p-6">
           {children}
         </main>
       </div>
       
-      {/* --- ACCOUNT SETTINGS MODAL --- */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
@@ -331,7 +306,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             
             <div className="p-5 lg:p-6">
-              {/* Profile Overview */}
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
                 <div className="w-12 h-12 rounded-full bg-[#282860] flex items-center justify-center text-white font-black text-xl">
                   {user.name.charAt(0)}
@@ -342,7 +316,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
               </div>
 
-              {/* Password Change Form */}
               <form onSubmit={handlePasswordChange} className="space-y-4">
                 <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
                   <Lock size={16} className="text-slate-400" /> Change Password
