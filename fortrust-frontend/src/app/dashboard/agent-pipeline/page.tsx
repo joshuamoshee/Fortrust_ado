@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, X, ShieldAlert, CheckCircle, Edit2, Trash2, Plus, DollarSign, Activity, Target, Mail, MapPin, Building, Clock, History } from "lucide-react";
+import { Users, X, ShieldAlert, CheckCircle, Edit2, Trash2, Plus, DollarSign, Activity, Target, Mail, MapPin, Clock, History } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
 const ROLE_OPTIONS = ["Corporate Agent", "Student Counselor", "Individual Agent", "MASTER_ADMIN"];

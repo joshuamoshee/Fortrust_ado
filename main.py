@@ -59,7 +59,6 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 # AUTO-UPGRADE SCHEMA
-# AUTO-UPGRADE SCHEMA
 def verify_schema():
     conn = get_db_connection()
     try:
@@ -1396,17 +1395,27 @@ def create_institution(inst: dict, user_data: dict = Depends(verify_token)):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO institutions (name, type, country, city, status)
-                VALUES (%s, %s, %s, %s, %s) RETURNING id
-            """, (inst.get('name', 'New Institution'), inst.get('type', ''), inst.get('country', ''), inst.get('city', ''), 'Active'))
+                INSERT INTO institutions (name, type, country, city, status, website, base_commission, agreement_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, (
+                inst.get('name', 'New Institution'),
+                inst.get('type', ''),
+                inst.get('country', ''),
+                inst.get('city', ''),
+                inst.get('status', 'Active'),
+                inst.get('website', ''),
+                inst.get('base_commission', ''),
+                inst.get('agreement_type', ''),
+            ))
+            new_id = cur.fetchone()[0]
             conn.commit()
-            return {"status": "success", "message": "Institution shell created"}
+            return {"status": "success", "message": "Institution created", "id": new_id}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
-
+        
 @app.put("/api/institutions/{inst_id}")
 def update_institution(inst_id: int, inst_data: dict, user_data: dict = Depends(verify_token)):
     conn = get_db_connection()

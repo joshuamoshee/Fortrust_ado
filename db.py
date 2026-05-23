@@ -9,58 +9,63 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # 1. Cases table
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS cases (
-            case_id TEXT PRIMARY KEY,
-            created_at TEXT,
-            status TEXT,
-            student_name TEXT,
-            phone TEXT,
-            email TEXT,
-            raw_json TEXT,
-            counsellor_brief_md TEXT,
-            assigned_to TEXT,
-            full_report_md TEXT,
-            report_generated_at TEXT,
-            referral_code TEXT
-        )
-    ''')
+    # 1. Cases table (Existing)
+    c.execute('''CREATE TABLE IF NOT EXISTS cases (
+            case_id TEXT PRIMARY KEY, created_at TEXT, status TEXT, 
+            student_name TEXT, phone TEXT, email TEXT, raw_json TEXT, 
+            counsellor_brief_md TEXT, assigned_to TEXT, full_report_md TEXT, 
+            report_generated_at TEXT, referral_code TEXT
+        )''')
 
-    # 2. Programs table
+    # 2. Institutions table (NEW - THIS FIXES YOUR SAVE ERROR)
     c.execute('''
-        CREATE TABLE IF NOT EXISTS programs (
+        CREATE TABLE IF NOT EXISTS institutions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            institution_name TEXT,
+            institution_type TEXT,
             country TEXT,
-            university TEXT,
-            program_name TEXT,
-            level TEXT,
-            tuition_per_year REAL,
-            duration_years REAL,
-            category TEXT,
-            notes TEXT
+            website TEXT,
+            establishment_year TEXT,
+            student_intake TEXT,
+            programs_offered TEXT,
+            status TEXT,
+            agreement_id TEXT,
+            agreement_date TEXT,
+            agreement_type TEXT,
+            base_commission TEXT,
+            performance_bonus TEXT,
+            tiered_levels TEXT,
+            duration_start TEXT,
+            duration_end TEXT,
+            terms_conditions TEXT,
+            document_link TEXT,
+            contacts TEXT, -- Stored as JSON string
+            total_referrals TEXT,
+            total_enrollment TEXT,
+            base_amount TEXT,
+            calc_bonus TEXT,
+            total_payable TEXT,
+            comm_status TEXT,
+            payment_date TEXT,
+            calc_notes TEXT
         )
     ''')
 
-    # 3. Users table (with branch)
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            email TEXT UNIQUE,
-            password TEXT,
-            role TEXT,
-            branch TEXT
-        )
-    ''')
+    # 3. Programs table (Existing)
+    c.execute('''CREATE TABLE IF NOT EXISTS programs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT, university TEXT, 
+            program_name TEXT, level TEXT, tuition_per_year REAL, 
+            duration_years REAL, category TEXT, notes TEXT
+        )''')
 
-    # 4. Create default Master Admin
-    c.execute("SELECT * FROM users WHERE email='admin@fortrust.com'")
-    if not c.fetchone():
-        c.execute("INSERT INTO users (id, name, email, password, role, branch) VALUES (?, ?, ?, ?, ?, ?)",
-                  ("U-001", "Master Admin", "admin@fortrust.com", "admin123", "MASTER_ADMIN", "Headquarters"))
-    
-    # 🚨 Notice how the commit and close are ONLY at the very end now!
+    # 4. Users table (Existing)
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY, name TEXT, email TEXT UNIQUE, 
+            password TEXT, role TEXT, branch TEXT, 
+            bank_name TEXT, bank_branch TEXT, bank_address TEXT, 
+            bank_account TEXT, swift_code TEXT, is_active BOOLEAN
+        )''')
+
     conn.commit()
     conn.close()
 
