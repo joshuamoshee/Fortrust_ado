@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-
 import Link from "next/link";
 import { 
   LayoutDashboard, 
@@ -56,7 +55,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // 3. LIVE FETCH LOGIC
+  // 3. LIVE FETCH NOTIFICATIONS
   useEffect(() => {
     const fetchNotifications = async () => {
       const token = localStorage.getItem("fortrust_token");
@@ -146,7 +145,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
 
-        <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar =">
           
           <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Main Menu</p>
           
@@ -160,19 +159,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             Program Finder
           </Link>
 
-          {/* Master Admin Only Section */}
+          {/* Master Admin Tools Section */}
           {user.role === "MASTER_ADMIN" && (
             <>
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-8">Admin Tools</p>
               
+              {/* Point 1 Revision: Label updated from Agent Directory to Agent Management */}
               <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                Agents Directory
+                Agent Management
               </Link>
               
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                Main Dashboard
+                Master Admin Panel
               </Link>
 
               <Link href="/dashboard/marketing" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
@@ -214,9 +214,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* MAIN CONTENT WRAPPER */}
       <div className="flex-1 flex flex-col lg:ml-[260px] min-w-0 w-full transition-all duration-300">
         
-        {/* Top Utility Header */}
+        {/* Header toolbar */}
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
-          
           <div className="flex items-center flex-1 gap-4">
             <button 
               className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
@@ -236,7 +235,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
 
           <div className="flex items-center gap-2 lg:gap-5 flex-shrink-0">
-            
             <div className="relative">
               <button 
                 onClick={() => { setShowNotifications(!showNotifications); setShowSettings(false); setUnreadCount(0); }}
