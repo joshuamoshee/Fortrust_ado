@@ -24,6 +24,7 @@ export default function AgentManagement() {
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detailAgent, setDetailAgent] = useState<any>(null);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Filters
@@ -295,7 +296,7 @@ export default function AgentManagement() {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          name: editingUser.name, role: editingUser.role, branch: editingUser.branch,
+          name: editingUser.name, email: editingUser.email, phone: editingUser.phone, role: editingUser.role, branch: editingUser.branch,
           bank_name: editingUser.bank_name, bank_branch: editingUser.bank_branch,
           bank_account: editingUser.bank_account, swift_code: editingUser.swift_code,
           is_active: editingUser.is_active, max_capacity: editingUser.max_capacity
@@ -335,10 +336,13 @@ export default function AgentManagement() {
         <td className="px-5 py-4">
           <div className="flex items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getStatusDot(group)}`} />
-            <div>
-              <p className="font-bold text-[#282860]">{u.name}</p>
+            <button
+              onClick={() => setDetailAgent(u)}
+              className="text-left hover:underline"
+            >
+              <p className="font-bold text-[#282860] hover:text-[#BAD133] transition-colors">{u.name}</p>
               <p className="text-[11px] text-slate-400">{u.email}</p>
-            </div>
+            </button>
           </div>
         </td>
         <td className="px-5 py-4 text-sm font-bold text-[#282860]">{active} Students</td>
