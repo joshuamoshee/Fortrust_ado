@@ -3,19 +3,17 @@
 import React, { useState, useEffect } from "react";
 import {
   Users, X, Edit2, Trash2, Plus, Clock,
-  Search, History, Briefcase, Building2
+  Search, History, Briefcase, Building2, DollarSign, Landmark
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters", "Global"];
 
-// Display labels — what users see — and internal values sent to backend
 const ROLE_OPTIONS = [
   { label: "Corporate Agent", value: "Corporate Agent" },
   { label: "Individual Agent", value: "Individual Agent" },
   { label: "Master Admin", value: "MASTER_ADMIN" },
 ];
 
-// Convert DB role → friendly label
 const roleLabel = (role: string) =>
   role === "MASTER_ADMIN" ? "Master Admin" : role;
 
@@ -24,7 +22,6 @@ export default function AgentManagement() {
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [detailAgent, setDetailAgent] = useState<any>(null);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Filters
@@ -39,16 +36,21 @@ export default function AgentManagement() {
   const [agentTypeChoice, setAgentTypeChoice] = useState<"Individual Agent" | "Corporate Agent" | null>(null);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [historyAgent, setHistoryAgent] = useState<any>(null);
+  const [detailAgent, setDetailAgent] = useState<any>(null);
 
-  // Individual Agent form
+  // Individual Agent form — now with bank info + commission
   const [individualForm, setIndividualForm] = useState({
-    name: "", email: "", password: "", phone: "", branch: "Jakarta"
+    name: "", email: "", password: "", phone: "", branch: "Jakarta",
+    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
+    commission_rate: 0
   });
 
-  // Corporate Agent form
+  // Corporate Agent form — now with bank info + commission
   const [corporateForm, setCorporateForm] = useState({
     corporation_name: "", office_address: "",
     name: "", email: "", password: "", phone: "", branch: "Jakarta",
+    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
+    commission_rate: 0,
     subAgents: [] as { name: string; email: string; wa: string; password: string }[]
   });
 
@@ -110,7 +112,6 @@ export default function AgentManagement() {
     return Math.round((getClosed(name).length / total) * 100);
   };
 
-  // ✅ Flag logic — symbols only with native hover tooltips
   const getFlags = (name: string, allCommissions: number[]) => {
     const flags: { icon: string; label: string; color: string }[] = [];
     const comm = getCommission(name);
@@ -131,7 +132,6 @@ export default function AgentManagement() {
     return flags;
   };
 
-  // Status grouping
   const getStatusGroup = (u: any) => {
     if (u.is_active === false) return "Inactive/On Leave";
     const active = getActive(u.name).length;
@@ -156,7 +156,6 @@ export default function AgentManagement() {
     return "At Risk";
   };
 
-  // ✅ Hide MASTER_ADMIN from directory completely
   const allCommissions = systemUsers
     .filter(u => u.role !== "MASTER_ADMIN")
     .map(u => getCommission(u.name));
@@ -169,7 +168,6 @@ export default function AgentManagement() {
       const matchRole = roleFilter === "All" || u.role === roleFilter;
       const matchBranch = branchFilter === "All" || u.branch === branchFilter;
       const active = getActive(u.name).length;
-      // ✅ Updated ranges: 1-20, 21-40, 40+
       const matchRange =
         rangeFilter === "All" ||
         (rangeFilter === "1-20" && active >= 1 && active <= 20) ||
@@ -187,15 +185,28 @@ export default function AgentManagement() {
   };
   filtered.forEach(u => { grouped[getStatusGroup(u)].push(u); });
 
+  const resetIndividualForm = () => setIndividualForm({
+    name: "", email: "", password: "", phone: "", branch: "Jakarta",
+    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
+    commission_rate: 0
+  });
+
+  const resetCorporateForm = () => setCorporateForm({
+    corporation_name: "", office_address: "",
+    name: "", email: "", password: "", phone: "", branch: "Jakarta",
+    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
+    commission_rate: 0,
+    subAgents: []
+  });
+
   // ---------------- Submission Handlers ----------------
   const createSingleUser = async (payload: any) => {
     const token = localStorage.getItem("fortrust_token");
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
+    return fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
     });
-    return res;
   };
 
   const handleCreateIndividual = async (e: React.FormEvent) => {
@@ -209,7 +220,12 @@ export default function AgentManagement() {
         phone: individualForm.phone,
         branch: individualForm.branch,
         role: "Individual Agent",
-        agent_type: "Individual Agent"
+        agent_type: "Individual Agent",
+        bank_name: individualForm.bank_name,
+        bank_account: individualForm.bank_account,
+        bank_branch: individualForm.bank_branch,
+        swift_code: individualForm.swift_code,
+        commission_rate: Number(individualForm.commission_rate) || 0
       });
       if (res.ok) {
         setNotification({ type: "success", message: "✅ Individual Agent created!" });
@@ -217,7 +233,7 @@ export default function AgentManagement() {
         setTimeout(() => {
           setIsAddModalOpen(false);
           setAgentTypeChoice(null);
-          setIndividualForm({ name: "", email: "", password: "", phone: "", branch: "Jakarta" });
+          resetIndividualForm();
           setNotification(null);
         }, 1500);
       } else {
@@ -232,7 +248,6 @@ export default function AgentManagement() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // 1) Create the corporate owner account
       const ownerRes = await createSingleUser({
         name: corporateForm.name,
         email: corporateForm.email,
@@ -241,7 +256,13 @@ export default function AgentManagement() {
         branch: corporateForm.branch,
         role: "Corporate Agent",
         agent_type: "Corporate Agent",
-        corporation_name: corporateForm.corporation_name
+        corporation_name: corporateForm.corporation_name,
+        office_address: corporateForm.office_address,
+        bank_name: corporateForm.bank_name,
+        bank_account: corporateForm.bank_account,
+        bank_branch: corporateForm.bank_branch,
+        swift_code: corporateForm.swift_code,
+        commission_rate: Number(corporateForm.commission_rate) || 0
       });
 
       if (!ownerRes.ok) {
@@ -251,7 +272,6 @@ export default function AgentManagement() {
         return;
       }
 
-      // 2) Create each sub-agent linked to the corporation
       let subSuccess = 0;
       let subFailed = 0;
       for (const sub of corporateForm.subAgents) {
@@ -277,11 +297,7 @@ export default function AgentManagement() {
       setTimeout(() => {
         setIsAddModalOpen(false);
         setAgentTypeChoice(null);
-        setCorporateForm({
-          corporation_name: "", office_address: "",
-          name: "", email: "", password: "", phone: "", branch: "Jakarta",
-          subAgents: []
-        });
+        resetCorporateForm();
         setNotification(null);
       }, 2000);
     } catch { setNotification({ type: "error", message: "❌ Network error." }); }
@@ -296,10 +312,19 @@ export default function AgentManagement() {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          name: editingUser.name, email: editingUser.email, phone: editingUser.phone, role: editingUser.role, branch: editingUser.branch,
-          bank_name: editingUser.bank_name, bank_branch: editingUser.bank_branch,
-          bank_account: editingUser.bank_account, swift_code: editingUser.swift_code,
-          is_active: editingUser.is_active, max_capacity: editingUser.max_capacity
+          name: editingUser.name,
+          email: editingUser.email,
+          phone: editingUser.phone,
+          role: editingUser.role,
+          branch: editingUser.branch,
+          office_address: editingUser.office_address,
+          bank_name: editingUser.bank_name,
+          bank_branch: editingUser.bank_branch,
+          bank_account: editingUser.bank_account,
+          swift_code: editingUser.swift_code,
+          is_active: editingUser.is_active,
+          max_capacity: editingUser.max_capacity,
+          commission_rate: Number(editingUser.commission_rate) || 0
         }),
       });
       if (res.ok) {
@@ -321,7 +346,6 @@ export default function AgentManagement() {
 
   if (loading) return <div className="p-16 text-center text-slate-400 animate-pulse">Loading Agents...</div>;
 
-  // Single Agent Row
   const AgentRow = ({ u }: { u: any }) => {
     const active = getActive(u.name).length;
     const closed = getClosed(u.name).length;
@@ -336,10 +360,7 @@ export default function AgentManagement() {
         <td className="px-5 py-4">
           <div className="flex items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getStatusDot(group)}`} />
-            <button
-              onClick={() => setDetailAgent(u)}
-              className="text-left hover:underline"
-            >
+            <button onClick={() => setDetailAgent(u)} className="text-left hover:underline">
               <p className="font-bold text-[#282860] hover:text-[#BAD133] transition-colors">{u.name}</p>
               <p className="text-[11px] text-slate-400">{u.email}</p>
             </button>
@@ -350,40 +371,29 @@ export default function AgentManagement() {
         <td className="px-5 py-4 text-sm font-bold text-[#282860]">{avg}</td>
         <td className="px-5 py-4 text-sm font-bold text-[#282860]">{closed}</td>
         <td className="px-5 py-4 text-sm font-bold text-[#282860]">USD {comm.toLocaleString()}</td>
-
-        {/* ✅ Symbols-only flags with native tooltips */}
         <td className="px-5 py-4">
           {flags.length > 0 ? (
             <div className="flex items-center gap-2">
               {flags.map((f, i) => (
-                <span key={i} title={f.label} className="text-xl cursor-help">
-                  {f.icon}
-                </span>
+                <span key={i} title={f.label} className="text-xl cursor-help">{f.icon}</span>
               ))}
             </div>
           ) : (
             <span className="text-[11px] text-slate-300">—</span>
           )}
         </td>
-
         <td className="px-5 py-4">
           <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => setHistoryAgent(u)}
-              className="border border-slate-300 text-slate-600 hover:bg-slate-100 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-            >
+            <button onClick={() => setHistoryAgent(u)}
+              className="border border-slate-300 text-slate-600 hover:bg-slate-100 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
               <History size={13} /> HISTORY
             </button>
-            <button
-              onClick={() => setEditingUser(u)}
-              className="border border-[#BAD133] text-[#9bb029] hover:bg-[#BAD133] hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-            >
+            <button onClick={() => setEditingUser(u)}
+              className="border border-[#BAD133] text-[#9bb029] hover:bg-[#BAD133] hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
               <Edit2 size={13} /> EDIT
             </button>
-            <button
-              onClick={() => handleDelete(u.id, u.name)}
-              className="text-red-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-            >
+            <button onClick={() => handleDelete(u.id, u.name)}
+              className="text-red-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors">
               <Trash2 size={16} />
             </button>
           </div>
@@ -414,25 +424,19 @@ export default function AgentManagement() {
             Manage team access, monitor performance, and review activity history.
           </p>
         </div>
-        <button
-          onClick={() => { setIsAddModalOpen(true); setAgentTypeChoice(null); }}
-          className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md"
-        >
+        <button onClick={() => { setIsAddModalOpen(true); setAgentTypeChoice(null); }}
+          className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md">
           <Plus size={18} /> Add Agent
         </button>
       </div>
 
-      {/* ✅ Single search bar with short placeholder */}
+      {/* Filter Bar */}
       <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mb-6 flex flex-wrap gap-3 items-center shadow-sm">
         <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-[200px]">
           <Search size={14} className="text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by name or email..."
+          <input type="text" placeholder="Search by name or email..."
             className="bg-transparent outline-none text-xs text-slate-600 w-full"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
+            value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
         </div>
         <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none bg-white">
           <option value="All">All Roles</option>
@@ -449,7 +453,6 @@ export default function AgentManagement() {
           <option value="Average">Average</option>
           <option value="At Risk">At Risk</option>
         </select>
-        {/* ✅ Updated ranges */}
         <select value={rangeFilter} onChange={e => setRangeFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none bg-white">
           <option value="All">All Ranges</option>
           <option value="1-20">1–20 Students</option>
@@ -541,6 +544,118 @@ export default function AgentManagement() {
         </div>
       )}
 
+      {/* DETAIL VIEW MODAL */}
+      {detailAgent && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+
+            <div className="p-6 border-b bg-[#1b1b42] text-white flex justify-between items-start">
+              <div>
+                <p className="text-xs text-[#BAD133] font-bold uppercase tracking-widest">Agent Profile</p>
+                <h2 className="text-2xl font-black mt-1">{detailAgent.name}</h2>
+                <p className="text-sm text-slate-300 mt-0.5">{roleLabel(detailAgent.role)}</p>
+              </div>
+              <button onClick={() => setDetailAgent(null)} className="p-2 hover:bg-white/10 rounded-full"><X size={22} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50">
+
+              <div className="grid grid-cols-4 gap-3">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Active</p>
+                  <p className="text-2xl font-black text-[#282860] mt-1">{getActive(detailAgent.name).length}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Closed</p>
+                  <p className="text-2xl font-black text-emerald-600 mt-1">{getClosed(detailAgent.name).length}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Earned</p>
+                  <p className="text-2xl font-black text-[#BAD133] mt-1">${getCommission(detailAgent.name).toLocaleString()}</p>
+                </div>
+                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">Rate</p>
+                  <p className="text-2xl font-black text-indigo-600 mt-1">{detailAgent.commission_rate || 0}%</p>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl border border-slate-200">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Contact Information</p>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between border-b border-slate-50 pb-2">
+                    <span className="text-slate-500">Email</span>
+                    <span className="font-bold text-[#282860]">{detailAgent.email || "—"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-50 pb-2">
+                    <span className="text-slate-500">Phone / Mobile</span>
+                    <span className="font-bold text-[#282860]">{detailAgent.phone || "—"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-50 pb-2">
+                    <span className="text-slate-500">Branch</span>
+                    <span className="font-bold text-[#282860]">{detailAgent.branch || "—"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-50 pb-2">
+                    <span className="text-slate-500">Office Address</span>
+                    <span className="font-bold text-[#282860] text-right max-w-[60%]">{detailAgent.office_address || "—"}</span>
+                  </div>
+                  {detailAgent.corporation_name && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Corporation</span>
+                      <span className="font-bold text-[#282860]">{detailAgent.corporation_name}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl border border-slate-200">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Workload Capacity</p>
+                <div className="flex justify-between items-end mb-2">
+                  <span className="text-sm font-bold text-slate-600">
+                    {getActive(detailAgent.name).length} / {detailAgent.max_capacity || 50} Students
+                  </span>
+                  <span className="text-xs text-slate-400">Max Capacity</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                  <div className={`h-3 rounded-full transition-all duration-500 ${getStatusDot(getStatusGroup(detailAgent))}`}
+                    style={{ width: `${Math.min((getActive(detailAgent.name).length / (detailAgent.max_capacity || 50)) * 100, 100)}%` }} />
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-xl border border-slate-200">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Banking & Payout</p>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between border-b border-slate-50 pb-2">
+                    <span className="text-slate-500">Bank Name</span>
+                    <span className="font-bold text-[#282860]">{detailAgent.bank_name || <span className="italic text-slate-300">Not setup</span>}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-50 pb-2">
+                    <span className="text-slate-500">Account No.</span>
+                    <span className="font-mono text-[#282860]">{detailAgent.bank_account || <span className="italic text-slate-300">Not setup</span>}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-50 pb-2">
+                    <span className="text-slate-500">Branch</span>
+                    <span className="font-bold text-[#282860]">{detailAgent.bank_branch || <span className="italic text-slate-300">Not setup</span>}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">SWIFT Code</span>
+                    <span className="font-mono text-[#282860]">{detailAgent.swift_code || <span className="italic text-slate-300">Not setup</span>}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <div className="p-4 border-t bg-white flex justify-end gap-3">
+              <button onClick={() => setDetailAgent(null)} className="text-slate-500 font-bold text-sm px-4 py-2">Close</button>
+              <button onClick={() => { setEditingUser(detailAgent); setDetailAgent(null); }}
+                className="bg-[#BAD133] hover:bg-[#9bb029] text-white font-bold text-sm px-6 py-2 rounded-xl flex items-center gap-2">
+                <Edit2 size={14} /> Edit Profile
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ADD AGENT MODAL */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -561,23 +676,18 @@ export default function AgentManagement() {
                 </div>
               )}
 
-              {/* STEP 1: Type Picker */}
               {!agentTypeChoice && (
                 <div className="space-y-4">
                   <p className="text-sm text-slate-500 font-medium">What type of agent are you adding?</p>
                   <div className="grid grid-cols-2 gap-4">
-                    <button
-                      onClick={() => setAgentTypeChoice("Individual Agent")}
-                      className="border-2 border-slate-200 hover:border-[#BAD133] hover:bg-[#BAD133]/5 p-6 rounded-2xl text-left transition-all"
-                    >
+                    <button onClick={() => setAgentTypeChoice("Individual Agent")}
+                      className="border-2 border-slate-200 hover:border-[#BAD133] hover:bg-[#BAD133]/5 p-6 rounded-2xl text-left transition-all">
                       <Users className="text-[#BAD133] mb-3" size={32} />
                       <p className="font-black text-[#282860] text-lg">Individual Agent</p>
                       <p className="text-xs text-slate-500 mt-1">Single agent account with personal credentials.</p>
                     </button>
-                    <button
-                      onClick={() => setAgentTypeChoice("Corporate Agent")}
-                      className="border-2 border-slate-200 hover:border-[#BAD133] hover:bg-[#BAD133]/5 p-6 rounded-2xl text-left transition-all"
-                    >
+                    <button onClick={() => setAgentTypeChoice("Corporate Agent")}
+                      className="border-2 border-slate-200 hover:border-[#BAD133] hover:bg-[#BAD133]/5 p-6 rounded-2xl text-left transition-all">
                       <Building2 className="text-[#BAD133] mb-3" size={32} />
                       <p className="font-black text-[#282860] text-lg">Corporate Agent</p>
                       <p className="text-xs text-slate-500 mt-1">Company account + sub-agents under it.</p>
@@ -586,40 +696,89 @@ export default function AgentManagement() {
                 </div>
               )}
 
-              {/* STEP 2A: Individual Agent Form */}
+              {/* INDIVIDUAL AGENT FORM */}
               {agentTypeChoice === "Individual Agent" && (
-                <form onSubmit={handleCreateIndividual} className="space-y-4">
-                  <button type="button" onClick={() => setAgentTypeChoice(null)} className="text-xs text-slate-400 hover:text-slate-600 mb-2">← Change type</button>
-                  <div>
-                    <label className="text-xs font-bold text-slate-600">Full Name</label>
-                    <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                      value={individualForm.name} onChange={e => setIndividualForm({ ...individualForm, name: e.target.value })} />
+                <form onSubmit={handleCreateIndividual} className="space-y-5">
+                  <button type="button" onClick={() => setAgentTypeChoice(null)} className="text-xs text-slate-400 hover:text-slate-600">← Change type</button>
+
+                  {/* Section 1: Personal Info */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Users size={12} /> Personal Information</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className="text-xs font-bold text-slate-600">Full Name</label>
+                        <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={individualForm.name} onChange={e => setIndividualForm({ ...individualForm, name: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Email</label>
+                        <input type="email" required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={individualForm.email} onChange={e => setIndividualForm({ ...individualForm, email: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Mobile Number</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={individualForm.phone} onChange={e => setIndividualForm({ ...individualForm, phone: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Temporary Password</label>
+                        <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={individualForm.password} onChange={e => setIndividualForm({ ...individualForm, password: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Branch</label>
+                        <select className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={individualForm.branch} onChange={e => setIndividualForm({ ...individualForm, branch: e.target.value })}>
+                          {BRANCH_OPTIONS.map(b => <option key={b}>{b}</option>)}
+                        </select>
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+
+                  {/* Section 2: Commission */}
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-3 flex items-center gap-2"><DollarSign size={12} /> Commission Setup</p>
                     <div>
-                      <label className="text-xs font-bold text-slate-600">Email</label>
-                      <input type="email" required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                        value={individualForm.email} onChange={e => setIndividualForm({ ...individualForm, email: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-600">Mobile Number</label>
-                      <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                        value={individualForm.phone} onChange={e => setIndividualForm({ ...individualForm, phone: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-600">Temporary Password</label>
-                      <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                        value={individualForm.password} onChange={e => setIndividualForm({ ...individualForm, password: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-600">Branch</label>
-                      <select className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                        value={individualForm.branch} onChange={e => setIndividualForm({ ...individualForm, branch: e.target.value })}>
-                        {BRANCH_OPTIONS.map(b => <option key={b}>{b}</option>)}
-                      </select>
+                      <label className="text-xs font-bold text-emerald-700">Commission Rate (%)</label>
+                      <input type="number" step="0.1" min="0" max="100"
+                        className="w-full mt-1 p-2.5 border border-emerald-200 rounded-lg text-sm outline-none focus:border-emerald-500 bg-white font-bold"
+                        placeholder="e.g. 10"
+                        value={individualForm.commission_rate}
+                        onChange={e => setIndividualForm({ ...individualForm, commission_rate: Number(e.target.value) })} />
+                      <p className="text-[10px] text-emerald-600 mt-1 italic">Percentage of tuition this agent earns per successful enrollment.</p>
                     </div>
                   </div>
+
+                  {/* Section 3: Banking */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Landmark size={12} /> Banking & Payout</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Bank Name</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          placeholder="e.g. BCA"
+                          value={individualForm.bank_name} onChange={e => setIndividualForm({ ...individualForm, bank_name: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Account Number</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
+                          value={individualForm.bank_account} onChange={e => setIndividualForm({ ...individualForm, bank_account: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Bank Branch</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={individualForm.bank_branch} onChange={e => setIndividualForm({ ...individualForm, bank_branch: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">SWIFT Code</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
+                          value={individualForm.swift_code} onChange={e => setIndividualForm({ ...individualForm, swift_code: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+
                   <p className="text-xs text-slate-400 italic">Max Student Capacity can be set later from the agent's detail page.</p>
+
                   <div className="flex justify-end gap-3 pt-2">
                     <button type="button" onClick={() => { setIsAddModalOpen(false); setAgentTypeChoice(null); }} className="text-slate-500 font-bold text-sm px-4 py-2">Cancel</button>
                     <button type="submit" disabled={isSaving} className="bg-[#282860] text-white font-bold text-sm px-6 py-2 rounded-xl disabled:opacity-50">
@@ -629,15 +788,15 @@ export default function AgentManagement() {
                 </form>
               )}
 
-              {/* STEP 2B: Corporate Agent Form */}
+              {/* CORPORATE AGENT FORM */}
               {agentTypeChoice === "Corporate Agent" && (
                 <form onSubmit={handleCreateCorporate} className="space-y-5">
-                  <button type="button" onClick={() => setAgentTypeChoice(null)} className="text-xs text-slate-400 hover:text-slate-600 mb-2">← Change type</button>
+                  <button type="button" onClick={() => setAgentTypeChoice(null)} className="text-xs text-slate-400 hover:text-slate-600">← Change type</button>
 
-                  {/* Company Section */}
+                  {/* Company Details */}
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Company Details</p>
-                    <div className="grid grid-cols-2 gap-4">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Building2 size={12} /> Company Details</p>
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="col-span-2">
                         <label className="text-xs font-bold text-slate-600">Company / Corporation Name</label>
                         <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
@@ -658,10 +817,10 @@ export default function AgentManagement() {
                     </div>
                   </div>
 
-                  {/* Owner Section */}
+                  {/* Owner Login */}
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Account Owner (Login)</p>
-                    <div className="grid grid-cols-2 gap-4">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Users size={12} /> Account Owner (Login)</p>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-xs font-bold text-slate-600">Owner Name</label>
                         <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
@@ -685,14 +844,54 @@ export default function AgentManagement() {
                     </div>
                   </div>
 
-                  {/* Sub-Agents Section */}
+                  {/* Commission */}
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-3 flex items-center gap-2"><DollarSign size={12} /> Commission Setup</p>
+                    <div>
+                      <label className="text-xs font-bold text-emerald-700">Commission Rate (%)</label>
+                      <input type="number" step="0.1" min="0" max="100"
+                        className="w-full mt-1 p-2.5 border border-emerald-200 rounded-lg text-sm outline-none focus:border-emerald-500 bg-white font-bold"
+                        placeholder="e.g. 15"
+                        value={corporateForm.commission_rate}
+                        onChange={e => setCorporateForm({ ...corporateForm, commission_rate: Number(e.target.value) })} />
+                      <p className="text-[10px] text-emerald-600 mt-1 italic">Percentage of tuition this corporation earns per successful enrollment.</p>
+                    </div>
+                  </div>
+
+                  {/* Banking */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Landmark size={12} /> Corporate Banking & Payout</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Bank Name</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={corporateForm.bank_name} onChange={e => setCorporateForm({ ...corporateForm, bank_name: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Account Number</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
+                          value={corporateForm.bank_account} onChange={e => setCorporateForm({ ...corporateForm, bank_account: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Bank Branch</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
+                          value={corporateForm.bank_branch} onChange={e => setCorporateForm({ ...corporateForm, bank_branch: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">SWIFT Code</label>
+                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
+                          value={corporateForm.swift_code} onChange={e => setCorporateForm({ ...corporateForm, swift_code: e.target.value })} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sub-Agents */}
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                     <div className="flex justify-between items-center mb-3">
                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sub-Agents Under This Corporation</p>
                       <button type="button"
                         onClick={() => setCorporateForm({ ...corporateForm, subAgents: [...corporateForm.subAgents, { name: "", email: "", wa: "", password: "" }] })}
-                        className="text-[#BAD133] font-bold text-xs flex items-center gap-1 hover:text-[#9bb029]"
-                      >
+                        className="text-[#BAD133] font-bold text-xs flex items-center gap-1 hover:text-[#9bb029]">
                         <Plus size={14} /> Add Row
                       </button>
                     </div>
@@ -735,7 +934,7 @@ export default function AgentManagement() {
                     )}
                   </div>
 
-                  <p className="text-xs text-slate-400 italic">Max Student Capacity for each agent can be set later from their detail page.</p>
+                  <p className="text-xs text-slate-400 italic">Max Capacity & individual commission rates for sub-agents can be configured later.</p>
 
                   <div className="flex justify-end gap-3 pt-2">
                     <button type="button" onClick={() => { setIsAddModalOpen(false); setAgentTypeChoice(null); }} className="text-slate-500 font-bold text-sm px-4 py-2">Cancel</button>
@@ -753,12 +952,12 @@ export default function AgentManagement() {
       {/* EDIT MODAL */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="p-5 border-b flex justify-between items-center bg-slate-50">
               <h2 className="text-lg font-black text-[#282860] flex items-center gap-2"><Edit2 size={18} className="text-[#BAD133]" /> Edit Agent</h2>
               <button onClick={() => setEditingUser(null)}><X size={22} className="text-slate-400" /></button>
             </div>
-            <form onSubmit={handleEditUser} className="p-6 space-y-4">
+            <form onSubmit={handleEditUser} className="flex-1 overflow-y-auto p-6 space-y-4">
               {notification && (
                 <div className={`p-3 rounded-lg text-sm font-bold ${notification.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
                   {notification.message}
@@ -768,7 +967,7 @@ export default function AgentManagement() {
                 <div>
                   <label className="text-xs font-bold text-slate-600">Name</label>
                   <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.name} onChange={e => setEditingUser({ ...editingUser, name: e.target.value })} />
+                    value={editingUser.name || ""} onChange={e => setEditingUser({ ...editingUser, name: e.target.value })} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-600">Role</label>
@@ -776,6 +975,16 @@ export default function AgentManagement() {
                     value={editingUser.role} onChange={e => setEditingUser({ ...editingUser, role: e.target.value })}>
                     {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Email</label>
+                  <input type="email" className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
+                    value={editingUser.email || ""} onChange={e => setEditingUser({ ...editingUser, email: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Phone / Mobile</label>
+                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
+                    value={editingUser.phone || ""} onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-600">Branch</label>
@@ -790,7 +999,19 @@ export default function AgentManagement() {
                     value={editingUser.max_capacity || 50}
                     onChange={e => setEditingUser({ ...editingUser, max_capacity: Number(e.target.value) })} />
                 </div>
-                <div>
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-emerald-700">Commission Rate (%)</label>
+                  <input type="number" step="0.1" min="0" max="100"
+                    className="w-full mt-1 p-2.5 border-2 border-emerald-200 rounded-lg text-sm outline-none focus:border-emerald-500 font-bold"
+                    value={editingUser.commission_rate || 0}
+                    onChange={e => setEditingUser({ ...editingUser, commission_rate: Number(e.target.value) })} />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-bold text-slate-600">Office Address</label>
+                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
+                    value={editingUser.office_address || ""} onChange={e => setEditingUser({ ...editingUser, office_address: e.target.value })} />
+                </div>
+                <div className="col-span-2">
                   <label className="text-xs font-bold text-slate-600">Account Status</label>
                   <select className="w-full mt-1 p-2.5 border-2 border-red-100 rounded-lg text-sm font-bold outline-none focus:border-red-300"
                     value={editingUser.is_active === false ? "false" : "true"}
@@ -799,10 +1020,19 @@ export default function AgentManagement() {
                     <option value="false">❄️ Frozen</option>
                   </select>
                 </div>
+
+                <div className="col-span-2 border-t border-slate-100 pt-4 mt-2">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Banking & Payout</p>
+                </div>
                 <div>
                   <label className="text-xs font-bold text-slate-600">Bank Name</label>
                   <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
                     value={editingUser.bank_name || ""} onChange={e => setEditingUser({ ...editingUser, bank_name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Bank Branch</label>
+                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
+                    value={editingUser.bank_branch || ""} onChange={e => setEditingUser({ ...editingUser, bank_branch: e.target.value })} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-600">Account No.</label>
@@ -815,7 +1045,7 @@ export default function AgentManagement() {
                     value={editingUser.swift_code || ""} onChange={e => setEditingUser({ ...editingUser, swift_code: e.target.value })} />
                 </div>
               </div>
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex justify-end gap-3 pt-4">
                 <button type="button" onClick={() => setEditingUser(null)} className="text-slate-500 font-bold text-sm px-4 py-2">Cancel</button>
                 <button type="submit" className="bg-[#282860] text-white font-bold text-sm px-6 py-2 rounded-xl">Save Changes</button>
               </div>

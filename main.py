@@ -83,6 +83,8 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_capacity INTEGER DEFAULT 50;")
 
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0;")
+
             # Institutions table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS institutions (
@@ -219,6 +221,7 @@ class NewUserRequest(BaseModel):
     agent_type: str = "Individual Agent"
     corporation_name: str = ""
     max_capacity: int = 50
+    commission_rate: float = 0  # ✅ ADD THIS
 
 
 class UpdateSystemUser(BaseModel):
@@ -234,6 +237,7 @@ class UpdateSystemUser(BaseModel):
     swift_code: Optional[str] = None
     is_active: Optional[bool] = None
     max_capacity: Optional[int] = None
+    commission_rate: Optional[float] = None
 
 
 class UserCreate(BaseModel):
@@ -413,11 +417,11 @@ def create_user_legacy(req: NewUserRequest):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO users (name, email, password, role, branch, phone, agent_type, corporation_name, max_capacity)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO users (name, email, password, role, branch, phone, agent_type, corporation_name, max_capacity, commission_rate)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 req.name, req.email, hashed_password, req.role, req.branch,
-                req.phone, req.agent_type, req.corporation_name, req.max_capacity
+                req.phone, req.agent_type, req.corporation_name, req.max_capacity, req.commission_rate
             ))
             conn.commit()
             return {"status": "success", "message": "User account created securely!"}
@@ -438,8 +442,8 @@ def get_all_users_legacy():
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, name, email, role, branch, phone, agent_type, corporation_name,
-                       office_address, bank_name, bank_branch, bank_address, bank_account,
-                       swift_code, max_capacity, COALESCE(is_active, true) as is_active
+                    office_address, bank_name, bank_branch, bank_address, bank_account,
+                    swift_code, max_capacity, commission_rate, COALESCE(is_active, true) as is_active
                 FROM users ORDER BY id DESC
             """)
             return {"status": "success", "data": cur.fetchall()}
