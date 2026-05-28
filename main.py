@@ -522,11 +522,7 @@ def delete_system_user(user_id: int):
 # =====================================================================
 # --- 2. MASTER ADMIN DASHBOARD ---
 # =====================================================================
-# =====================================================================
-# REPLACE the existing `get_dashboard_stats` function in your main.py
-# with this UPGRADED version. Everything else in main.py stays the same.
-# =====================================================================
-
+# --- MASTER ADMIN DASHBOARD STATS ---
 @app.get("/api/admin/dashboard-stats")
 def get_dashboard_stats(
     timeframe: str = "all",
@@ -536,8 +532,6 @@ def get_dashboard_stats(
 ):
     """
     Extended dashboard stats with client-requested timeframes and KPIs.
-    timeframe options: 'all', 'this_year', '6months', '3months', 'custom'
-    For custom: pass from_date=YYYY-MM-DD and to_date=YYYY-MM-DD
     """
     if user_data.get("role") != "MASTER_ADMIN":
         raise HTTPException(status_code=403, detail="Master Admin access required.")
@@ -545,11 +539,9 @@ def get_dashboard_stats(
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Get users with their branch for the Pipeline by Branch chart
             cur.execute("SELECT name, role, branch FROM users")
             users_info = {u['name']: {'role': u['role'], 'branch': u['branch']} for u in cur.fetchall()}
 
-            # Build the date filter
             base_query = "SELECT assignee, status, applications, commission_earned, lead_temperature, created_at FROM students"
             where_clause = ""
 
@@ -567,14 +559,12 @@ def get_dashboard_stats(
             cur.execute(base_query + where_clause)
             students = cur.fetchall()
 
-            # Also fetch the LAST 30 DAYS qualified leads for growth comparison
             cur.execute("""
                 SELECT lead_temperature, status FROM students
                 WHERE created_at >= NOW() - INTERVAL '30 days'
             """)
             last_30_days = cur.fetchall()
 
-            # Compare with previous 30 days (days 31-60)
             cur.execute("""
                 SELECT lead_temperature, status FROM students
                 WHERE created_at >= NOW() - INTERVAL '60 days'
@@ -584,7 +574,6 @@ def get_dashboard_stats(
     finally:
         conn.close()
 
-    # ----- METRICS -----
     total_students = len(students)
     in_progress = 0
     completed = 0
@@ -609,7 +598,6 @@ def get_dashboard_stats(
         commission = float(s.get("commission_earned") or 0.0)
         apps = s.get("applications") or []
 
-        # Counts by status
         if status == "COMPLETED":
             completed += 1
             logged_commission += commission
@@ -617,18 +605,14 @@ def get_dashboard_stats(
             dropped += 1
         else:
             in_progress += 1
-            # Estimated commission = sum of expected commission for active deals
             estimation_commission += commission
 
-        # Qualified Leads: AI Scored Hot + Warm only
         if "hot" in temperature or "warm" in temperature:
             qualified_leads += 1
 
-        # Active Applications: Submitted, awaiting offer
         active_apps = [a for a in apps if isinstance(a, dict) and a.get("status") in ("Submitted", "Pending", "Under Review")]
         active_applications += len(active_apps)
 
-        # Performance tracking
         if role.upper() == "COUNSELLOR":
             counsellor_volume[assignee] = counsellor_volume.get(assignee, 0) + 1
             counsellor_revenue[assignee] = counsellor_revenue.get(assignee, 0.0) + commission
@@ -640,10 +624,8 @@ def get_dashboard_stats(
             uni = app.get("university", "Unknown")
             institution_volume[uni] = institution_volume.get(uni, 0) + 1
 
-        # Pipeline by Branch
         branch_pipeline[branch] = branch_pipeline.get(branch, 0) + 1
 
-    # Growth calculation for Qualified Leads
     current_qualified = sum(1 for s in last_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
     prev_qualified = sum(1 for s in prev_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
 
@@ -670,7 +652,7 @@ def get_dashboard_stats(
                 "active_applications": active_applications,
                 "estimation_commission": estimation_commission,
                 "logged_commission": logged_commission,
-                "total_business": logged_commission  # backward compat
+                "total_business": logged_commission
             },
             "performance": {
                 "top_agents_volume": top5(agent_volume),

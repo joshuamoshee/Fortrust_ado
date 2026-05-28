@@ -1,76 +1,64 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import {
-  Users, X, Edit2, Trash2, Plus, Clock,
-  Search, History, Briefcase, Building2, DollarSign, Landmark
+import { useState, useEffect } from "react";
+import { 
+  Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
+  DollarSign, Activity, Target, Mail, MapPin, Clock, 
+  Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
+  Archive, RefreshCcw, MoreHorizontal
 } from "lucide-react";
 
-const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters", "Global"];
-
-const ROLE_OPTIONS = [
-  { label: "Corporate Agent", value: "Corporate Agent" },
-  { label: "Individual Agent", value: "Individual Agent" },
-  { label: "Master Admin", value: "MASTER_ADMIN" },
-];
-
-const roleLabel = (role: string) =>
-  role === "MASTER_ADMIN" ? "Master Admin" : role;
+const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
+const ROLE_OPTIONS = ["Corporate Agent", "Student Counselor", "Individual Agent", "MASTER_ADMIN"];
 
 export default function AgentManagement() {
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
 
-  // Filters
+  // Tabs & Filters
+  const [viewTab, setViewTab] = useState<"active" | "archived">("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
   const [branchFilter, setBranchFilter] = useState("All");
-  const [tierFilter, setTierFilter] = useState("All");
-  const [rangeFilter, setRangeFilter] = useState("All");
 
-  // Modals
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [agentTypeChoice, setAgentTypeChoice] = useState<"Individual Agent" | "Corporate Agent" | null>(null);
-  const [editingUser, setEditingUser] = useState<any>(null);
-  const [historyAgent, setHistoryAgent] = useState<any>(null);
-  const [detailAgent, setDetailAgent] = useState<any>(null);
+  // User Modal State
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState("Individual Agent");
+  const [newUserBranch, setNewUserBranch] = useState("Jakarta");
+  const [newUserCapacity, setNewUserCapacity] = useState(50);
+  const [isSavingUser, setIsSavingUser] = useState(false);
 
-  // Individual Agent form — now with bank info + commission
-  const [individualForm, setIndividualForm] = useState({
-    name: "", email: "", password: "", phone: "", branch: "Jakarta",
-    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
-    commission_rate: 0
-  });
-
-  // Corporate Agent form — now with bank info + commission
-  const [corporateForm, setCorporateForm] = useState({
-    corporation_name: "", office_address: "",
-    name: "", email: "", password: "", phone: "", branch: "Jakarta",
-    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
-    commission_rate: 0,
-    subAgents: [] as { name: string; email: string; wa: string; password: string }[]
-  });
-
-  const [isSaving, setIsSaving] = useState(false);
+  // Detail & Edit States
+  const [selectedAgent, setSelectedAgent] = useState<any>(null); 
+  const [panelTab, setPanelTab] = useState<"overview" | "financials" | "history">("overview");
+  const [editingUser, setEditingUser] = useState<any>(null); 
 
   const fetchData = async () => {
     const token = localStorage.getItem("fortrust_token");
-    const headers = { Authorization: `Bearer ${token}` };
+    const headers = { "Authorization": `Bearer ${token}` };
+
     try {
       const [usersRes, studentsRes, logsRes] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, { headers }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=MASTER_ADMIN`, { headers }),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs`, { headers }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs`, { headers })
       ]);
-      const [u, s, l] = await Promise.all([usersRes.json(), studentsRes.json(), logsRes.json()]);
-      if (u.status === "success") setSystemUsers(u.data);
-      if (s.status === "success") setAllStudents(s.data);
-      if (l.status === "success") setAuditLogs(l.data);
-    } catch (e) {
-      console.error(e);
+      
+      const usersData = await usersRes.json();
+      const studentsData = await studentsRes.json();
+      const logsData = await logsRes.json();
+
+      if (usersData.status === "success") setSystemUsers(usersData.data);
+      if (studentsData.status === "success") setAllStudents(studentsData.data);
+      if (logsData.status === "success") setAuditLogs(logsData.data);
+    } catch (error) {
+      console.error("Failed to fetch data");
     } finally {
       setLoading(false);
     }
@@ -78,978 +66,458 @@ export default function AgentManagement() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // --- Helpers ---
-  const getActive = (name: string) =>
-    allStudents.filter(s => s.assignee === name && !["COMPLETED", "REJECTED"].includes((s.status || "").toUpperCase()));
-
-  const getClosed = (name: string) =>
-    allStudents.filter(s => s.assignee === name && (s.status || "").toUpperCase() === "COMPLETED");
-
-  const getDropped = (name: string) =>
-    allStudents.filter(s => s.assignee === name && (s.status || "").toUpperCase() === "REJECTED");
-
-  const getCommission = (name: string) =>
-    getClosed(name).reduce((sum, s) => sum + (parseFloat(s.commission_earned) || 0), 0);
-
-  const getLastActivity = (name: string) => {
-    const logs = auditLogs.filter(l => l.changed_by === name);
-    if (!logs.length) return null;
-    return new Date(logs[0].created_at);
-  };
-
-  const getAvgTimePerStage = (name: string) => {
-    const logs = auditLogs.filter(l => l.changed_by === name && l.action === "UPDATE");
-    if (logs.length < 2) return "N/A";
-    const oldest = new Date(logs[logs.length - 1].created_at).getTime();
-    const newest = new Date(logs[0].created_at).getTime();
-    const avgHours = Math.round((newest - oldest) / (logs.length * 3600000));
-    return `${avgHours} Hours`;
-  };
-
-  const getConversionRate = (name: string) => {
-    const total = getActive(name).length + getClosed(name).length;
-    if (!total) return 0;
-    return Math.round((getClosed(name).length / total) * 100);
-  };
-
-  const getFlags = (name: string, allCommissions: number[]) => {
-    const flags: { icon: string; label: string; color: string }[] = [];
-    const comm = getCommission(name);
-    const sorted = [...allCommissions].sort((a, b) => b - a);
-    const top10Threshold = sorted[Math.floor(sorted.length * 0.1)] ?? 0;
-
-    if (comm >= top10Threshold && comm > 0) {
-      flags.push({ icon: "🏆", label: "Top 10% Performance", color: "text-yellow-500" });
-    }
-    if (getDropped(name).length >= 3) {
-      flags.push({ icon: "〽️", label: "High Number of drop Students", color: "text-red-500" });
-    }
-    const last = getLastActivity(name);
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-    if (!last || last < sevenDaysAgo) {
-      flags.push({ icon: "⚠️", label: "No Activities in the last 7 days", color: "text-amber-500" });
-    }
-    return flags;
-  };
-
-  const getStatusGroup = (u: any) => {
-    if (u.is_active === false) return "Inactive/On Leave";
-    const active = getActive(u.name).length;
-    const max = u.max_capacity || 50;
-    if (active / max >= 0.8) return "Limited Capacity";
-    return "Active";
-  };
-
-  const getStatusDot = (group: string) => {
-    if (group === "Inactive/On Leave") return "bg-red-500";
-    if (group === "Limited Capacity") return "bg-yellow-400";
-    return "bg-green-500";
-  };
-
-  const getPerfTier = (name: string, allCommissions: number[]) => {
-    const comm = getCommission(name);
-    const sorted = [...allCommissions].sort((a, b) => b - a);
-    const top10 = sorted[Math.floor(sorted.length * 0.1)] ?? 0;
-    const top50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
-    if (comm >= top10 && comm > 0) return "Top";
-    if (comm >= top50) return "Average";
-    return "At Risk";
-  };
-
-  const allCommissions = systemUsers
-    .filter(u => u.role !== "MASTER_ADMIN")
-    .map(u => getCommission(u.name));
-
-  const filtered = systemUsers
-    .filter(u => u.role !== "MASTER_ADMIN")
-    .filter(u => {
-      const q = searchQuery.toLowerCase();
-      const matchSearch = u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
-      const matchRole = roleFilter === "All" || u.role === roleFilter;
-      const matchBranch = branchFilter === "All" || u.branch === branchFilter;
-      const active = getActive(u.name).length;
-      const matchRange =
-        rangeFilter === "All" ||
-        (rangeFilter === "1-20" && active >= 1 && active <= 20) ||
-        (rangeFilter === "21-40" && active >= 21 && active <= 40) ||
-        (rangeFilter === "40+" && active > 40);
-      const tier = getPerfTier(u.name, allCommissions);
-      const matchTier = tierFilter === "All" || tier === tierFilter;
-      return matchSearch && matchRole && matchBranch && matchRange && matchTier;
-    });
-
-  const grouped: Record<string, any[]> = {
-    "Inactive/On Leave": [],
-    "Limited Capacity": [],
-    "Active": []
-  };
-  filtered.forEach(u => { grouped[getStatusGroup(u)].push(u); });
-
-  const resetIndividualForm = () => setIndividualForm({
-    name: "", email: "", password: "", phone: "", branch: "Jakarta",
-    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
-    commission_rate: 0
-  });
-
-  const resetCorporateForm = () => setCorporateForm({
-    corporation_name: "", office_address: "",
-    name: "", email: "", password: "", phone: "", branch: "Jakarta",
-    bank_name: "", bank_account: "", bank_branch: "", swift_code: "",
-    commission_rate: 0,
-    subAgents: []
-  });
-
-  // ---------------- Submission Handlers ----------------
-  const createSingleUser = async (payload: any) => {
-    const token = localStorage.getItem("fortrust_token");
-    return fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload),
-    });
-  };
-
-  const handleCreateIndividual = async (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
+    setIsSavingUser(true);
+    setNotification(null);
     try {
-      const res = await createSingleUser({
-        name: individualForm.name,
-        email: individualForm.email,
-        password: individualForm.password,
-        phone: individualForm.phone,
-        branch: individualForm.branch,
-        role: "Individual Agent",
-        agent_type: "Individual Agent",
-        bank_name: individualForm.bank_name,
-        bank_account: individualForm.bank_account,
-        bank_branch: individualForm.bank_branch,
-        swift_code: individualForm.swift_code,
-        commission_rate: Number(individualForm.commission_rate) || 0
+      const token = localStorage.getItem("fortrust_token");
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, {
+        method: "POST", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ 
+          name: newUserName, email: newUserEmail, password: newUserPassword, 
+          role: newUserRole, branch: newUserBranch, max_capacity: newUserCapacity 
+        }),
       });
-      if (res.ok) {
-        setNotification({ type: "success", message: "✅ Individual Agent created!" });
-        fetchData();
-        setTimeout(() => {
-          setIsAddModalOpen(false);
-          setAgentTypeChoice(null);
-          resetIndividualForm();
-          setNotification(null);
-        }, 1500);
-      } else {
-        const d = await res.json();
-        setNotification({ type: "error", message: `❌ ${d.detail}` });
-      }
-    } catch { setNotification({ type: "error", message: "❌ Network error." }); }
-    finally { setIsSaving(false); }
-  };
-
-  const handleCreateCorporate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    try {
-      const ownerRes = await createSingleUser({
-        name: corporateForm.name,
-        email: corporateForm.email,
-        password: corporateForm.password,
-        phone: corporateForm.phone,
-        branch: corporateForm.branch,
-        role: "Corporate Agent",
-        agent_type: "Corporate Agent",
-        corporation_name: corporateForm.corporation_name,
-        office_address: corporateForm.office_address,
-        bank_name: corporateForm.bank_name,
-        bank_account: corporateForm.bank_account,
-        bank_branch: corporateForm.bank_branch,
-        swift_code: corporateForm.swift_code,
-        commission_rate: Number(corporateForm.commission_rate) || 0
-      });
-
-      if (!ownerRes.ok) {
-        const d = await ownerRes.json();
-        setNotification({ type: "error", message: `❌ Owner: ${d.detail}` });
-        setIsSaving(false);
-        return;
-      }
-
-      let subSuccess = 0;
-      let subFailed = 0;
-      for (const sub of corporateForm.subAgents) {
-        if (!sub.name || !sub.email || !sub.password) continue;
-        const r = await createSingleUser({
-          name: sub.name,
-          email: sub.email,
-          password: sub.password,
-          phone: sub.wa,
-          branch: corporateForm.branch,
-          role: "Individual Agent",
-          agent_type: "Sub Agent",
-          corporation_name: corporateForm.corporation_name
-        });
-        if (r.ok) subSuccess++; else subFailed++;
-      }
-
-      setNotification({
-        type: "success",
-        message: `✅ Corporate created. Sub-agents: ${subSuccess} ok${subFailed ? `, ${subFailed} failed` : ""}`
-      });
-      fetchData();
-      setTimeout(() => {
-        setIsAddModalOpen(false);
-        setAgentTypeChoice(null);
-        resetCorporateForm();
-        setNotification(null);
-      }, 2000);
-    } catch { setNotification({ type: "error", message: "❌ Network error." }); }
-    finally { setIsSaving(false); }
+      const data = await response.json();
+      
+      if (response.ok) {
+        setNotification({type: 'success', message: 'Agent account successfully deployed.'});
+        fetchData(); 
+        setTimeout(() => { setIsUserModalOpen(false); setNewUserName(""); setNewUserEmail(""); setNewUserPassword(""); setNotification(null); }, 1500);
+      } else setNotification({type: 'error', message: data.detail || "Failed to create user."});
+    } catch (err) { setNotification({type: 'error', message: 'Network error.'}); } finally { setIsSavingUser(false); }
   };
 
   const handleEditUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    setNotification(null);
     try {
       const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${editingUser.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          name: editingUser.name,
-          email: editingUser.email,
-          phone: editingUser.phone,
-          role: editingUser.role,
-          branch: editingUser.branch,
-          office_address: editingUser.office_address,
-          bank_name: editingUser.bank_name,
-          bank_branch: editingUser.bank_branch,
-          bank_account: editingUser.bank_account,
-          swift_code: editingUser.swift_code,
-          is_active: editingUser.is_active,
-          max_capacity: editingUser.max_capacity,
-          commission_rate: Number(editingUser.commission_rate) || 0
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${editingUser.id}`, {
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ 
+          name: editingUser.name, role: editingUser.role, office_address: editingUser.office_address, 
+          bank_name: editingUser.bank_name, bank_branch: editingUser.bank_branch, bank_address: editingUser.bank_address, 
+          bank_account: editingUser.bank_account, swift_code: editingUser.swift_code, is_active: editingUser.is_active,
+          max_capacity: editingUser.max_capacity
         }),
       });
-      if (res.ok) {
-        setNotification({ type: "success", message: "✅ Updated!" });
+      if (response.ok) {
+        setNotification({type: 'success', message: 'Agent configuration updated.'});
         fetchData();
         setTimeout(() => { setEditingUser(null); setNotification(null); }, 1500);
+      } else setNotification({type: 'error', message: 'Failed to update.'});
+    } catch (err) { setNotification({type: 'error', message: 'Network error.'}); }
+  };
+
+  const handleDeleteUser = async (userId: string, agentName: string, isArchived: boolean) => {
+    if (!isArchived) {
+      const activeCount = getAgentStudents(agentName).length;
+      if (activeCount > 0) {
+        alert(`ACCESS DENIED: Cannot archive ${agentName}.\nThey have ${activeCount} active students. Reassign pipeline first.`);
+        return;
       }
-    } catch { setNotification({ type: "error", message: "❌ Network error." }); }
+      if (!window.confirm(`Move ${agentName} to the Archive? They will lose system access.`)) return;
+    } else {
+      if (!window.confirm(`CRITICAL WARNING: Permanently delete ${agentName}? This destroys historical data.`)) return;
+    }
+
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification({type: 'success', message: data.message});
+        fetchData();
+      } else alert(data.detail);
+    } catch (err) { alert("Action failed."); }
   };
 
-  const handleDelete = async (userId: string, name: string) => {
-    if (!window.confirm(`Archive ${name}?`)) return;
-    const token = localStorage.getItem("fortrust_token");
-    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, {
-      method: "DELETE", headers: { Authorization: `Bearer ${token}` }
-    });
-    fetchData();
+  const handleRestoreUser = async (userId: string, agentName: string) => {
+    if (!window.confirm(`Restore ${agentName} to Active status?`)) return;
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { 
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ is_archived: false, is_active: true })
+      });
+      if (res.ok) {
+        setNotification({type: 'success', message: `${agentName} restored successfully.`});
+        fetchData();
+      }
+    } catch (err) {}
   };
 
-  if (loading) return <div className="p-16 text-center text-slate-400 animate-pulse">Loading Agents...</div>;
+  const getAgentStudents = (agentName: string) => allStudents.filter(s => s.assignee === agentName && s.status !== 'COMPLETED' && s.status !== 'REJECTED');
+  const getAgentClosedDeals = (agentName: string) => allStudents.filter(s => s.assignee === agentName && s.status === 'COMPLETED');
+  const getAgentLogs = (agentName: string) => auditLogs.filter(log => log.changed_by === agentName);
 
-  const AgentRow = ({ u }: { u: any }) => {
-    const active = getActive(u.name).length;
-    const closed = getClosed(u.name).length;
-    const comm = getCommission(u.name);
-    const conv = getConversionRate(u.name);
-    const avg = getAvgTimePerStage(u.name);
-    const flags = getFlags(u.name, allCommissions);
-    const group = getStatusGroup(u);
-
-    return (
-      <tr className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-        <td className="px-5 py-4">
-          <div className="flex items-center gap-2">
-            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${getStatusDot(group)}`} />
-            <button onClick={() => setDetailAgent(u)} className="text-left hover:underline">
-              <p className="font-bold text-[#282860] hover:text-[#BAD133] transition-colors">{u.name}</p>
-              <p className="text-[11px] text-slate-400">{u.email}</p>
-            </button>
-          </div>
-        </td>
-        <td className="px-5 py-4 text-sm font-bold text-[#282860]">{active} Students</td>
-        <td className="px-5 py-4 text-sm font-bold text-[#282860]">{conv} %</td>
-        <td className="px-5 py-4 text-sm font-bold text-[#282860]">{avg}</td>
-        <td className="px-5 py-4 text-sm font-bold text-[#282860]">{closed}</td>
-        <td className="px-5 py-4 text-sm font-bold text-[#282860]">USD {comm.toLocaleString()}</td>
-        <td className="px-5 py-4">
-          {flags.length > 0 ? (
-            <div className="flex items-center gap-2">
-              {flags.map((f, i) => (
-                <span key={i} title={f.label} className="text-xl cursor-help">{f.icon}</span>
-              ))}
-            </div>
-          ) : (
-            <span className="text-[11px] text-slate-300">—</span>
-          )}
-        </td>
-        <td className="px-5 py-4">
-          <div className="flex items-center justify-end gap-2">
-            <button onClick={() => setHistoryAgent(u)}
-              className="border border-slate-300 text-slate-600 hover:bg-slate-100 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
-              <History size={13} /> HISTORY
-            </button>
-            <button onClick={() => setEditingUser(u)}
-              className="border border-[#BAD133] text-[#9bb029] hover:bg-[#BAD133] hover:text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
-              <Edit2 size={13} /> EDIT
-            </button>
-            <button onClick={() => handleDelete(u.id, u.name)}
-              className="text-red-300 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors">
-              <Trash2 size={16} />
-            </button>
-          </div>
-        </td>
-      </tr>
-    );
+  const getLoadStatus = (active: number, max: number) => {
+    const pct = (active / max) * 100;
+    if (pct >= 100) return { color: "bg-red-500", text: "text-red-600", bgLight: "bg-red-50", border: "border-red-200", label: "OVERLOADED" };
+    if (pct >= 80) return { color: "bg-amber-500", text: "text-amber-600", bgLight: "bg-amber-50", border: "border-amber-200", label: "HIGH LOAD" };
+    return { color: "bg-emerald-500", text: "text-emerald-600", bgLight: "bg-emerald-50", border: "border-emerald-200", label: "OPTIMAL" };
   };
+
+  const filteredUsers = systemUsers.filter(u => {
+    const matchesSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesRole = roleFilter === "All" || u.role === roleFilter;
+    const matchesBranch = branchFilter === "All" || u.branch === branchFilter;
+    const isArchived = u.is_archived === true;
+    const matchesTab = viewTab === "archived" ? isArchived : !isArchived;
+    return matchesSearch && matchesRole && matchesBranch && matchesTab;
+  });
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#BAD133] mb-4"></div>
+      <p className="font-medium tracking-wide">Syncing Agent Data...</p>
+    </div>
+  );
 
   return (
-    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full">
-
+    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative">
+      
+      {/* Toast Notification */}
       {notification && (
-        <div className={`mb-4 p-4 rounded-xl font-bold flex justify-between items-center
-          ${notification.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
-          {notification.message}
-          <button onClick={() => setNotification(null)}><X size={16} /></button>
+        <div className={`fixed top-6 right-6 z-[100] px-6 py-4 rounded-2xl font-bold flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4
+          ${notification.type === 'success' ? 'bg-[#282860] text-white border border-[#3a3a7a]' : 'bg-red-500 text-white border border-red-600'}`}>
+          <div className="flex items-center gap-3">
+            {notification.type === 'success' ? <CheckCircle2 className="text-[#BAD133]" size={20}/> : <ShieldAlert size={20}/>}
+            {notification.message}
+          </div>
+          <button onClick={() => setNotification(null)} className="ml-6 opacity-70 hover:opacity-100 transition-opacity"><X size={18} /></button>
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex justify-between items-start mb-2">
+      {/* HEADER: Clean, spacious, enterprise look */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
-            <Briefcase className="text-[#BAD133]" size={32} />
-            <span>Agent <span className="font-light">- Management</span></span>
+            <Briefcase className="text-[#BAD133]" size={32} /> 
+            Agent Management
           </h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">
-            Manage team access, monitor performance, and review activity history.
-          </p>
+          <p className="text-slate-500 mt-2 font-medium">Control pipeline distribution, monitor KPIs, and manage access.</p>
         </div>
-        <button onClick={() => { setIsAddModalOpen(true); setAgentTypeChoice(null); }}
-          className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md">
-          <Plus size={18} /> Add Agent
+        <button onClick={() => setIsUserModalOpen(true)} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 shrink-0">
+          <Plus size={18} /> Add New Agent
         </button>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 mb-6 flex flex-wrap gap-3 items-center shadow-sm">
-        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex-1 min-w-[200px]">
-          <Search size={14} className="text-slate-400" />
-          <input type="text" placeholder="Search by name or email..."
-            className="bg-transparent outline-none text-xs text-slate-600 w-full"
-            value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+      {/* UX POLISH: Filter Bar merged beautifully with Tabs */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col overflow-hidden">
+        
+        {/* Toggle Tabs */}
+        <div className="flex px-2 pt-2 border-b border-slate-100 bg-slate-50/50">
+          <button onClick={() => setViewTab('active')} className={`px-6 py-3.5 text-sm font-bold tracking-wide transition-all rounded-t-xl ${viewTab === 'active' ? 'bg-white text-[#282860] border-t border-x border-slate-200 shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.02)]' : 'text-slate-400 hover:text-slate-600'}`}>
+            Active Agents
+          </button>
+          <button onClick={() => setViewTab('archived')} className={`px-6 py-3.5 text-sm font-bold tracking-wide transition-all rounded-t-xl flex items-center gap-2 ${viewTab === 'archived' ? 'bg-white text-red-600 border-t border-x border-slate-200 shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.02)]' : 'text-slate-400 hover:text-red-400'}`}>
+            <Archive size={16}/> Archived Data
+          </button>
         </div>
-        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none bg-white">
-          <option value="All">All Roles</option>
-          <option value="Corporate Agent">Corporate Agent</option>
-          <option value="Individual Agent">Individual Agent</option>
-        </select>
-        <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none bg-white">
-          <option value="All">All Branches</option>
-          {BRANCH_OPTIONS.map(b => <option key={b}>{b}</option>)}
-        </select>
-        <select value={tierFilter} onChange={e => setTierFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none bg-white">
-          <option value="All">All Tiers</option>
-          <option value="Top">Top</option>
-          <option value="Average">Average</option>
-          <option value="At Risk">At Risk</option>
-        </select>
-        <select value={rangeFilter} onChange={e => setRangeFilter(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 outline-none bg-white">
-          <option value="All">All Ranges</option>
-          <option value="1-20">1–20 Students</option>
-          <option value="21-40">21–40 Students</option>
-          <option value="40+">40+ Students</option>
-        </select>
+
+        {/* Filters */}
+        <div className="p-4 flex flex-col md:flex-row gap-4 items-center bg-white">
+          <div className="flex items-center text-slate-400 bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 w-full md:w-96 focus-within:border-[#BAD133] focus-within:ring-2 focus-within:ring-[#BAD133]/20 transition-all">
+            <Search size={18} className="mr-3 text-slate-400" />
+            <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-sm text-slate-700 w-full font-medium placeholder-slate-400" />
+          </div>
+          <div className="flex w-full md:w-auto gap-4">
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="flex-1 md:w-48 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer">
+              <option value="All">All Roles</option>
+              {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="flex-1 md:w-48 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer">
+              <option value="All">All Branches</option>
+              {BRANCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+        </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[1100px]">
-            <thead className="border-b border-slate-200 bg-slate-50">
+      {/* MAIN DATA TABLE: High-end spacing and typography */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[1000px]">
+            <thead className="bg-[#f8fafc] border-b border-slate-200 text-[10px] font-black text-slate-400 tracking-widest uppercase">
               <tr>
-                <th className="px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">Name & Email</th>
-                <th className="px-5 py-3">
-                  <p className="text-[10px] font-black text-slate-500 uppercase">Active Students</p>
-                  <p className="text-[9px] text-slate-400">Current Workload</p>
-                </th>
-                <th className="px-5 py-3">
-                  <p className="text-[10px] font-black text-slate-500 uppercase">Conversion Rate %</p>
-                  <p className="text-[9px] text-slate-400">Agent Quality</p>
-                </th>
-                <th className="px-5 py-3">
-                  <p className="text-[10px] font-black text-slate-500 uppercase">Avg Time / Stage</p>
-                  <p className="text-[9px] text-slate-400">Speed & Efficiency</p>
-                </th>
-                <th className="px-5 py-3">
-                  <p className="text-[10px] font-black text-slate-500 uppercase">Deals Closed</p>
-                  <p className="text-[9px] text-slate-400">Revenue Contribution</p>
-                </th>
-                <th className="px-5 py-3">
-                  <p className="text-[10px] font-black text-slate-500 uppercase">Commission Generated</p>
-                  <p className="text-[9px] text-slate-400">Direct Business Impact</p>
-                </th>
-                <th className="px-5 py-3 text-[10px] font-black text-slate-500 uppercase">Flags</th>
-                <th className="px-5 py-3 text-right text-[10px] font-black text-slate-500 uppercase">Actions</th>
+                <th className="px-6 py-5">Agent Identity</th>
+                <th className="px-6 py-5">Role & Assignment</th>
+                <th className="px-6 py-5">Capacity Load</th>
+                <th className="px-6 py-5">Performance KPIs</th>
+                <th className="px-6 py-5 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {(["Inactive/On Leave", "Limited Capacity", "Active"] as const).map(group => (
-                grouped[group]?.length > 0 && (
-                  <React.Fragment key={group}>
-                    <tr className="bg-slate-50/80">
-                      <td colSpan={8} className="px-5 py-2">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${getStatusDot(group)}`} />
-                          <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">{group}</span>
+            <tbody className="text-sm divide-y divide-slate-100">
+              {filteredUsers.length === 0 ? (
+                <tr><td colSpan={5} className="p-16 text-center text-slate-400 font-medium">No agents found matching your current filters.</td></tr>
+              ) : (
+                filteredUsers.map((u) => {
+                  const activeCount = getAgentStudents(u.name).length;
+                  const closedCount = getAgentClosedDeals(u.name).length;
+                  const winRate = (activeCount + closedCount) > 0 ? Math.round((closedCount / (activeCount + closedCount)) * 100) : 0;
+                  const maxCap = u.max_capacity || 50;
+                  const status = getLoadStatus(activeCount, maxCap);
+
+                  return (
+                    <tr key={u.id} className={`hover:bg-slate-50/80 transition-colors cursor-pointer group ${u.is_archived ? 'opacity-60 grayscale' : ''}`} onClick={() => { setSelectedAgent(u); setPanelTab("overview"); }}>
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-3 h-3 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} shadow-sm ring-4 ring-white`}></div>
+                          <div>
+                            <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{u.name}</span>
+                            <span className="text-xs text-slate-500 block mt-0.5 font-medium">{u.email}</span>
+                          </div>
                         </div>
                       </td>
+                      <td className="px-6 py-5">
+                        <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold block w-fit mb-2 uppercase tracking-wider">{u.role}</span>
+                        <span className="font-bold text-slate-500 text-xs flex items-center gap-1.5"><MapPin size={14}/> {u.branch}</span>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="w-48">
+                          <div className="flex justify-between items-end mb-1.5">
+                            <span className={`text-[10px] font-black uppercase tracking-wider ${u.is_archived ? 'text-slate-400' : status.text}`}>{u.is_archived ? 'ARCHIVED' : status.label}</span>
+                            <span className="text-xs font-bold text-slate-600">{activeCount} / {maxCap}</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-200/50">
+                            <div className={`h-2.5 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} transition-all duration-700 ease-out`} style={{ width: `${Math.min((activeCount / maxCap) * 100, 100)}%` }}></div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-3">
+                          <div className="bg-emerald-50 border border-emerald-100 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 flex items-center gap-1.5"><CheckCircle2 size={14}/> {closedCount} Won</div>
+                          <div className="bg-blue-50 border border-blue-100 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-700 flex items-center gap-1.5"><TrendingUp size={14}/> {winRate}% Conv.</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 flex justify-end gap-3" onClick={(e) => e.stopPropagation()}>
+                        {viewTab === "active" ? (
+                          <>
+                            <button onClick={() => setEditingUser(u)} className="text-slate-500 hover:text-[#282860] hover:bg-slate-100 font-bold text-[11px] uppercase tracking-wider px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 border border-transparent hover:border-slate-200"><Edit2 size={14}/> Config</button>
+                            <button onClick={() => handleDeleteUser(u.id, u.name, false)} className="text-red-400 hover:text-white hover:bg-red-500 bg-white border border-slate-200 hover:border-red-500 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm" title="Archive Agent"><Archive size={14} /> Archive</button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => handleRestoreUser(u.id, u.name)} className="text-blue-600 hover:text-white hover:bg-blue-600 font-bold text-[11px] uppercase tracking-wider bg-white border border-blue-200 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"><RefreshCcw size={14}/> Restore</button>
+                            <button onClick={() => handleDeleteUser(u.id, u.name, true)} className="text-red-600 hover:text-white hover:bg-red-600 bg-red-50 px-3 py-2 rounded-xl border border-red-200 transition-all flex items-center gap-1.5 shadow-sm" title="Delete Permanently"><Trash2 size={16} /></button>
+                          </>
+                        )}
+                      </td>
                     </tr>
-                    {grouped[group].map(u => <AgentRow key={u.id} u={u} />)}
-                  </React.Fragment>
-                )
-              ))}
+                  )
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* HISTORY MODAL */}
-      {historyAgent && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-            <div className="p-5 border-b flex justify-between items-center bg-[#1b1b42] text-white rounded-t-2xl">
-              <div>
-                <p className="text-xs text-[#BAD133] font-bold uppercase tracking-widest">System CCTV</p>
-                <h3 className="text-lg font-black">{historyAgent.name}</h3>
+      {/* --- SLIDE-OUT PANEL (CCTV, KPIs) --- */}
+      {selectedAgent && (
+        <>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity" onClick={() => setSelectedAgent(null)}></div>
+          <div className="fixed inset-y-0 right-0 w-full sm:w-[650px] bg-[#f8fafc] shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300 ease-out">
+            
+            <div className="p-8 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-start relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#BAD133] rounded-full blur-[80px] opacity-10 pointer-events-none"></div>
+              <div className="relative z-10">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#BAD133] mb-2 block">Agent Dossier</span>
+                <h3 className="text-3xl font-black flex items-center gap-3">
+                  {selectedAgent.name} 
+                  {selectedAgent.is_archived && <span className="bg-red-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Archived</span>}
+                  {selectedAgent.is_active === false && !selectedAgent.is_archived && <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Frozen</span>}
+                </h3>
+                <p className="text-sm text-slate-300 mt-2 flex items-center gap-2"><Mail size={14} className="text-slate-400"/> {selectedAgent.email}</p>
               </div>
-              <button onClick={() => setHistoryAgent(null)} className="p-1.5 hover:bg-white/20 rounded-full"><X size={20} /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-5 space-y-3">
-              {auditLogs.filter(l => l.changed_by === historyAgent.name).length === 0 ? (
-                <p className="text-center text-slate-400 italic py-10">No activity logged yet.</p>
-              ) : auditLogs.filter(l => l.changed_by === historyAgent.name).map(log => (
-                <div key={log.id} className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex items-start gap-3">
-                  <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${log.action === "CREATE" ? "bg-green-500" : log.action === "UPDATE" ? "bg-blue-500" : "bg-amber-500"}`} />
-                  <div>
-                    <p className="text-sm font-bold text-slate-700">{log.action} on <span className="text-[#282860]">{log.entity}</span></p>
-                    <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                      <Clock size={11} /> {new Date(log.created_at).toLocaleString()}
-                    </p>
-                    <p className="text-[11px] font-mono text-slate-500 bg-white border border-slate-100 p-2 rounded mt-2">{JSON.stringify(log.details)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* DETAIL VIEW MODAL */}
-      {detailAgent && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-
-            <div className="p-6 border-b bg-[#1b1b42] text-white flex justify-between items-start">
-              <div>
-                <p className="text-xs text-[#BAD133] font-bold uppercase tracking-widest">Agent Profile</p>
-                <h2 className="text-2xl font-black mt-1">{detailAgent.name}</h2>
-                <p className="text-sm text-slate-300 mt-0.5">{roleLabel(detailAgent.role)}</p>
-              </div>
-              <button onClick={() => setDetailAgent(null)} className="p-2 hover:bg-white/10 rounded-full"><X size={22} /></button>
+              <button onClick={() => setSelectedAgent(null)} className="p-2 hover:bg-white/20 rounded-full transition-colors relative z-10"><X size={24}/></button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50">
+            <div className="flex bg-white border-b border-slate-200 px-8 shadow-sm relative z-10">
+              <button onClick={() => setPanelTab('overview')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 ${panelTab === 'overview' ? 'border-b-[3px] border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+                <Target size={18}/> Load & KPIs
+              </button>
+              <button onClick={() => setPanelTab('financials')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 ${panelTab === 'financials' ? 'border-b-[3px] border-green-600 text-green-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+                <DollarSign size={18}/> Financials
+              </button>
+              <button onClick={() => setPanelTab('history')} className={`px-2 py-5 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 ${panelTab === 'history' ? 'border-b-[3px] border-blue-600 text-blue-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+                <Cctv size={18}/> System CCTV
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+              {panelTab === 'overview' && (() => {
+                const activeCount = getAgentStudents(selectedAgent.name).length;
+                const maxCap = selectedAgent.max_capacity || 50;
+                const status = getLoadStatus(activeCount, maxCap);
 
-              <div className="grid grid-cols-4 gap-3">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Active</p>
-                  <p className="text-2xl font-black text-[#282860] mt-1">{getActive(detailAgent.name).length}</p>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Closed</p>
-                  <p className="text-2xl font-black text-emerald-600 mt-1">{getClosed(detailAgent.name).length}</p>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Earned</p>
-                  <p className="text-2xl font-black text-[#BAD133] mt-1">${getCommission(detailAgent.name).toLocaleString()}</p>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-slate-200 text-center">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">Rate</p>
-                  <p className="text-2xl font-black text-indigo-600 mt-1">{detailAgent.commission_rate || 0}%</p>
-                </div>
-              </div>
+                return (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                    <div className={`p-6 rounded-2xl border bg-white shadow-sm`}>
+                      <div className="flex justify-between items-center mb-5">
+                        <h4 className={`font-black uppercase tracking-widest text-sm flex items-center gap-2 ${status.text}`}>
+                          {status.label === "OVERLOADED" ? <AlertTriangle size={20}/> : <Activity size={20}/>} 
+                          Capacity Status: {status.label}
+                        </h4>
+                        <span className="font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-lg">{activeCount} / {maxCap} Students</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden shadow-inner">
+                        <div className={`h-4 rounded-full ${status.color} transition-all duration-1000 ease-out`} style={{ width: `${Math.min((activeCount / maxCap) * 100, 100)}%` }}></div>
+                      </div>
+                      {status.label === "OVERLOADED" && <p className="text-xs font-bold text-red-600 mt-4 bg-red-50 p-3 rounded-lg border border-red-100 flex items-center gap-2"><ShieldAlert size={16}/> System is currently blocking new assignments to this agent.</p>}
+                    </div>
 
-              <div className="bg-white p-5 rounded-xl border border-slate-200">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Contact Information</p>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-2">
-                    <span className="text-slate-500">Email</span>
-                    <span className="font-bold text-[#282860]">{detailAgent.email || "—"}</span>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm text-center flex flex-col justify-center">
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Pipeline</p>
+                        <p className="text-4xl font-black text-[#282860] mt-2">{activeCount}</p>
+                      </div>
+                      <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-2xl shadow-sm text-center flex flex-col justify-center">
+                        <p className="text-xs font-bold text-emerald-700 uppercase tracking-widest">Closed Won</p>
+                        <p className="text-4xl font-black text-emerald-600 mt-2">{getAgentClosedDeals(selectedAgent.name).length}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-2">
-                    <span className="text-slate-500">Phone / Mobile</span>
-                    <span className="font-bold text-[#282860]">{detailAgent.phone || "—"}</span>
+                );
+              })()}
+
+              {panelTab === 'financials' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-8 rounded-3xl shadow-xl relative overflow-hidden text-white border border-[#3a3a7a]">
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-[#BAD133] rounded-full blur-[60px] opacity-20 -mr-10 -mt-10"></div>
+                    <p className="text-xs font-bold text-[#BAD133] uppercase tracking-widest mb-2 relative z-10">Total Commission Generated</p>
+                    <p className="text-5xl font-black text-white relative z-10 tracking-tight">${getAgentClosedDeals(selectedAgent.name).reduce((sum, s) => sum + (parseFloat(s.agent_cut || 0)), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
                   </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-2">
-                    <span className="text-slate-500">Branch</span>
-                    <span className="font-bold text-[#282860]">{detailAgent.branch || "—"}</span>
+                </div>
+              )}
+
+              {panelTab === 'history' && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex items-center justify-between mb-6 bg-[#0f172a] text-white p-5 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-blue-500/10 pointer-events-none"></div>
+                    <div className="relative z-10 flex items-center gap-3">
+                      <div className="p-2 bg-blue-500/20 rounded-lg"><Cctv className="text-blue-400" size={20}/></div>
+                      <p className="text-sm font-bold uppercase tracking-widest text-slate-200">Secure System CCTV</p>
+                    </div>
+                    <span className="relative z-10 bg-[#1e293b] text-slate-300 border border-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg shadow-inner">{getAgentLogs(selectedAgent.name).length} Logs</span>
                   </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-2">
-                    <span className="text-slate-500">Office Address</span>
-                    <span className="font-bold text-[#282860] text-right max-w-[60%]">{detailAgent.office_address || "—"}</span>
-                  </div>
-                  {detailAgent.corporation_name && (
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Corporation</span>
-                      <span className="font-bold text-[#282860]">{detailAgent.corporation_name}</span>
+                  
+                  {getAgentLogs(selectedAgent.name).length === 0 ? (
+                    <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 border-dashed">
+                      <Cctv size={48} className="mx-auto text-slate-200 mb-4" />
+                      <p className="text-sm text-slate-500 font-medium">No system actions recorded yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-200 before:to-transparent">
+                      {getAgentLogs(selectedAgent.name).map(log => (
+                        <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                          <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-[#f8fafc] shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 shadow-sm relative z-10
+                            ${log.action === 'CREATE' ? 'bg-emerald-500' : log.action === 'UPDATE' ? 'bg-blue-500' : 'bg-amber-500'}`}>
+                              <Activity size={14} className="text-white"/>
+                          </div>
+                          <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="font-bold text-slate-900 text-sm">{log.action === 'UPDATE' ? 'Updated' : log.action === 'CREATE' ? 'Created' : 'Action on'} <span className="text-[#282860]">{log.entity}</span></div>
+                              <time className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-md">{new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</time>
+                            </div>
+                            <div className="text-xs text-slate-500 font-medium">{new Date(log.created_at).toLocaleDateString()}</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
-              </div>
+              )}
 
-              <div className="bg-white p-5 rounded-xl border border-slate-200">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Workload Capacity</p>
-                <div className="flex justify-between items-end mb-2">
-                  <span className="text-sm font-bold text-slate-600">
-                    {getActive(detailAgent.name).length} / {detailAgent.max_capacity || 50} Students
-                  </span>
-                  <span className="text-xs text-slate-400">Max Capacity</span>
-                </div>
-                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                  <div className={`h-3 rounded-full transition-all duration-500 ${getStatusDot(getStatusGroup(detailAgent))}`}
-                    style={{ width: `${Math.min((getActive(detailAgent.name).length / (detailAgent.max_capacity || 50)) * 100, 100)}%` }} />
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-xl border border-slate-200">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Banking & Payout</p>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between border-b border-slate-50 pb-2">
-                    <span className="text-slate-500">Bank Name</span>
-                    <span className="font-bold text-[#282860]">{detailAgent.bank_name || <span className="italic text-slate-300">Not setup</span>}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-2">
-                    <span className="text-slate-500">Account No.</span>
-                    <span className="font-mono text-[#282860]">{detailAgent.bank_account || <span className="italic text-slate-300">Not setup</span>}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-50 pb-2">
-                    <span className="text-slate-500">Branch</span>
-                    <span className="font-bold text-[#282860]">{detailAgent.bank_branch || <span className="italic text-slate-300">Not setup</span>}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">SWIFT Code</span>
-                    <span className="font-mono text-[#282860]">{detailAgent.swift_code || <span className="italic text-slate-300">Not setup</span>}</span>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-            <div className="p-4 border-t bg-white flex justify-end gap-3">
-              <button onClick={() => setDetailAgent(null)} className="text-slate-500 font-bold text-sm px-4 py-2">Close</button>
-              <button onClick={() => { setEditingUser(detailAgent); setDetailAgent(null); }}
-                className="bg-[#BAD133] hover:bg-[#9bb029] text-white font-bold text-sm px-6 py-2 rounded-xl flex items-center gap-2">
-                <Edit2 size={14} /> Edit Profile
-              </button>
             </div>
           </div>
-        </div>
+        </>
       )}
 
-      {/* ADD AGENT MODAL */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="p-5 border-b flex justify-between items-center bg-slate-50">
-              <h2 className="text-lg font-black text-[#282860] flex items-center gap-2">
-                <Users size={20} className="text-[#BAD133]" /> Add New Agent
-              </h2>
-              <button onClick={() => { setIsAddModalOpen(false); setAgentTypeChoice(null); }}>
-                <X size={22} className="text-slate-400" />
-              </button>
+      {/* --- ADD NEW AGENT MODAL (Refined styling) --- */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
+              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2"><Users size={22} className="text-[#BAD133]" /> Create New Agent</h2>
+              <button onClick={() => setIsUserModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
             </div>
-
-            <div className="flex-1 overflow-y-auto p-6">
-              {notification && (
-                <div className={`p-3 mb-4 rounded-lg text-sm font-bold ${notification.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-                  {notification.message}
-                </div>
-              )}
-
-              {!agentTypeChoice && (
-                <div className="space-y-4">
-                  <p className="text-sm text-slate-500 font-medium">What type of agent are you adding?</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <button onClick={() => setAgentTypeChoice("Individual Agent")}
-                      className="border-2 border-slate-200 hover:border-[#BAD133] hover:bg-[#BAD133]/5 p-6 rounded-2xl text-left transition-all">
-                      <Users className="text-[#BAD133] mb-3" size={32} />
-                      <p className="font-black text-[#282860] text-lg">Individual Agent</p>
-                      <p className="text-xs text-slate-500 mt-1">Single agent account with personal credentials.</p>
-                    </button>
-                    <button onClick={() => setAgentTypeChoice("Corporate Agent")}
-                      className="border-2 border-slate-200 hover:border-[#BAD133] hover:bg-[#BAD133]/5 p-6 rounded-2xl text-left transition-all">
-                      <Building2 className="text-[#BAD133] mb-3" size={32} />
-                      <p className="font-black text-[#282860] text-lg">Corporate Agent</p>
-                      <p className="text-xs text-slate-500 mt-1">Company account + sub-agents under it.</p>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* INDIVIDUAL AGENT FORM */}
-              {agentTypeChoice === "Individual Agent" && (
-                <form onSubmit={handleCreateIndividual} className="space-y-5">
-                  <button type="button" onClick={() => setAgentTypeChoice(null)} className="text-xs text-slate-400 hover:text-slate-600">← Change type</button>
-
-                  {/* Section 1: Personal Info */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Users size={12} /> Personal Information</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="col-span-2">
-                        <label className="text-xs font-bold text-slate-600">Full Name</label>
-                        <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={individualForm.name} onChange={e => setIndividualForm({ ...individualForm, name: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Email</label>
-                        <input type="email" required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={individualForm.email} onChange={e => setIndividualForm({ ...individualForm, email: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Mobile Number</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={individualForm.phone} onChange={e => setIndividualForm({ ...individualForm, phone: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Temporary Password</label>
-                        <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={individualForm.password} onChange={e => setIndividualForm({ ...individualForm, password: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Branch</label>
-                        <select className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={individualForm.branch} onChange={e => setIndividualForm({ ...individualForm, branch: e.target.value })}>
-                          {BRANCH_OPTIONS.map(b => <option key={b}>{b}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Section 2: Commission */}
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-3 flex items-center gap-2"><DollarSign size={12} /> Commission Setup</p>
-                    <div>
-                      <label className="text-xs font-bold text-emerald-700">Commission Rate (%)</label>
-                      <input type="number" step="0.1" min="0" max="100"
-                        className="w-full mt-1 p-2.5 border border-emerald-200 rounded-lg text-sm outline-none focus:border-emerald-500 bg-white font-bold"
-                        placeholder="e.g. 10"
-                        value={individualForm.commission_rate}
-                        onChange={e => setIndividualForm({ ...individualForm, commission_rate: Number(e.target.value) })} />
-                      <p className="text-[10px] text-emerald-600 mt-1 italic">Percentage of tuition this agent earns per successful enrollment.</p>
-                    </div>
-                  </div>
-
-                  {/* Section 3: Banking */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Landmark size={12} /> Banking & Payout</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Bank Name</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          placeholder="e.g. BCA"
-                          value={individualForm.bank_name} onChange={e => setIndividualForm({ ...individualForm, bank_name: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Account Number</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
-                          value={individualForm.bank_account} onChange={e => setIndividualForm({ ...individualForm, bank_account: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Bank Branch</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={individualForm.bank_branch} onChange={e => setIndividualForm({ ...individualForm, bank_branch: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">SWIFT Code</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
-                          value={individualForm.swift_code} onChange={e => setIndividualForm({ ...individualForm, swift_code: e.target.value })} />
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-400 italic">Max Student Capacity can be set later from the agent's detail page.</p>
-
-                  <div className="flex justify-end gap-3 pt-2">
-                    <button type="button" onClick={() => { setIsAddModalOpen(false); setAgentTypeChoice(null); }} className="text-slate-500 font-bold text-sm px-4 py-2">Cancel</button>
-                    <button type="submit" disabled={isSaving} className="bg-[#282860] text-white font-bold text-sm px-6 py-2 rounded-xl disabled:opacity-50">
-                      {isSaving ? "Saving..." : "Create Account"}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* CORPORATE AGENT FORM */}
-              {agentTypeChoice === "Corporate Agent" && (
-                <form onSubmit={handleCreateCorporate} className="space-y-5">
-                  <button type="button" onClick={() => setAgentTypeChoice(null)} className="text-xs text-slate-400 hover:text-slate-600">← Change type</button>
-
-                  {/* Company Details */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Building2 size={12} /> Company Details</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="col-span-2">
-                        <label className="text-xs font-bold text-slate-600">Company / Corporation Name</label>
-                        <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.corporation_name} onChange={e => setCorporateForm({ ...corporateForm, corporation_name: e.target.value })} />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="text-xs font-bold text-slate-600">Office Address</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.office_address} onChange={e => setCorporateForm({ ...corporateForm, office_address: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Branch</label>
-                        <select className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.branch} onChange={e => setCorporateForm({ ...corporateForm, branch: e.target.value })}>
-                          {BRANCH_OPTIONS.map(b => <option key={b}>{b}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Owner Login */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Users size={12} /> Account Owner (Login)</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Owner Name</label>
-                        <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.name} onChange={e => setCorporateForm({ ...corporateForm, name: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Owner Email</label>
-                        <input type="email" required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.email} onChange={e => setCorporateForm({ ...corporateForm, email: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Mobile Number</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.phone} onChange={e => setCorporateForm({ ...corporateForm, phone: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Temporary Password</label>
-                        <input required className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.password} onChange={e => setCorporateForm({ ...corporateForm, password: e.target.value })} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Commission */}
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-3 flex items-center gap-2"><DollarSign size={12} /> Commission Setup</p>
-                    <div>
-                      <label className="text-xs font-bold text-emerald-700">Commission Rate (%)</label>
-                      <input type="number" step="0.1" min="0" max="100"
-                        className="w-full mt-1 p-2.5 border border-emerald-200 rounded-lg text-sm outline-none focus:border-emerald-500 bg-white font-bold"
-                        placeholder="e.g. 15"
-                        value={corporateForm.commission_rate}
-                        onChange={e => setCorporateForm({ ...corporateForm, commission_rate: Number(e.target.value) })} />
-                      <p className="text-[10px] text-emerald-600 mt-1 italic">Percentage of tuition this corporation earns per successful enrollment.</p>
-                    </div>
-                  </div>
-
-                  {/* Banking */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Landmark size={12} /> Corporate Banking & Payout</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Bank Name</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.bank_name} onChange={e => setCorporateForm({ ...corporateForm, bank_name: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Account Number</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
-                          value={corporateForm.bank_account} onChange={e => setCorporateForm({ ...corporateForm, bank_account: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Bank Branch</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white"
-                          value={corporateForm.bank_branch} onChange={e => setCorporateForm({ ...corporateForm, bank_branch: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">SWIFT Code</label>
-                        <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133] bg-white font-mono"
-                          value={corporateForm.swift_code} onChange={e => setCorporateForm({ ...corporateForm, swift_code: e.target.value })} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Sub-Agents */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-                    <div className="flex justify-between items-center mb-3">
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sub-Agents Under This Corporation</p>
-                      <button type="button"
-                        onClick={() => setCorporateForm({ ...corporateForm, subAgents: [...corporateForm.subAgents, { name: "", email: "", wa: "", password: "" }] })}
-                        className="text-[#BAD133] font-bold text-xs flex items-center gap-1 hover:text-[#9bb029]">
-                        <Plus size={14} /> Add Row
-                      </button>
-                    </div>
-
-                    {corporateForm.subAgents.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic text-center py-4">No sub-agents yet. Click "Add Row" to register one.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-12 gap-2 text-[10px] font-bold text-slate-500 uppercase px-1">
-                          <div className="col-span-1">#</div>
-                          <div className="col-span-3">Name</div>
-                          <div className="col-span-3">Email</div>
-                          <div className="col-span-2">WA</div>
-                          <div className="col-span-2">Password</div>
-                          <div className="col-span-1"></div>
-                        </div>
-                        {corporateForm.subAgents.map((sub, i) => (
-                          <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                            <div className="col-span-1 text-xs font-bold text-slate-400">{i + 1}.</div>
-                            <input className="col-span-3 p-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-[#BAD133]"
-                              placeholder="Name" value={sub.name}
-                              onChange={e => { const c = [...corporateForm.subAgents]; c[i].name = e.target.value; setCorporateForm({ ...corporateForm, subAgents: c }); }} />
-                            <input className="col-span-3 p-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-[#BAD133]"
-                              placeholder="Email" type="email" value={sub.email}
-                              onChange={e => { const c = [...corporateForm.subAgents]; c[i].email = e.target.value; setCorporateForm({ ...corporateForm, subAgents: c }); }} />
-                            <input className="col-span-2 p-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-[#BAD133]"
-                              placeholder="WA" value={sub.wa}
-                              onChange={e => { const c = [...corporateForm.subAgents]; c[i].wa = e.target.value; setCorporateForm({ ...corporateForm, subAgents: c }); }} />
-                            <input className="col-span-2 p-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-[#BAD133]"
-                              placeholder="Password" value={sub.password}
-                              onChange={e => { const c = [...corporateForm.subAgents]; c[i].password = e.target.value; setCorporateForm({ ...corporateForm, subAgents: c }); }} />
-                            <button type="button"
-                              onClick={() => setCorporateForm({ ...corporateForm, subAgents: corporateForm.subAgents.filter((_, idx) => idx !== i) })}
-                              className="col-span-1 text-red-400 hover:text-red-600">
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <p className="text-xs text-slate-400 italic">Max Capacity & individual commission rates for sub-agents can be configured later.</p>
-
-                  <div className="flex justify-end gap-3 pt-2">
-                    <button type="button" onClick={() => { setIsAddModalOpen(false); setAgentTypeChoice(null); }} className="text-slate-500 font-bold text-sm px-4 py-2">Cancel</button>
-                    <button type="submit" disabled={isSaving} className="bg-[#282860] text-white font-bold text-sm px-6 py-2 rounded-xl disabled:opacity-50">
-                      {isSaving ? "Saving..." : "Create Corporate + Sub-Agents"}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* EDIT MODAL */}
-      {editingUser && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="p-5 border-b flex justify-between items-center bg-slate-50">
-              <h2 className="text-lg font-black text-[#282860] flex items-center gap-2"><Edit2 size={18} className="text-[#BAD133]" /> Edit Agent</h2>
-              <button onClick={() => setEditingUser(null)}><X size={22} className="text-slate-400" /></button>
-            </div>
-            <form onSubmit={handleEditUser} className="flex-1 overflow-y-auto p-6 space-y-4">
-              {notification && (
-                <div className={`p-3 rounded-lg text-sm font-bold ${notification.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-                  {notification.message}
-                </div>
-              )}
+            <form onSubmit={handleCreateUser} className="p-6 space-y-5">
+              <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Full Name</label><input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserName} onChange={e => setNewUserName(e.target.value)} /></div>
+              <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Email Address</label><input type="email" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
+              <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Temporary Password</label><input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-slate-600">Name</label>
-                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.name || ""} onChange={e => setEditingUser({ ...editingUser, name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Role</label>
-                  <select className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.role} onChange={e => setEditingUser({ ...editingUser, role: e.target.value })}>
-                    {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">System Role</label>
+                  <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white cursor-pointer" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
+                    {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-600">Email</label>
-                  <input type="email" className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.email || ""} onChange={e => setEditingUser({ ...editingUser, email: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Phone / Mobile</label>
-                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.phone || ""} onChange={e => setEditingUser({ ...editingUser, phone: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Branch</label>
-                  <select className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.branch || "Global"} onChange={e => setEditingUser({ ...editingUser, branch: e.target.value })}>
-                    {BRANCH_OPTIONS.map(b => <option key={b}>{b}</option>)}
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Branch</label>
+                  <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white cursor-pointer" value={newUserBranch} onChange={e => setNewUserBranch(e.target.value)}>
+                    {BRANCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Max Capacity</label>
-                  <input type="number" className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.max_capacity || 50}
-                    onChange={e => setEditingUser({ ...editingUser, max_capacity: Number(e.target.value) })} />
-                </div>
                 <div className="col-span-2">
-                  <label className="text-xs font-bold text-emerald-700">Commission Rate (%)</label>
-                  <input type="number" step="0.1" min="0" max="100"
-                    className="w-full mt-1 p-2.5 border-2 border-emerald-200 rounded-lg text-sm outline-none focus:border-emerald-500 font-bold"
-                    value={editingUser.commission_rate || 0}
-                    onChange={e => setEditingUser({ ...editingUser, commission_rate: Number(e.target.value) })} />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-bold text-slate-600">Office Address</label>
-                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.office_address || ""} onChange={e => setEditingUser({ ...editingUser, office_address: e.target.value })} />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-bold text-slate-600">Account Status</label>
-                  <select className="w-full mt-1 p-2.5 border-2 border-red-100 rounded-lg text-sm font-bold outline-none focus:border-red-300"
-                    value={editingUser.is_active === false ? "false" : "true"}
-                    onChange={e => setEditingUser({ ...editingUser, is_active: e.target.value === "true" })}>
-                    <option value="true">✅ Active</option>
-                    <option value="false">❄️ Frozen</option>
-                  </select>
-                </div>
-
-                <div className="col-span-2 border-t border-slate-100 pt-4 mt-2">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Banking & Payout</p>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Bank Name</label>
-                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.bank_name || ""} onChange={e => setEditingUser({ ...editingUser, bank_name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Bank Branch</label>
-                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]"
-                    value={editingUser.bank_branch || ""} onChange={e => setEditingUser({ ...editingUser, bank_branch: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Account No.</label>
-                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:border-[#BAD133]"
-                    value={editingUser.bank_account || ""} onChange={e => setEditingUser({ ...editingUser, bank_account: e.target.value })} />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-600">SWIFT Code</label>
-                  <input className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:border-[#BAD133]"
-                    value={editingUser.swift_code || ""} onChange={e => setEditingUser({ ...editingUser, swift_code: e.target.value })} />
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Max Pipeline Capacity</label>
+                  <input type="number" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserCapacity} onChange={e => setNewUserCapacity(Number(e.target.value))} />
                 </div>
               </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <button type="button" onClick={() => setEditingUser(null)} className="text-slate-500 font-bold text-sm px-4 py-2">Cancel</button>
-                <button type="submit" className="bg-[#282860] text-white font-bold text-sm px-6 py-2 rounded-xl">Save Changes</button>
-              </div>
+              <div className="pt-4 flex justify-end gap-3"><button type="button" onClick={() => setIsUserModalOpen(false)} className="px-5 py-3 text-slate-500 hover:text-slate-700 font-bold text-sm transition-colors">Cancel</button><button type="submit" disabled={isSavingUser} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-8 py-3 rounded-xl text-sm font-bold disabled:opacity-50 transition-all shadow-md">{isSavingUser ? "Deploying..." : "Create Account"}</button></div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT AGENT CONFIG MODAL --- */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
+              <div>
+                <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2">
+                  <Edit2 size={20} className="text-[#BAD133]" /> Configuration Matrix
+                </h2>
+                <p className="text-xs text-slate-500 mt-1 font-medium">{editingUser.email}</p>
+              </div>
+              <button onClick={() => setEditingUser(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto custom-scrollbar flex-1 bg-white">
+              <form id="edit-user-form" onSubmit={handleEditUser} className="space-y-8">
+                <div>
+                  <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><ShieldAlert size={14} className="text-amber-500"/> Core Security & Access</h3>
+                  <div className="grid grid-cols-2 gap-5">
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Account Name</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.name || ""} onChange={e => setEditingUser({...editingUser, name: e.target.value})} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">System Role</label><select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer" value={editingUser.role || "Individual Agent"} onChange={e => setEditingUser({...editingUser, role: e.target.value})}>{ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+                    
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Users size={12}/> Max Active Capacity</label>
+                      <input type="number" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-black text-[#282860] bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.max_capacity || 50} onChange={e => setEditingUser({...editingUser, max_capacity: Number(e.target.value)})} />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block text-red-500 flex items-center gap-1"><ShieldAlert size={12}/> Emergency Access Control</label>
+                      <select className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/20 transition-all cursor-pointer" value={editingUser.is_active === false ? "false" : "true"} onChange={e => setEditingUser({...editingUser, is_active: e.target.value === "true"})}>
+                        <option value="true" className="text-emerald-600 font-bold">🟢 SYSTEM ACTIVE</option>
+                        <option value="false" className="text-red-600 font-bold">🔴 FREEZE ACCOUNT</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </div>
+            
+            <div className="p-5 border-t border-slate-100 bg-[#f8fafc] flex justify-end gap-3">
+              <button onClick={() => setEditingUser(null)} type="button" className="px-6 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
+              <button form="edit-user-form" type="submit" className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-8 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md">Apply Configuration</button>
+            </div>
           </div>
         </div>
       )}
