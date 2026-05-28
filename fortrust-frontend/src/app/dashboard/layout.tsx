@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   LogOut,
   Bell,
+  Search,
   Settings,
   Users,
   BookOpen,
@@ -188,23 +189,28 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
 
-          {/* EVERYONE SEES THESE */}
-          <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Agent Workspace</p>
+          {/* THE FIX: NORMAL AGENTS ONLY SECTION (Hidden from Master Admin) */}
+          {user.role !== "MASTER_ADMIN" && (
+            <>
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Agent Workspace</p>
 
-          <Link href="/dashboard/pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-            <LayoutDashboard size={18} className={pathname === '/dashboard/pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-            Student Pipeline
-          </Link>
+              <Link href="/dashboard/pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <LayoutDashboard size={18} className={pathname === '/dashboard/pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Student Pipeline
+              </Link>
 
-          <Link href="/dashboard/programs" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/programs' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-            <BookOpen size={18} className={pathname === '/dashboard/programs' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-            Program Finder
-          </Link>
+              <Link href="/dashboard/programs" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/programs' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <BookOpen size={18} className={pathname === '/dashboard/programs' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Program Finder
+              </Link>
+            </>
+          )}
 
           {/* MASTER ADMIN ONLY SECTION */}
           {user.role === "MASTER_ADMIN" && (
             <>
-              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-8">Admin Tools</p>
+              {/* Changed margin top so it sits perfectly at the top */}
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Admin Tools</p>
               
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />

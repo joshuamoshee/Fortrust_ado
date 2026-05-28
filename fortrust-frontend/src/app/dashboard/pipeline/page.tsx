@@ -1,6 +1,7 @@
 "use client"; 
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +16,11 @@ import ReactMarkdown from "react-markdown";
 
 const STATUS_OPTIONS = ["NEW LEAD", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"];
 
-export default function PipelinePage() {
+function PipelineContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const action = searchParams.get('action');
+
   const [user, setUser] = useState<any>(null);
   const [students, setStudents] = useState<any[]>([]);
   const [institutions, setInstitutions] = useState<any[]>([]);
@@ -68,6 +73,15 @@ export default function PipelinePage() {
   const [newAppUni, setNewAppUni] = useState("");
   const [newAppProg, setNewAppProg] = useState("");
   const [newAppStatus, setNewAppStatus] = useState("Pending");
+
+  // THE FIX: Listen for the "action" param to auto-open the modal
+  useEffect(() => {
+    if (action === 'new-student') {
+      setIsSingleModalOpen(true);
+      // Clean up the URL so it doesn't reopen on refresh
+      router.replace('/dashboard/pipeline', { scroll: false });
+    }
+  }, [action, router]);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("fortrust_user");
@@ -685,4 +699,12 @@ export default function PipelinePage() {
       </Dialog>
     </div>
   );
+}
+
+export default function PipelinePageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-10 text-center animate-pulse text-slate-400">Loading Pipeline...</div>}>
+      <PipelineContent />
+    </Suspense>
+  )
 }

@@ -380,40 +380,56 @@ def create_emergency_admin():
 @app.post("/api/login")
 def login_user(req: LoginRequest):
     conn = get_db_connection()
-    user = None
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT id, name, role, password, COALESCE(is_active, true) as is_active FROM users WHERE email=%s",
-                (req.email,)
-            )
+            cur.execute("""
+                SELECT id, name, role, password, branch, phone, corporation_name,
+                       bank_name, bank_account, bank_branch, swift_code,
+                       COALESCE(is_active, true) as is_active 
+                FROM users WHERE email=%s
+            """, (req.email,))
             user = cur.fetchone()
-    finally:
-        conn.close()
-
-    if user:
-        if user['is_active'] is False:
-            raise HTTPException(
-                status_code=403,
-                detail="Your account has been frozen. Please contact the Master Admin."
-            )
-        if bcrypt.checkpw(req.password.encode('utf-8'), user['password'].encode('utf-8')):
+            
+            if not user or not bcrypt.checkpw(req.password.encode('utf-8'), user['password'].encode('utf-8')):
+                raise HTTPException(status_code=401, detail="Invalid email or password.")
+            if user['is_active'] is False:
+                raise HTTPException(status_code=403, detail="Account frozen.")
+            
+            # --- THE FIX: SUPER CCTV LOGIN TRACKING ---
+            try:
+                cur.execute("""
+                    INSERT INTO audit_logs (action, entity, entity_id, changed_by, details)
+                    VALUES (%s, %s, %s, %s, %s::jsonb)
+                """, ("LOGIN", "System Access", str(user['id']), user['name'], json.dumps({"action": "Agent logged into Fortrust OS"})))
+                conn.commit()
+            except Exception as e:
+                print(f"CCTV Tracking Error: {e}")
+            
             expire_hours = 24 * 30 if req.remember_me else 24
             token_data = {
-                "id": user['id'],
-                "name": user['name'],
-                "role": user['role'],
+                "id": user['id'], 
+                "role": user['role'], 
                 "exp": datetime.utcnow() + timedelta(hours=expire_hours)
             }
             token = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
             return {
-                "status": "success",
-                "token": token,
-                "user": {"id": user['id'], "name": user['name'], "role": user['role']}
+                "status": "success", 
+                "token": token, 
+                "user": {
+                    "id": user['id'], 
+                    "name": user['name'], 
+                    "role": user['role'],
+                    "branch": user['branch'],
+                    "phone": user['phone'],
+                    "corporation_name": user['corporation_name'],
+                    "bank_name": user['bank_name'],
+                    "bank_account": user['bank_account'],
+                    "bank_branch": user['bank_branch'],
+                    "swift_code": user['swift_code']
+                }
             }
-    raise HTTPException(status_code=401, detail="Invalid email or password.")
-
-
+    finally:
+        conn.close()
 # =====================================================================
 # --- 1. USER MANAGEMENT ---
 # =====================================================================
