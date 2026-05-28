@@ -82,7 +82,6 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS swift_code TEXT DEFAULT '';")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_capacity INTEGER DEFAULT 50;")
-
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0;")
 
             # Institutions table
@@ -220,13 +219,19 @@ class NewUserRequest(BaseModel):
     phone: str = ""
     agent_type: str = "Individual Agent"
     corporation_name: str = ""
+    office_address: str = ""
     max_capacity: int = 50
-    commission_rate: float = 0  # ✅ ADD THIS
+    commission_rate: float = 0
+    bank_name: str = ""
+    bank_branch: str = ""
+    bank_account: str = ""
+    swift_code: str = ""
 
 
 class UpdateSystemUser(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
+    phone: Optional[str] = None
     role: Optional[str] = None
     branch: Optional[str] = None
     office_address: Optional[str] = None
@@ -238,6 +243,7 @@ class UpdateSystemUser(BaseModel):
     is_active: Optional[bool] = None
     max_capacity: Optional[int] = None
     commission_rate: Optional[float] = None
+    password: Optional[str] = None
 
 
 class UserCreate(BaseModel):
@@ -258,6 +264,7 @@ class UserUpdate(BaseModel):
     swift_code: Optional[str] = None
     is_active: Optional[bool] = None
     max_capacity: Optional[int] = None
+    commission_rate: Optional[float] = None
 
 
 class UpdateLeadRequest(BaseModel):
@@ -417,11 +424,17 @@ def create_user_legacy(req: NewUserRequest):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO users (name, email, password, role, branch, phone, agent_type, corporation_name, max_capacity, commission_rate)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO users (
+                    name, email, password, role, branch, phone, agent_type,
+                    corporation_name, office_address, max_capacity, commission_rate,
+                    bank_name, bank_branch, bank_account, swift_code
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 req.name, req.email, hashed_password, req.role, req.branch,
-                req.phone, req.agent_type, req.corporation_name, req.max_capacity, req.commission_rate
+                req.phone, req.agent_type, req.corporation_name, req.office_address,
+                req.max_capacity, req.commission_rate,
+                req.bank_name, req.bank_branch, req.bank_account, req.swift_code
             ))
             conn.commit()
             return {"status": "success", "message": "User account created securely!"}
@@ -442,8 +455,9 @@ def get_all_users_legacy():
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, name, email, role, branch, phone, agent_type, corporation_name,
-                    office_address, bank_name, bank_branch, bank_address, bank_account,
-                    swift_code, max_capacity, commission_rate, COALESCE(is_active, true) as is_active
+                       office_address, bank_name, bank_branch, bank_address, bank_account,
+                       swift_code, max_capacity, commission_rate,
+                       COALESCE(is_active, true) as is_active
                 FROM users ORDER BY id DESC
             """)
             return {"status": "success", "data": cur.fetchall()}
@@ -459,6 +473,9 @@ def update_system_user(user_id: int, req: UpdateSystemUser):
             data = req.dict(exclude_unset=True)
             if not data:
                 return {"status": "success"}
+            # Hash password if it's being updated
+            if "password" in data and data["password"]:
+                data["password"] = bcrypt.hashpw(data["password"].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             updates = [f"{k} = %s" for k in data]
             params = list(data.values()) + [user_id]
             cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", tuple(params))
@@ -489,49 +506,113 @@ def delete_system_user(user_id: int):
 # =====================================================================
 # --- 2. MASTER ADMIN DASHBOARD ---
 # =====================================================================
+# =====================================================================
+# REPLACE the existing `get_dashboard_stats` function in your main.py
+# with this UPGRADED version. Everything else in main.py stays the same.
+# =====================================================================
+
 @app.get("/api/admin/dashboard-stats")
-def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify_token)):
+def get_dashboard_stats(
+    timeframe: str = "all",
+    from_date: str = None,
+    to_date: str = None,
+    user_data: dict = Depends(verify_token)
+):
+    """
+    Extended dashboard stats with client-requested timeframes and KPIs.
+    timeframe options: 'all', 'this_year', '6months', '3months', 'custom'
+    For custom: pass from_date=YYYY-MM-DD and to_date=YYYY-MM-DD
+    """
     if user_data.get("role") != "MASTER_ADMIN":
         raise HTTPException(status_code=403, detail="Master Admin access required.")
 
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT name, role FROM users")
-            user_roles = {u['name']: u['role'] for u in cur.fetchall()}
+            # Get users with their branch for the Pipeline by Branch chart
+            cur.execute("SELECT name, role, branch FROM users")
+            users_info = {u['name']: {'role': u['role'], 'branch': u['branch']} for u in cur.fetchall()}
 
-            query = "SELECT assignee, status, applications, commission_earned, created_at FROM students"
+            # Build the date filter
+            base_query = "SELECT assignee, status, applications, commission_earned, lead_temperature, created_at FROM students"
+            where_clause = ""
+
             if timeframe == "30days":
-                query += " WHERE created_at >= NOW() - INTERVAL '30 days'"
+                where_clause = " WHERE created_at >= NOW() - INTERVAL '30 days'"
+            elif timeframe == "3months":
+                where_clause = " WHERE created_at >= NOW() - INTERVAL '3 months'"
+            elif timeframe == "6months":
+                where_clause = " WHERE created_at >= NOW() - INTERVAL '6 months'"
             elif timeframe == "this_year":
-                query += " WHERE EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM NOW())"
-            cur.execute(query)
+                where_clause = " WHERE EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM NOW())"
+            elif timeframe == "custom" and from_date and to_date:
+                where_clause = f" WHERE created_at::date BETWEEN '{from_date}' AND '{to_date}'"
+
+            cur.execute(base_query + where_clause)
             students = cur.fetchall()
+
+            # Also fetch the LAST 30 DAYS qualified leads for growth comparison
+            cur.execute("""
+                SELECT lead_temperature, status FROM students
+                WHERE created_at >= NOW() - INTERVAL '30 days'
+            """)
+            last_30_days = cur.fetchall()
+
+            # Compare with previous 30 days (days 31-60)
+            cur.execute("""
+                SELECT lead_temperature, status FROM students
+                WHERE created_at >= NOW() - INTERVAL '60 days'
+                  AND created_at < NOW() - INTERVAL '30 days'
+            """)
+            prev_30_days = cur.fetchall()
     finally:
         conn.close()
 
+    # ----- METRICS -----
     total_students = len(students)
+    in_progress = 0
+    completed = 0
+    dropped = 0
     qualified_leads = 0
     active_applications = 0
-    total_business = 0.0
+    estimation_commission = 0.0
+    logged_commission = 0.0
+
     agent_volume, agent_revenue = {}, {}
     counsellor_volume, counsellor_revenue = {}, {}
     institution_volume = {}
+    branch_pipeline = {}
 
     for s in students:
         status = (s.get("status") or "").upper()
+        temperature = (s.get("lead_temperature") or "").lower()
         assignee = s.get("assignee") or "Unassigned"
-        role = user_roles.get(assignee, "Agent")
+        info = users_info.get(assignee, {'role': 'Agent', 'branch': 'Unassigned'})
+        role = info['role']
+        branch = info['branch'] or "Unassigned"
         commission = float(s.get("commission_earned") or 0.0)
         apps = s.get("applications") or []
 
-        if status not in ["NEW LEAD", "REJECTED"]:
+        # Counts by status
+        if status == "COMPLETED":
+            completed += 1
+            logged_commission += commission
+        elif status == "REJECTED":
+            dropped += 1
+        else:
+            in_progress += 1
+            # Estimated commission = sum of expected commission for active deals
+            estimation_commission += commission
+
+        # Qualified Leads: AI Scored Hot + Warm only
+        if "hot" in temperature or "warm" in temperature:
             qualified_leads += 1
 
-        active_apps = [a for a in apps if isinstance(a, dict) and a.get("status") != "Rejected"]
+        # Active Applications: Submitted, awaiting offer
+        active_apps = [a for a in apps if isinstance(a, dict) and a.get("status") in ("Submitted", "Pending", "Under Review")]
         active_applications += len(active_apps)
-        total_business += commission
 
+        # Performance tracking
         if role.upper() == "COUNSELLOR":
             counsellor_volume[assignee] = counsellor_volume.get(assignee, 0) + 1
             counsellor_revenue[assignee] = counsellor_revenue.get(assignee, 0.0) + commission
@@ -543,6 +624,20 @@ def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify
             uni = app.get("university", "Unknown")
             institution_volume[uni] = institution_volume.get(uni, 0) + 1
 
+        # Pipeline by Branch
+        branch_pipeline[branch] = branch_pipeline.get(branch, 0) + 1
+
+    # Growth calculation for Qualified Leads
+    current_qualified = sum(1 for s in last_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
+    prev_qualified = sum(1 for s in prev_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
+
+    if prev_qualified > 0:
+        qualified_growth = round(((current_qualified - prev_qualified) / prev_qualified) * 100, 1)
+    elif current_qualified > 0:
+        qualified_growth = 100.0
+    else:
+        qualified_growth = 0.0
+
     def top5(d):
         return [{"name": k, "value": v} for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True)[:5]]
 
@@ -551,16 +646,23 @@ def get_dashboard_stats(timeframe: str = "all", user_data: dict = Depends(verify
         "data": {
             "metrics": {
                 "total_students": total_students,
+                "in_progress": in_progress,
+                "completed": completed,
+                "dropped": dropped,
                 "qualified_leads": qualified_leads,
+                "qualified_growth": qualified_growth,
                 "active_applications": active_applications,
-                "total_business": total_business
+                "estimation_commission": estimation_commission,
+                "logged_commission": logged_commission,
+                "total_business": logged_commission  # backward compat
             },
             "performance": {
                 "top_agents_volume": top5(agent_volume),
                 "top_agents_revenue": top5(agent_revenue),
                 "top_counsellors_volume": top5(counsellor_volume),
                 "top_counsellors_revenue": top5(counsellor_revenue),
-                "top_institutions": top5(institution_volume)
+                "top_institutions": top5(institution_volume),
+                "branch_pipeline": [{"branch": k, "value": v} for k, v in sorted(branch_pipeline.items(), key=lambda x: x[1], reverse=True)]
             }
         }
     }

@@ -1,220 +1,275 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Users, UploadCloud, FileText, Plus, CheckCircle2, UserCircle } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+import {
+  Target, Users, DollarSign, TrendingUp, GraduationCap, Search,
+  Loader2, ArrowRight, Sparkles, FileText, ChevronRight, Award, Globe
+} from "lucide-react";
 
-export default function AgentPipeline() {
-  const [students, setStudents] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState("pipeline"); // 'pipeline' | 'add_student' | 'bulk_upload'
-  
-  // User Data
-  const [agentName, setAgentName] = useState("");
-  const [agentRole, setAgentRole] = useState("");
+export default function AgentWorkspacePage() {
+  const [user, setUser] = useState<any>(null);
+  const [myStudents, setMyStudents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Student Form State
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [wa, setWa] = useState("");
-  const [reportCards, setReportCards] = useState<FileList | null>(null);
-  const [psychTests, setPsychTests] = useState<FileList | null>(null);
-  
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // AI University search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [programs, setPrograms] = useState<any[]>([]);
 
   useEffect(() => {
-    // Get the logged-in agent's details from the token
-    const token = localStorage.getItem("fortrust_token");
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        setAgentName(payload.name || "Agent");
-        setAgentRole(payload.role || "Agent");
-        fetchMyStudents(payload.name);
-      } catch (e) {
-        console.error("Invalid token");
-      }
+    const stored = localStorage.getItem("fortrust_user");
+    if (stored) {
+      const u = JSON.parse(stored);
+      setUser(u);
+      fetchMyStudents(u);
     }
   }, []);
 
-  const fetchMyStudents = async (agentName: string) => {
+  const fetchMyStudents = async (u: any) => {
+    setLoading(true);
     try {
       const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=AGENT&agent_code=${agentName}`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${u.role}&agent_code=${encodeURIComponent(u.name)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       const data = await res.json();
-      if (data.status === "success") {
-        setStudents(data.data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch students:", error);
-    }
+      if (data.status === "success") setMyStudents(data.data || []);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
-  const handleManualSubmit = async (e: React.FormEvent) => {
+  const handleAiSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    
-    const formData = new FormData();
-    formData.append("name", name);
-    formData.append("email", email);
-    formData.append("phone", wa);
-    formData.append("assignee", agentName); // Automatically assigns to the logged-in agent!
-    
-    // Append Files securely
-    if (reportCards) {
-      for (let i = 0; i < reportCards.length; i++) {
-        formData.append("report_cards", reportCards[i]);
-      }
-    }
-    if (psychTests) {
-      for (let i = 0; i < psychTests.length; i++) {
-        formData.append("psych_tests", psychTests[i]);
-      }
-    }
-
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setPrograms([]);
     try {
       const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: formData,
-      });
-      
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/programs/search?query=${encodeURIComponent(searchQuery)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       const data = await res.json();
-      if (data.status === "success") {
-        alert("Student and documents securely uploaded to Cloud Vault!");
-        // Reset Form
-        setName(""); setEmail(""); setWa(""); setReportCards(null); setPsychTests(null);
-        setActiveTab("pipeline");
-        fetchMyStudents(agentName);
-      } else {
-        alert("Upload failed. Please try again.");
-      }
-    } catch (error) {
-      alert("Network error during upload.");
-    } finally {
-      setIsSubmitting(false);
-    }
+      if (data.status === "success") setPrograms(data.data || []);
+    } catch (e) { console.error(e); }
+    finally { setSearching(false); }
   };
+
+  const activeCount = myStudents.filter(s => !["COMPLETED", "REJECTED"].includes((s.status || "").toUpperCase())).length;
+  const closedCount = myStudents.filter(s => (s.status || "").toUpperCase() === "COMPLETED").length;
+  const totalCommission = myStudents
+    .filter(s => (s.status || "").toUpperCase() === "COMPLETED")
+    .reduce((sum, s) => sum + (parseFloat(s.commission_earned) || 0), 0);
+  const conversionRate = (activeCount + closedCount) > 0
+    ? Math.round((closedCount / (activeCount + closedCount)) * 100)
+    : 0;
+
+  if (!user) return <div className="p-16 text-center text-slate-400 animate-pulse">Loading...</div>;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 bg-slate-50 min-h-screen">
-      
+    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full space-y-6">
+
       {/* Header */}
-      <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center">
-            <UserCircle size={28} />
+      <div>
+        <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
+          <Target className="text-[#BAD133]" size={32} />
+          Agent Workspace
+        </h1>
+        <p className="text-sm text-slate-500 font-medium mt-1">
+          Manage your pipeline, hit targets, and track your commissions.
+        </p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="bg-blue-50 p-2 rounded-lg"><Users className="text-blue-600" size={20} /></div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Active</span>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-[#282860]">My Pipeline</h1>
-            <p className="text-slate-500 text-sm mt-1">{agentName} | {agentRole}</p>
-          </div>
+          <p className="text-3xl font-black text-[#282860]">{activeCount}</p>
+          <p className="text-xs text-slate-500 mt-1">Students in pipeline</p>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setActiveTab("pipeline")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'pipeline' ? 'bg-[#282860] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>My Students</button>
-          <button onClick={() => setActiveTab("add_student")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 ${activeTab === 'add_student' ? 'bg-[#BAD133] text-[#282860]' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><Plus size={16}/> Add Student Data</button>
-          <button onClick={() => setActiveTab("bulk_upload")} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 ${activeTab === 'bulk_upload' ? 'bg-blue-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><UploadCloud size={16}/> Bulk Upload</button>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="bg-emerald-50 p-2 rounded-lg"><Award className="text-emerald-600" size={20} /></div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Closed</span>
+          </div>
+          <p className="text-3xl font-black text-emerald-600">{closedCount}</p>
+          <p className="text-xs text-slate-500 mt-1">Deals won</p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="bg-yellow-50 p-2 rounded-lg"><DollarSign className="text-yellow-600" size={20} /></div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Earnings</span>
+          </div>
+          <p className="text-3xl font-black text-[#BAD133]">${totalCommission.toLocaleString()}</p>
+          <p className="text-xs text-slate-500 mt-1">Commission earned</p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <div className="bg-indigo-50 p-2 rounded-lg"><TrendingUp className="text-indigo-600" size={20} /></div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Conversion</span>
+          </div>
+          <p className="text-3xl font-black text-indigo-600">{conversionRate}%</p>
+          <p className="text-xs text-slate-500 mt-1">Win rate</p>
         </div>
       </div>
 
-      {/* VIEW 1: MANUAL ADD FORM WITH DOCUMENT UPLOADS */}
-      {activeTab === "add_student" && (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-3xl mx-auto">
-          <h2 className="text-lg font-bold text-[#282860] mb-6 flex items-center gap-2"><FileText className="text-[#BAD133]"/> Add New Student</h2>
-          
-          <form onSubmit={handleManualSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="text-sm font-bold text-slate-600">Student Name</label><input required value={name} onChange={(e)=>setName(e.target.value)} type="text" className="w-full mt-1 border-2 border-slate-200 rounded-xl p-3 outline-none focus:border-[#BAD133]" /></div>
-              <div><label className="text-sm font-bold text-slate-600">Email Address</label><input required value={email} onChange={(e)=>setEmail(e.target.value)} type="email" className="w-full mt-1 border-2 border-slate-200 rounded-xl p-3 outline-none focus:border-[#BAD133]" /></div>
-              <div className="md:col-span-2"><label className="text-sm font-bold text-slate-600">WhatsApp Number</label><input value={wa} onChange={(e)=>setWa(e.target.value)} type="tel" className="w-full mt-1 border-2 border-slate-200 rounded-xl p-3 outline-none focus:border-[#BAD133]" /></div>
-            </div>
-
-            {/* SECURE DOCUMENT UPLOADERS */}
-            <div className="pt-4 border-t border-slate-100 space-y-4">
-              <h3 className="font-bold text-slate-800">Required Documents (Optional but Recommended)</h3>
-              
-              <div className="bg-slate-50 p-4 rounded-xl border-2 border-dashed border-slate-300">
-                <label className="block text-sm font-bold text-slate-700 mb-2">1. Report Card & High School Certificate (.pdf, .jpg)</label>
-                <input 
-                  type="file" 
-                  multiple 
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                  onChange={(e) => setReportCards(e.target.files)}
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-[#282860] file:text-white hover:file:bg-[#1a1a40] cursor-pointer"
-                />
-              </div>
-
-              <div className="bg-slate-50 p-4 rounded-xl border-2 border-dashed border-slate-300">
-                <label className="block text-sm font-bold text-slate-700 mb-2">2. Profiling Test / Psychological Test (.pdf)</label>
-                <input 
-                  type="file" 
-                  multiple 
-                  accept=".pdf"
-                  onChange={(e) => setPsychTests(e.target.files)}
-                  className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-[#BAD133] file:text-[#282860] hover:file:bg-[#a3b827] cursor-pointer"
-                />
-              </div>
-            </div>
-
-            <button disabled={isSubmitting} type="submit" className="w-full bg-[#282860] hover:bg-[#1a1a40] text-white font-bold py-4 rounded-xl mt-4 transition-colors">
-              {isSubmitting ? "Uploading Securely to Vault..." : "Save Student & Upload Documents"}
-            </button>
-          </form>
+      {/* AI University Search */}
+      <div className="bg-gradient-to-br from-[#1b1b42] to-[#282860] rounded-2xl p-6 lg:p-8 text-white shadow-lg">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="bg-[#BAD133]/20 p-2.5 rounded-xl">
+            <Sparkles className="text-[#BAD133]" size={22} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black">AI University Finder</h2>
+            <p className="text-sm text-slate-300 mt-0.5">Powered by live Google Search — discover real, up-to-date programs.</p>
+          </div>
         </div>
-      )}
 
-      {/* VIEW 2: PIPELINE */}
-      {activeTab === "pipeline" && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="p-4 font-bold text-slate-500 text-sm">Student</th>
-                <th className="p-4 font-bold text-slate-500 text-sm">Contact</th>
-                <th className="p-4 font-bold text-slate-500 text-sm">Status</th>
-                <th className="p-4 font-bold text-slate-500 text-sm">Documents</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {students.length === 0 ? (
-                <tr><td colSpan={4} className="p-8 text-center text-slate-400">No students in your pipeline yet.</td></tr>
-              ) : (
-                students.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50">
-                    <td className="p-4 font-bold text-slate-800">{student.name}</td>
-                    <td className="p-4 text-sm text-slate-600">{student.email}<br/><span className="text-xs text-slate-400">WA: {student.phone}</span></td>
-                    <td className="p-4">
-                      <span className="bg-slate-100 text-slate-700 text-xs font-bold px-3 py-1 rounded-full">{student.status || "NEW LEAD"}</span>
+        <form onSubmit={handleAiSearch} className="flex flex-col sm:flex-row gap-2 mt-5">
+          <div className="flex-1 flex items-center gap-2 bg-white rounded-xl px-4 py-3 shadow-md">
+            <Search size={18} className="text-slate-400 flex-shrink-0" />
+            <input type="text"
+              placeholder="e.g. business degrees in Australia, computer science UK..."
+              className="flex-1 bg-transparent outline-none text-sm text-slate-800 placeholder-slate-400"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)} />
+          </div>
+          <button type="submit" disabled={searching || !searchQuery}
+            className="bg-[#BAD133] hover:bg-[#9bb029] text-[#1b1b42] font-bold text-sm px-6 py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            {searching ? <><Loader2 className="animate-spin" size={16} /> Searching...</> : <>Search <ArrowRight size={16} /></>}
+          </button>
+        </form>
+
+        {programs.length > 0 && (
+          <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {programs.map((p, i) => (
+              <div key={i} className="bg-white/10 backdrop-blur border border-white/10 rounded-xl p-4 hover:bg-white/15 transition-colors">
+                <div className="flex justify-between items-start gap-2 mb-2">
+                  <div>
+                    <p className="font-black text-white text-sm">{p.university}</p>
+                    <p className="text-xs text-slate-300 flex items-center gap-1 mt-0.5">
+                      <Globe size={10} /> {p.country}
+                    </p>
+                  </div>
+                  <span className="text-[9px] font-bold bg-[#BAD133]/20 text-[#BAD133] px-2 py-0.5 rounded-full uppercase">{p.level}</span>
+                </div>
+                <p className="text-xs text-slate-300 font-medium">{p.program_name}</p>
+                <div className="flex justify-between items-end mt-3 pt-3 border-t border-white/10">
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase">Tuition</p>
+                    <p className="text-sm font-black text-[#BAD133]">${p.tuition?.toLocaleString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-slate-400 uppercase">Duration</p>
+                    <p className="text-sm font-bold text-white">{p.duration} years</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link href="/dashboard/pipeline"
+          className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-[#BAD133] transition-all group">
+          <div className="flex items-center justify-between mb-3">
+            <Users className="text-[#282860] group-hover:text-[#BAD133] transition-colors" size={24} />
+            <ChevronRight className="text-slate-400 group-hover:text-[#BAD133] transition-colors" size={18} />
+          </div>
+          <p className="font-black text-[#282860]">Manage Students</p>
+          <p className="text-xs text-slate-500 mt-1">View, add, or update your student pipeline</p>
+        </Link>
+
+        <Link href="/dashboard/claimed"
+          className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-[#BAD133] transition-all group">
+          <div className="flex items-center justify-between mb-3">
+            <DollarSign className="text-[#282860] group-hover:text-[#BAD133] transition-colors" size={24} />
+            <ChevronRight className="text-slate-400 group-hover:text-[#BAD133] transition-colors" size={18} />
+          </div>
+          <p className="font-black text-[#282860]">My Earnings</p>
+          <p className="text-xs text-slate-500 mt-1">Track commissions and payout history</p>
+        </Link>
+
+        <Link href="/dashboard/programs"
+          className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-[#BAD133] transition-all group">
+          <div className="flex items-center justify-between mb-3">
+            <GraduationCap className="text-[#282860] group-hover:text-[#BAD133] transition-colors" size={24} />
+            <ChevronRight className="text-slate-400 group-hover:text-[#BAD133] transition-colors" size={18} />
+          </div>
+          <p className="font-black text-[#282860]">Program Finder</p>
+          <p className="text-xs text-slate-500 mt-1">Browse all available programs in detail</p>
+        </Link>
+      </div>
+
+      {/* My Recent Students */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+          <div>
+            <h3 className="font-black text-[#282860]">My Recent Students</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Your most recent pipeline activity</p>
+          </div>
+          <Link href="/dashboard/pipeline" className="text-xs font-bold text-[#BAD133] hover:underline flex items-center gap-1">
+            View All <ChevronRight size={14} />
+          </Link>
+        </div>
+
+        {loading ? (
+          <div className="p-12 text-center"><Loader2 className="animate-spin mx-auto text-[#BAD133]" size={32} /></div>
+        ) : myStudents.length === 0 ? (
+          <div className="p-12 text-center">
+            <FileText className="mx-auto text-slate-300 mb-3" size={40} />
+            <p className="text-sm text-slate-500 font-medium">No students yet.</p>
+            <p className="text-xs text-slate-400 mt-1">Your assigned students will appear here.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  <th className="px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">Student</th>
+                  <th className="px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">Program Interest</th>
+                  <th className="px-5 py-3 text-[10px] font-black text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-5 py-3 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {myStudents.slice(0, 5).map(s => (
+                  <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-4">
+                      <p className="font-bold text-[#282860] text-sm">{s.name}</p>
+                      <p className="text-[11px] text-slate-400">{s.email || s.phone || "—"}</p>
                     </td>
-                    <td className="p-4">
-                      {student.documents && student.documents.length > 0 ? (
-                        <div className="flex items-center gap-1 text-emerald-600 text-xs font-bold">
-                          <CheckCircle2 size={14} /> {student.documents.length} Files
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">No files</span>
-                      )}
+                    <td className="px-5 py-4 text-sm text-slate-600 font-medium">{s.program_interest || "—"}</td>
+                    <td className="px-5 py-4">
+                      <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-md
+                        ${(s.status || "").toUpperCase() === "COMPLETED" ? "bg-emerald-100 text-emerald-700"
+                          : (s.status || "").toUpperCase() === "REJECTED" ? "bg-red-100 text-red-700"
+                          : "bg-blue-100 text-blue-700"}`}>
+                        {s.status || "NEW"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <Link href={`/dashboard/pipeline`} className="text-[#BAD133] font-bold text-xs hover:underline">
+                        Open →
+                      </Link>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* VIEW 3: BULK UPLOAD (Placeholder for next step) */}
-      {activeTab === "bulk_upload" && (
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center max-w-2xl mx-auto">
-           <UploadCloud className="mx-auto h-16 w-16 text-blue-500 mb-4" />
-           <h2 className="text-xl font-bold text-slate-800">Bulk Upload Students</h2>
-           <p className="text-slate-500 text-sm mt-2 mb-8">Upload an Excel/CSV file to instantly add multiple students to your pipeline.</p>
-           <button className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-xl transition-colors">
-              Select CSV File
-           </button>
-        </div>
-      )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
     </div>
   );

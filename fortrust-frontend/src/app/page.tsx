@@ -15,7 +15,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const emailInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus the email input when the page loads for faster UX
   useEffect(() => {
     emailInputRef.current?.focus();
   }, []);
@@ -29,7 +28,6 @@ export default function LoginPage() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Sends the rememberMe flag to Python
         body: JSON.stringify({ email, password, remember_me: rememberMe })
       });
 
@@ -39,10 +37,9 @@ export default function LoginPage() {
         localStorage.setItem("fortrust_token", data.token);
         localStorage.setItem("fortrust_user", JSON.stringify(data.user));
 
+        // THE FIX: Master Admin goes to admin panel, EVERYONE else goes to the pipeline.
         if (data.user.role === "MASTER_ADMIN") {
           router.push("/dashboard/admin");
-        } else if (data.user.role === "Agent" || data.user.role === "Counsellor" || data.user.role === "Micro Agent") {
-          router.push("/dashboard/agent");
         } else {
           router.push("/dashboard/pipeline");
         }

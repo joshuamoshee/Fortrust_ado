@@ -19,7 +19,9 @@ import {
   CheckCircle,
   Menu,
   Building2,
-  DollarSign
+  DollarSign,
+  Landmark,
+  Phone
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -31,12 +33,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   // --- UI STATES ---
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  
+  // Settings Tab State
+  const [settingsTab, setSettingsTab] = useState<"security" | "bank">("security");
+
+  // Security Form
   const [newPassword, setNewPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // Bank Details Form
+  const [bankName, setBankName] = useState("");
+  const [bankAccount, setBankAccount] = useState("");
+  const [bankBranch, setBankBranch] = useState("");
+  const [swiftCode, setSwiftCode] = useState("");
+  const [isUpdatingBank, setIsUpdatingBank] = useState(false);
+  const [bankMessage, setBankMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  // --- LIVE NOTIFICATION STATES ---
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -46,22 +60,25 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (!storedUser) {
       router.push("/");
     } else {
-      setUser(JSON.parse(storedUser));
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
+      setBankName(parsedUser.bank_name || "");
+      setBankAccount(parsedUser.bank_account || "");
+      setBankBranch(parsedUser.bank_branch || "");
+      setSwiftCode(parsedUser.swift_code || "");
       setIsLoaded(true);
     }
   }, [router]);
 
-  // 2. Auto-close mobile menu when changing pages
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // 3. LIVE FETCH LOGIC
+  // LIVE NOTIFICATIONS
   useEffect(() => {
     const fetchNotifications = async () => {
       const token = localStorage.getItem("fortrust_token");
       if (!token) return;
-
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs?limit=5`, {
           headers: { "Authorization": `Bearer ${token}` }
@@ -71,12 +88,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           setNotifications(data.data);
           setUnreadCount(data.data.length > 5 ? 5 : data.data.length);
         }
-      } catch (error) {
-        console.error("Failed to fetch live notifications");
-      }
+      } catch (error) {}
     };
 
-    if (isLoaded && user) {
+    if (isLoaded && user && user.role === "MASTER_ADMIN") {
       fetchNotifications();
       const interval = setInterval(fetchNotifications, 30000);
       return () => clearInterval(interval);
@@ -93,25 +108,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     e.preventDefault();
     setIsChangingPassword(true);
     setPasswordMessage(null);
-
     try {
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${user.id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ password: newPassword })
       });
 
       if (res.ok) {
-        setPasswordMessage({ type: 'success', text: "Password successfully updated!" });
+        setPasswordMessage({ type: 'success', text: "Password updated successfully!" });
         setNewPassword("");
-        setTimeout(() => {
-          setShowSettings(false);
-          setPasswordMessage(null);
-        }, 2000);
+        setTimeout(() => { setPasswordMessage(null); }, 3000);
       } else {
         setPasswordMessage({ type: 'error', text: "Failed to update password." });
       }
@@ -119,6 +127,39 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setPasswordMessage({ type: 'error', text: "Network Error." });
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+  const handleBankUpdate = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingBank(true);
+    setBankMessage(null);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ 
+          bank_name: bankName, 
+          bank_account: bankAccount, 
+          bank_branch: bankBranch, 
+          swift_code: swiftCode 
+        })
+      });
+
+      if (res.ok) {
+        setBankMessage({ type: 'success', text: "Bank details secured!" });
+        const updatedUser = { ...user, bank_name: bankName, bank_account: bankAccount, bank_branch: bankBranch, swift_code: swiftCode };
+        setUser(updatedUser);
+        localStorage.setItem("fortrust_user", JSON.stringify(updatedUser));
+        setTimeout(() => { setBankMessage(null); }, 3000);
+      } else {
+        setBankMessage({ type: 'error', text: "Failed to save bank details." });
+      }
+    } catch (err) {
+      setBankMessage({ type: 'error', text: "Network Error." });
+    } finally {
+      setIsUpdatingBank(false);
     }
   };
 
@@ -148,40 +189,42 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
 
-          {/* Master Admin Only Section */}
+          {/* THE FIX: EVERYONE SEES THESE TWO BUTTONS (Normal Agents & Admin) */}
+          <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Agent Workspace</p>
+
+          <Link href="/dashboard/pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+            <LayoutDashboard size={18} className={pathname === '/dashboard/pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+            Student Pipeline
+          </Link>
+
+          <Link href="/dashboard/programs" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/programs' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+            <BookOpen size={18} className={pathname === '/dashboard/programs' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+            Program Finder
+          </Link>
+
+          {/* MASTER ADMIN ONLY SECTION */}
           {user.role === "MASTER_ADMIN" && (
             <>
-              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Administrator</p>
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-8">Admin Tools</p>
               
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 Main Dashboard
               </Link>
 
-              {/* Mami's Point 1: Label changed to Agent Management */}
               <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 Agent Management
               </Link>
 
-              {/* Your Friend's Dropdown Portals */}
               <SidebarMenu
                 label="Consultation"
                 icon={<LayoutDashboard size={18} />}
                 activePath={pathname}
                 menuItems={[
-                  {
-                    label: 'Profiling Test',
-                    href: '/dashboard/pipeline',
-                  },
-                  {
-                    label: 'Assessment',
-                    href: '/dashboard/assessment',
-                  },
-                  {
-                    label: 'Program Finder',
-                    href: '/dashboard/programs',
-                  },
+                  { label: 'Profiling Test', href: '/dashboard/pipeline' },
+                  { label: 'Assessment', href: '/dashboard/assessment' },
+                  { label: 'Program Finder', href: '/dashboard/programs' },
                 ]}
               />
 
@@ -190,10 +233,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 icon={<Megaphone size={18} />}
                 activePath={pathname}
                 menuItems={[
-                  {
-                    label: 'Leads',
-                    href: '/dashboard/marketing',
-                  }
+                  { label: 'Leads', href: '/dashboard/marketing' }
                 ]}
               />
 
@@ -202,18 +242,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 icon={<Building2 size={18} />}
                 activePath={pathname}
                 menuItems={[
-                  {
-                    label: 'Agreement',
-                    href: '/dashboard/network',
-                  },
-                  {
-                    label: 'Contact Person',
-                    href: '/dashboard/contact-person',
-                  },
-                  {
-                    label: 'Commission Structure',
-                    href: '/dashboard/commission-structure',
-                  },
+                  { label: 'Agreement', href: '/dashboard/network' },
+                  { label: 'Contact Person', href: '/dashboard/contact-person' },
+                  { label: 'Commission Structure', href: '/dashboard/commission-structure' },
                 ]}
               />
 
@@ -222,10 +253,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 icon={<DollarSign size={18} />}
                 activePath={pathname}
                 menuItems={[
-                  {
-                    label: 'Reports',
-                    href: '/dashboard/claimed',
-                  },
+                  { label: 'Reports', href: '/dashboard/claimed' },
                 ]}
               />
             </>
@@ -233,6 +261,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         </div>
 
+        {/* BOTTOM USER PROFILE */}
         <div className="p-4 bg-[#171738] border-t border-white/5">
           <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setShowSettings(true)}>
@@ -254,7 +283,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {/* MAIN CONTENT WRAPPER */}
       <div className="flex-1 flex flex-col lg:ml-[260px] min-w-0 w-full transition-all duration-300">
 
-        {/* Top Utility Header */}
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
 
           <div className="flex items-center flex-1 gap-4">
@@ -269,7 +297,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <Search size={18} className="mr-3 text-slate-400 flex-shrink-0" />
               <input
                 type="text"
-                placeholder="Search students or agents..."
+                placeholder="Search students or programs..."
                 className="bg-transparent border-none outline-none text-sm text-slate-700 w-full placeholder-slate-400 font-medium min-w-0"
               />
             </div>
@@ -311,9 +339,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       ))
                     )}
                   </div>
-                  <div className="p-3 text-center border-t border-slate-100 bg-slate-50">
-                    <button className="text-xs font-bold text-[#282860] hover:underline">Mark all as read</button>
-                  </div>
                 </div>
               )}
             </div>
@@ -332,9 +357,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </main>
       </div>
 
+      {/* COMPREHENSIVE ACCOUNT SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
+            
             <div className="p-5 lg:p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
               <h2 className="text-lg lg:text-xl font-bold text-[#282860] flex items-center gap-2">
                 <Settings size={20} className="text-[#BAD133]" />
@@ -345,53 +372,110 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               </button>
             </div>
 
-            <div className="p-5 lg:p-6">
+            <div className="flex bg-slate-50 border-b border-slate-200">
+              <button onClick={() => setSettingsTab('security')} className={`flex-1 py-3 text-sm font-bold transition-colors ${settingsTab === 'security' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>Security</button>
+              {user.role !== "MASTER_ADMIN" && (
+                <button onClick={() => setSettingsTab('bank')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'bank' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
+                  <Landmark size={16}/> Bank & Commissions
+                </button>
+              )}
+            </div>
+
+            <div className="p-5 lg:p-6 overflow-y-auto flex-1">
+              
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
                 <div className="w-12 h-12 rounded-full bg-[#282860] flex items-center justify-center text-white font-black text-xl">
                   {user.name.charAt(0)}
                 </div>
                 <div>
-                  <p className="font-bold text-slate-800">{user.name}</p>
-                  <p className="text-xs font-semibold text-slate-500 uppercase">{user.role}</p>
+                  <p className="font-bold text-slate-800 text-lg">{user.name}</p>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mt-0.5">{user.role} • {user.branch}</p>
+                  
+                  {(user.phone || user.corporation_name) && (
+                    <div className="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-3">
+                      {user.phone && (
+                        <span className="flex items-center gap-1"><Phone size={10} className="text-slate-400"/> {user.phone}</span>
+                      )}
+                      {user.phone && user.corporation_name && <span className="text-slate-300">|</span>}
+                      {user.corporation_name && (
+                        <span className="flex items-center gap-1 font-bold text-[#282860]"><Building2 size={10} className="text-[#BAD133]"/> {user.corporation_name}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <form onSubmit={handlePasswordChange} className="space-y-4">
-                <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
-                  <Lock size={16} className="text-slate-400" /> Change Password
-                </h3>
+              {settingsTab === 'security' && (
+                <form onSubmit={handlePasswordChange} className="space-y-4 animate-in fade-in">
+                  <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
+                    <Lock size={16} className="text-slate-400" /> Change Password
+                  </h3>
+                  
+                  {passwordMessage && (
+                    <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2
+                      ${passwordMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                      {passwordMessage.type === 'success' ? <CheckCircle size={14} /> : <ShieldAlert size={14} />}
+                      {passwordMessage.text}
+                    </div>
+                  )}
 
-                {passwordMessage && (
-                  <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2
-                    ${passwordMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-                    {passwordMessage.type === 'success' ? <CheckCircle size={14} /> : <ShieldAlert size={14} />}
-                    {passwordMessage.text}
+                  <div>
+                    <label className="text-xs font-bold text-slate-500">New Password</label>
+                    <input type="password" required minLength={6} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
                   </div>
-                )}
+                  
+                  <div className="pt-2 flex justify-end">
+                    <button type="submit" disabled={isChangingPassword || !newPassword} className="w-full lg:w-auto bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+                      {isChangingPassword ? "Saving..." : "Update Password"}
+                    </button>
+                  </div>
+                </form>
+              )}
 
-                <div>
-                  <label className="text-xs font-bold text-slate-500">New Password</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Enter new password"
-                    className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]"
-                  />
-                </div>
+              {settingsTab === 'bank' && user.role !== "MASTER_ADMIN" && (
+                <form onSubmit={handleBankUpdate} className="space-y-4 animate-in fade-in">
+                  <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
+                    <DollarSign size={16} className="text-slate-400" /> Commission Transfer Details
+                  </h3>
+                  
+                  <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-lg border border-blue-200 font-medium mb-4">
+                    Ensure these details are accurate. This account will receive all your commission payouts for closed deals.
+                  </div>
 
-                <div className="pt-2 flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={isChangingPassword || !newPassword}
-                    className="w-full lg:w-auto bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
-                  >
-                    {isChangingPassword ? "Saving..." : "Update Password"}
-                  </button>
-                </div>
-              </form>
+                  {bankMessage && (
+                    <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2
+                      ${bankMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                      {bankMessage.type === 'success' ? <CheckCircle size={14} /> : <ShieldAlert size={14} />}
+                      {bankMessage.text}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">Bank Name</label>
+                      <input type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g., Bank Central Asia (BCA)" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">Account Number</label>
+                      <input type="text" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} placeholder="e.g., 123-456-7890" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-[#282860]" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">Branch Location</label>
+                      <input type="text" value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} placeholder="e.g., Jakarta Sudirman" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">SWIFT Code (If applicable)</label>
+                      <input type="text" value={swiftCode} onChange={(e) => setSwiftCode(e.target.value)} placeholder="e.g., CENAIDJA" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:border-[#282860]" />
+                    </div>
+                  </div>
+                  
+                  <div className="pt-2 flex justify-end">
+                    <button type="submit" disabled={isUpdatingBank} className="w-full lg:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                      {isUpdatingBank ? "Saving..." : <><CheckCircle size={16}/> Save Bank Details</>}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>
@@ -400,6 +484,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   );
 }
 
+// --- SIDEBAR DROPDOWN COMPONENT ---
 
 type SidebarMenuItem = {
   label: string;
@@ -425,7 +510,7 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
     if (submenuOpen && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
       let top = rect.top;
-      const submenuHeight = 48 * menuItems.length; // estimate 48px per item
+      const submenuHeight = 48 * menuItems.length;
       if (top + submenuHeight > window.innerHeight) {
         top = window.innerHeight - submenuHeight - 16;
       }
@@ -452,7 +537,6 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
     return () => document.removeEventListener('mousedown', handle);
   }, [submenuOpen]);
 
-  // Determine if any menu item is active
   const isActive = menuItems.some(item => item.href === activePath);
   
   return (
