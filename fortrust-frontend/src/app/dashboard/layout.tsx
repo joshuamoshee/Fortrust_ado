@@ -9,7 +9,6 @@ import {
   ShieldAlert,
   LogOut,
   Bell,
-  Search,
   Settings,
   Users,
   BookOpen,
@@ -189,7 +188,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
 
-          {/* THE FIX: EVERYONE SEES THESE TWO BUTTONS (Normal Agents & Admin) */}
+          {/* EVERYONE SEES THESE */}
           <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Agent Workspace</p>
 
           <Link href="/dashboard/pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
@@ -292,15 +291,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             >
               <Menu size={24} />
             </button>
-
-            <div className="hidden sm:flex items-center text-slate-400 bg-slate-50 px-4 py-2 lg:py-2.5 rounded-xl border border-slate-200 w-full max-w-md focus-within:border-[#282860] focus-within:ring-1 focus-within:ring-[#282860] transition-all">
-              <Search size={18} className="mr-3 text-slate-400 flex-shrink-0" />
-              <input
-                type="text"
-                placeholder="Search students or programs..."
-                className="bg-transparent border-none outline-none text-sm text-slate-700 w-full placeholder-slate-400 font-medium min-w-0"
-              />
-            </div>
           </div>
 
           <div className="flex items-center gap-2 lg:gap-5 flex-shrink-0">

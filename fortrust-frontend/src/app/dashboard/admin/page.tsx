@@ -1,162 +1,415 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Users, Target, FileText, DollarSign, ChevronDown, TrendingUp, Medal, Building2, CheckCircle2 } from "lucide-react";
+import React, { useEffect, useState, useRef } from "react";
+import Link from "next/link";
+import {
+  Award, Users, FileText, DollarSign, TrendingUp, TrendingDown,
+  Info, Plus, Calendar, Building2, GraduationCap, ChevronDown,
+  X, Sparkles, Loader2, ArrowUpRight
+} from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-const STATUS_OPTIONS = ["NEW LEAD", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"];
-const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
+const TIMEFRAMES = [
+  { value: "all", label: "All Time" },
+  { value: "this_year", label: "This Year" },
+  { value: "6months", label: "Last 6 Months" },
+  { value: "3months", label: "Last 3 Months" },
+  { value: "30days", label: "Last 30 Days" },
+  { value: "custom", label: "Custom Date Range" },
+];
 
-const EXCHANGE_RATES: Record<string, number> = {
-  "USD": 1.0, "AUD": 0.65, "GBP": 1.26, "NZD": 0.60, "CAD": 0.73, "EUR": 1.08, "IDR": 0.000063
-};
+export default function MasterDashboardPage() {
+  const [timeframe, setTimeframe] = useState("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [showTimeMenu, setShowTimeMenu] = useState(false);
 
-export default function MasterAdminDashboard() {
-  const [students, setStudents] = useState<any[]>([]);
-  const [systemUsers, setSystemUsers] = useState<any[]>([]);
-  const [stats, setStats] = useState<any>(null); 
+  const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [timeframe, setTimeframe] = useState("all"); 
 
-  const fetchData = async () => {
-    const token = localStorage.getItem("fortrust_token");
-    const headers = { "Authorization": `Bearer ${token}` };
+  // Tooltip state — click to show info
+  const [openTip, setOpenTip] = useState<string | null>(null);
 
+  const timeMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (timeMenuRef.current && !timeMenuRef.current.contains(e.target as Node)) {
+        setShowTimeMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, []);
+
+  const fetchStats = async () => {
+    setLoading(true);
     try {
-      const [studentsRes, usersRes] = await Promise.all([
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=MASTER_ADMIN`, { headers }),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users`, { headers })
-      ]);
-      const studentsData = await studentsRes.json();
-      const usersData = await usersRes.json();
-      
-      if (studentsData.status === "success") setStudents(studentsData.data);
-      if (usersData.status === "success") setSystemUsers(usersData.data);
-    } catch (error) {
-      console.error("Failed to fetch initial data:", error);
-    } finally {
-      setLoading(false);
-    }
+      const token = localStorage.getItem("fortrust_token");
+      let url = `${process.env.NEXT_PUBLIC_API_URL}/api/admin/dashboard-stats?timeframe=${timeframe}`;
+      if (timeframe === "custom" && customFrom && customTo) {
+        url += `&from_date=${customFrom}&to_date=${customTo}`;
+      }
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.status === "success") setStats(data.data);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
   useEffect(() => {
-    const fetchStats = async () => {
-      const token = localStorage.getItem("fortrust_token");
-      try {
-        const statsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/dashboard-stats?timeframe=${timeframe}`, {
-          headers: { "Authorization": `Bearer ${token}` }
-        });
-        const statsData = await statsRes.json();
-        if (statsData.status === "success") setStats(statsData.data);
-      } catch (error) {
-        console.error("Failed to fetch stats:", error);
-      }
-    };
-    fetchStats();
-  }, [timeframe]);
+    if (timeframe !== "custom" || (customFrom && customTo)) fetchStats();
+  }, [timeframe, customFrom, customTo]);
 
-  useEffect(() => { fetchData(); }, []);
-
-  const handleStatusChange = (student: any, newStatus: string) => {
-    if (newStatus === "COMPLETED") {
-      alert("Please mark as completed via the Agent Pipeline or verify modal.");
+  const handleTimeChoice = (val: string) => {
+    setShowTimeMenu(false);
+    if (val === "custom") {
+      setShowCustomModal(true);
     } else {
-      executeLeadUpdate(student.id, newStatus, student.assignee, 0, 0, "USD");
+      setTimeframe(val);
     }
   };
 
-  const executeLeadUpdate = async (caseId: string, status: string, assignedTo: string, tuition: number, commRate: number, currency: string) => {
-    try {
-      const token = localStorage.getItem("fortrust_token");
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ status, assignee: assignedTo, tuition, commission_rate: commRate, currency }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        alert(`Server Error: ${errorData.detail || "Failed to update"}`);
-        return;
-      }
-      fetchData(); 
-    } catch (error) { alert("Network Error."); }
-  };
+  const currentTimeLabel = timeframe === "custom" && customFrom && customTo
+    ? `${customFrom} → ${customTo}`
+    : TIMEFRAMES.find(t => t.value === timeframe)?.label || "All Time";
 
-  const handleAssignAgent = (studentId: string, currentStatus: string, newAgent: string) => {
-    executeLeadUpdate(studentId, currentStatus, newAgent, 0, 0, "USD");
-  };
-
-  const chartData = useMemo(() => {
-    const branchCounts: Record<string, number> = {};
-    BRANCH_OPTIONS.forEach(b => branchCounts[b] = 0);
-    students.forEach(student => {
-      const agent = systemUsers.find(u => u.name === student.assignee);
-      const branchName = agent ? agent.branch : "Unassigned";
-      if (branchCounts[branchName] !== undefined) branchCounts[branchName] += 1;
-      else branchCounts[branchName] = 1;
-    });
-    return Object.keys(branchCounts).map(branch => ({ name: branch, students: branchCounts[branch] })).sort((a, b) => b.students - a.students);
-  }, [students, systemUsers]);
-
-  const totalStudents = students.length; 
-  const qualifiedLeads = students.filter(s => s.status?.toUpperCase() === "QUALIFIED LEADS").length;
-  const activeApps = students.filter(s => s.status?.toUpperCase() === "UNI APPLICATION").length;
-  const totalCommissionUSD = students.reduce((sum, student) => {
-    const earned = student.commission_earned || 0;
-    const curr = student.currency || "USD";
-    const rate = EXCHANGE_RATES[curr] || 1.0;
-    return sum + (earned * rate);
-  }, 0);
-
-  if (loading) return <div className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing Master Dashboard...</div>;
+  const m = stats?.metrics || {};
+  const perf = stats?.performance || {};
+  const branchData = perf.branch_pipeline || [];
 
   return (
-    <div className="p-8 max-w-[1400px] mx-auto w-full">
-      <div className="flex justify-between items-end mb-8">
+    <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full space-y-6">
+
+      {/* ===== HEADER ===== */}
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
-            <Medal className="text-[#BAD133]" size={36} />
+            <Award className="text-[#BAD133]" size={32} />
             Master Dashboard
           </h1>
-          <p className="text-slate-500 mt-2 font-medium">Global operations overview and branch performance.</p>
-        </div>
-        <select className="bg-white border border-slate-200 text-slate-700 rounded-xl px-4 py-2.5 text-sm font-bold shadow-sm focus:outline-none focus:border-[#282860]" value={timeframe} onChange={(e) => setTimeframe(e.target.value)}>
-          <option value="all">All Time History</option><option value="this_year">This Year (2026)</option><option value="30days">Last 30 Days</option>
-        </select>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5"><div className="h-14 w-14 rounded-full bg-blue-50 flex items-center justify-center"><Users className="text-blue-600" size={24} /></div><div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Pipeline</p><p className="text-3xl font-black text-[#282860] mt-1">{totalStudents}</p></div></div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5"><div className="h-14 w-14 rounded-full bg-amber-50 flex items-center justify-center"><Target className="text-amber-500" size={24} /></div><div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Qualified Leads</p><p className="text-3xl font-black text-[#282860] mt-1">{qualifiedLeads}</p></div></div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5"><div className="h-14 w-14 rounded-full bg-purple-50 flex items-center justify-center"><FileText className="text-purple-600" size={24} /></div><div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Apps</p><p className="text-3xl font-black text-[#282860] mt-1">{activeApps}</p></div></div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5 relative overflow-hidden"><div className="absolute top-0 right-0 w-32 h-32 bg-green-50 rounded-full blur-2xl -mr-10 -mt-10"></div><div className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center relative z-10"><DollarSign className="text-green-600" size={24} /></div><div className="relative z-10"><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Est. Commission</p><p className="text-2xl font-black text-green-600 mt-1">${totalCommissionUSD.toLocaleString()}</p></div></div>
-      </div>
-
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white rounded-2xl p-6 shadow-sm border border-slate-100"><h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2"><Building2 size={18} className="text-slate-400" /> Pipeline Volume by Branch</h3><div className="h-[300px] w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} /><YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} /><Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} /><Bar dataKey="students" fill="#282860" radius={[6, 6, 0, 0]} maxBarSize={50} /></BarChart></ResponsiveContainer></div></div>
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100"><h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2"><TrendingUp size={18} className="text-slate-400" /> Top Performers</h3>{stats?.performance?.top_agents_volume?.length > 0 ? (<div className="space-y-4">{stats.performance.top_agents_volume.map((agent: any, idx: number) => (<div key={idx} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100"><div className="flex items-center gap-3"><div className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-amber-100 text-amber-700' : idx === 1 ? 'bg-slate-200 text-slate-700' : idx === 2 ? 'bg-orange-100 text-orange-700' : 'bg-[#f8fafc] text-slate-500'}`}>#{idx + 1}</div><span className="font-bold text-slate-700 text-sm">{agent.name}</span></div><span className="font-black text-[#282860] bg-slate-100 px-3 py-1 rounded-lg text-xs">{agent.value} cases</span></div>))}</div>) : (<p className="text-sm text-slate-400 text-center py-10">Not enough data to rank agents yet.</p>)}</div>
+          <p className="text-sm text-slate-500 font-medium mt-1">
+            Global operations overview and branch performance.
+          </p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-900">Global Master Pipeline</h3></div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-500 tracking-wider uppercase"><tr><th className="px-5 py-4">Student</th><th className="px-5 py-4">Assigned Agent</th><th className="px-5 py-4">Global Status</th><th className="px-5 py-4 text-right">Commission Logged</th></tr></thead>
-              <tbody className="text-sm divide-y divide-slate-100">
-                {students.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-4"><span className="font-bold text-[#282860] block">{s.name}</span><span className="text-[11px] text-slate-400 block mt-0.5">{s.email}</span></td>
-                    <td className="px-5 py-4"><select className="bg-white border border-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold focus:border-[#282860] outline-none" value={s.assignee || "Unassigned"} onChange={(e) => handleAssignAgent(s.id, s.status, e.target.value)}><option value="Unassigned">Unassigned</option>{systemUsers.map(u => <option key={u.id} value={u.name}>{u.name} ({u.branch})</option>)}</select></td>
-                    <td className="px-5 py-4"><div className="relative inline-block w-40"><select className="appearance-none w-full bg-slate-100 border-none text-slate-700 py-1.5 pl-3 pr-8 rounded-lg text-[10px] font-black tracking-wider uppercase focus:ring-2 focus:ring-[#BAD133]" value={s.status || "NEW LEAD"} onChange={(e) => handleStatusChange(s, e.target.value)}>{STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select><ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" /></div></td>
-                    <td className="px-5 py-4 text-right">{s.commission_earned > 0 ? (<span className="inline-flex items-center gap-1.5 bg-green-50 text-green-700 px-2.5 py-1 rounded-md text-xs font-bold border border-green-100"><CheckCircle2 size={12} /> {s.commission_earned} {s.currency || "USD"}</span>) : <span className="text-xs text-slate-400 font-medium">-</span>}</td>
-                  </tr>
+        {/* Quick Actions + Time Filter */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <Link href="/dashboard/agent-pipeline"
+            className="bg-white border border-slate-200 hover:border-[#BAD133] text-[#282860] text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm">
+            <Plus size={14} className="text-[#BAD133]" /> New Agent
+          </Link>
+          <Link href="/dashboard/network"
+            className="bg-white border border-slate-200 hover:border-[#BAD133] text-[#282860] text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm">
+            <Plus size={14} className="text-[#BAD133]" /> New Institution
+          </Link>
+          <Link href="/dashboard/pipeline"
+            className="bg-white border border-slate-200 hover:border-[#BAD133] text-[#282860] text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm">
+            <Plus size={14} className="text-[#BAD133]" /> New Student
+          </Link>
+
+          {/* Time Period Selector */}
+          <div className="relative" ref={timeMenuRef}>
+            <button onClick={() => setShowTimeMenu(!showTimeMenu)}
+              className="bg-[#282860] hover:bg-[#1b1b42] text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
+              <Calendar size={14} />
+              {currentTimeLabel}
+              <ChevronDown size={14} />
+            </button>
+            {showTimeMenu && (
+              <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-30">
+                {TIMEFRAMES.map(t => (
+                  <button key={t.value} onClick={() => handleTimeChoice(t.value)}
+                    className={`w-full text-left px-4 py-2.5 text-xs font-bold hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0
+                      ${timeframe === t.value ? "bg-[#BAD133]/10 text-[#282860]" : "text-slate-600"}`}>
+                    {t.label}
+                  </button>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Currently filtered banner */}
+      <div className="bg-[#BAD133]/10 border border-[#BAD133]/30 rounded-xl px-4 py-2 flex items-center gap-2 text-xs">
+        <Sparkles size={14} className="text-[#9bb029]" />
+        <span className="font-bold text-[#282860]">Currently showing data for:</span>
+        <span className="text-slate-700">{currentTimeLabel}</span>
+        <span className="text-slate-400 italic">— applied across all KPIs, charts, and tables below.</span>
+      </div>
+
+      {loading ? (
+        <div className="p-20 text-center">
+          <Loader2 className="animate-spin mx-auto text-[#BAD133]" size={36} />
+          <p className="text-sm text-slate-400 mt-2">Loading dashboard...</p>
+        </div>
+      ) : (
+        <>
+
+          {/* ===== KPI CARDS ===== */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+            {/* CARD 1 — ACTIVE PIPELINE */}
+            <KpiCard
+              id="active"
+              icon={<Users className="text-blue-600" size={20} />}
+              iconBg="bg-blue-50"
+              label="Active Pipeline"
+              value={m.in_progress ?? 0}
+              valueColor="text-[#282860]"
+              tipOpen={openTip === "active"}
+              onTipToggle={() => setOpenTip(openTip === "active" ? null : "active")}
+              tipText="In progress students only. Excludes Completed and Dropped — gives every manager the same interpretation."
+            >
+              <div className="flex items-center gap-3 mt-2 text-[11px] border-t border-slate-100 pt-2">
+                <div className="flex items-center gap-1">
+                  <span className="font-bold text-emerald-600">{m.completed ?? 0}</span>
+                  <span className="text-slate-400 uppercase">Completed</span>
+                </div>
+                <span className="text-slate-200">|</span>
+                <div className="flex items-center gap-1">
+                  <span className="font-bold text-red-500">{m.dropped ?? 0}</span>
+                  <span className="text-slate-400 uppercase">Dropped</span>
+                </div>
+              </div>
+            </KpiCard>
+
+            {/* CARD 2 — QUALIFIED LEADS */}
+            <KpiCard
+              id="qualified"
+              icon={<Award className="text-yellow-600" size={20} />}
+              iconBg="bg-yellow-50"
+              label="Qualified Leads"
+              value={m.qualified_leads ?? 0}
+              valueColor="text-[#282860]"
+              tipOpen={openTip === "qualified"}
+              onTipToggle={() => setOpenTip(openTip === "qualified" ? null : "qualified")}
+              tipText="AI Scored Hot + Warm leads only. Excludes Cold leads."
+            >
+              <div className="flex items-center gap-1 mt-2 text-[11px] border-t border-slate-100 pt-2">
+                {(m.qualified_growth ?? 0) >= 0 ? (
+                  <TrendingUp size={12} className="text-emerald-600" />
+                ) : (
+                  <TrendingDown size={12} className="text-red-500" />
+                )}
+                <span className={`font-bold ${(m.qualified_growth ?? 0) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  {(m.qualified_growth ?? 0) >= 0 ? "+" : ""}{m.qualified_growth ?? 0}%
+                </span>
+                <span className="text-slate-400">vs last 30 days</span>
+              </div>
+            </KpiCard>
+
+            {/* CARD 3 — ACTIVE APPLICATIONS */}
+            <KpiCard
+              id="applications"
+              icon={<FileText className="text-purple-600" size={20} />}
+              iconBg="bg-purple-50"
+              label="Active Applications"
+              value={m.active_applications ?? 0}
+              valueColor="text-[#282860]"
+              tipOpen={openTip === "applications"}
+              onTipToggle={() => setOpenTip(openTip === "applications" ? null : "applications")}
+              tipText="Submitted applications, awaiting offer from the institution."
+            >
+              <p className="text-[11px] text-slate-400 mt-2 border-t border-slate-100 pt-2">
+                Submitted, awaiting offer
+              </p>
+            </KpiCard>
+
+            {/* CARD 4 — ESTIMATION COMMISSION */}
+            <KpiCard
+              id="commission"
+              icon={<DollarSign className="text-emerald-600" size={20} />}
+              iconBg="bg-emerald-50"
+              label="Estimation Commission"
+              value={`$${(m.estimation_commission ?? 0).toLocaleString()}`}
+              valueColor="text-[#282860]"
+              tipOpen={openTip === "commission"}
+              onTipToggle={() => setOpenTip(openTip === "commission" ? null : "commission")}
+              tipText="Estimated commission from in-progress deals — projected revenue if all close successfully."
+            >
+              <div className="flex items-center gap-1 mt-2 text-[11px] border-t border-slate-100 pt-2">
+                <span className="text-slate-400 uppercase">Closed:</span>
+                <span className="font-bold text-emerald-600">${(m.logged_commission ?? 0).toLocaleString()}</span>
+                <span className="text-slate-300 ml-1 italic">this period</span>
+              </div>
+            </KpiCard>
+
+          </div>
+
+          {/* ===== CHARTS ROW ===== */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+            {/* Pipeline by Branch */}
+            <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="font-black text-[#282860] flex items-center gap-2">
+                    <Building2 size={18} className="text-[#BAD133]" />
+                    Pipeline Volume by Branch
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Active students distribution across branches</p>
+                </div>
+              </div>
+              {branchData.length === 0 ? (
+                <p className="text-center text-slate-400 italic py-12">No branch data for this period.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={branchData} margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="branch" tick={{ fontSize: 11, fill: "#64748b", fontWeight: 600 }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#64748b" }} />
+                    <ReTooltip
+                      contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12, fontWeight: 700 }}
+                      cursor={{ fill: "#BAD13310" }}
+                    />
+                    <Bar dataKey="value" fill="#282860" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* Top Performers */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h3 className="font-black text-[#282860] flex items-center gap-2 mb-1">
+                <TrendingUp size={18} className="text-[#BAD133]" />
+                Top Performers
+              </h3>
+              <p className="text-xs text-slate-400 mb-4">By revenue this period</p>
+
+              {(perf.top_agents_revenue || []).length === 0 ? (
+                <p className="text-center text-slate-400 italic py-8 text-sm">No performance data.</p>
+              ) : (
+                <div className="space-y-2">
+                  {(perf.top_agents_revenue || []).slice(0, 5).map((agent: any, i: number) => (
+                    <div key={agent.name} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black
+                          ${i === 0 ? "bg-yellow-100 text-yellow-700"
+                          : i === 1 ? "bg-slate-100 text-slate-600"
+                          : i === 2 ? "bg-amber-100 text-amber-700"
+                          : "bg-slate-50 text-slate-400"}`}>
+                          {i + 1}
+                        </span>
+                        <span className="text-sm font-bold text-[#282860] truncate">{agent.name}</span>
+                      </div>
+                      <span className="text-xs font-black text-[#BAD133]">${agent.value.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ===== TOP INSTITUTIONS ===== */}
+          {(perf.top_institutions || []).length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h3 className="font-black text-[#282860] flex items-center gap-2 mb-4">
+                <GraduationCap size={18} className="text-[#BAD133]" />
+                Most Active Institutions
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                {perf.top_institutions.map((inst: any) => (
+                  <div key={inst.name} className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+                    <p className="text-xs font-bold text-[#282860] truncate" title={inst.name}>{inst.name}</p>
+                    <p className="text-2xl font-black text-[#282860] mt-1">{inst.value}</p>
+                    <p className="text-[10px] text-slate-400 uppercase">Active Apps</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </>
+      )}
+
+      {/* ===== CUSTOM DATE RANGE MODAL ===== */}
+      {showCustomModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-black text-[#282860] flex items-center gap-2">
+                <Calendar size={18} className="text-[#BAD133]" /> Custom Date Range
+              </h3>
+              <button onClick={() => setShowCustomModal(false)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-600">From</label>
+                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                  className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">To</label>
+                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+                  className="w-full mt-1 p-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#BAD133]" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => setShowCustomModal(false)}
+                  className="text-slate-500 font-bold text-sm px-4 py-2">Cancel</button>
+                <button onClick={() => {
+                  if (customFrom && customTo) {
+                    setTimeframe("custom");
+                    setShowCustomModal(false);
+                  }
+                }}
+                  disabled={!customFrom || !customTo}
+                  className="bg-[#282860] text-white font-bold text-sm px-6 py-2 rounded-xl disabled:opacity-50">
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ====================================================================
+   Reusable KPI Card
+   ==================================================================== */
+function KpiCard({
+  id, icon, iconBg, label, value, valueColor, tipOpen, onTipToggle, tipText, children
+}: {
+  id: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  label: string;
+  value: number | string;
+  valueColor: string;
+  tipOpen: boolean;
+  onTipToggle: () => void;
+  tipText: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm relative">
+
+      <div className="flex items-start justify-between mb-3">
+        <div className={`${iconBg} p-2.5 rounded-xl`}>{icon}</div>
+
+        <button onClick={onTipToggle}
+          className={`p-1 rounded-full transition-colors ${tipOpen ? "bg-[#282860] text-white" : "text-slate-300 hover:text-[#282860] hover:bg-slate-100"}`}
+          aria-label="Info">
+          <Info size={14} />
+        </button>
+      </div>
+
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+      <p className={`text-3xl font-black ${valueColor} mt-1`}>{value}</p>
+
+      {children}
+
+      {/* Click-to-show info tooltip */}
+      {tipOpen && (
+        <div className="absolute top-14 right-3 bg-[#1b1b42] text-white text-[11px] font-medium p-3 rounded-xl shadow-xl max-w-[240px] z-20 leading-relaxed">
+          <div className="absolute -top-1.5 right-3 w-3 h-3 bg-[#1b1b42] rotate-45"></div>
+          {tipText}
+        </div>
+      )}
     </div>
   );
 }
