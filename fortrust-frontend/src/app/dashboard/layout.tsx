@@ -5,23 +5,9 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import {
-  LayoutDashboard,
-  ShieldAlert,
-  LogOut,
-  Bell,
-  Search,
-  Settings,
-  Users,
-  BookOpen,
-  Megaphone,
-  X,
-  Lock,
-  CheckCircle,
-  Menu,
-  Building2,
-  DollarSign,
-  Landmark,
-  Phone
+  LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
+  Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
+  Phone, ChevronDown
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -33,16 +19,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   // --- UI STATES ---
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   
-  // Settings Tab State
   const [settingsTab, setSettingsTab] = useState<"security" | "bank">("security");
-
-  // Security Form
   const [newPassword, setNewPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
-  // Bank Details Form
   const [bankName, setBankName] = useState("");
   const [bankAccount, setBankAccount] = useState("");
   const [bankBranch, setBankBranch] = useState("");
@@ -54,7 +37,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 1. Initial User Load
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const storedUser = localStorage.getItem("fortrust_user");
     if (!storedUser) {
@@ -70,11 +54,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     }
   }, [router]);
 
-  useEffect(() => {
-    setIsMobileMenuOpen(false);
-  }, [pathname]);
+  useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
 
-  // LIVE NOTIFICATIONS
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
   useEffect(() => {
     const fetchNotifications = async () => {
       const token = localStorage.getItem("fortrust_token");
@@ -140,10 +131,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         method: "PUT",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ 
-          bank_name: bankName, 
-          bank_account: bankAccount, 
-          bank_branch: bankBranch, 
-          swift_code: swiftCode 
+          bank_name: bankName, bank_account: bankAccount, bank_branch: bankBranch, swift_code: swiftCode 
         })
       });
 
@@ -169,10 +157,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased relative overflow-hidden">
 
       {isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
       {/* SIDEBAR */}
@@ -189,7 +174,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
 
-          {/* THE FIX: NORMAL AGENTS ONLY SECTION (Hidden from Master Admin) */}
           {user.role !== "MASTER_ADMIN" && (
             <>
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Agent Workspace</p>
@@ -206,10 +190,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             </>
           )}
 
-          {/* MASTER ADMIN ONLY SECTION */}
           {user.role === "MASTER_ADMIN" && (
             <>
-              {/* Changed margin top so it sits perfectly at the top */}
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Admin Tools</p>
               
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
@@ -222,66 +204,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 Agent Management
               </Link>
 
-              <SidebarMenu
-                label="Consultation"
-                icon={<LayoutDashboard size={18} />}
-                activePath={pathname}
-                menuItems={[
-                  { label: 'Profiling Test', href: '/dashboard/pipeline' },
-                  { label: 'Assessment', href: '/dashboard/assessment' },
-                  { label: 'Program Finder', href: '/dashboard/programs' },
-                ]}
-              />
-
-              <SidebarMenu
-                label="Marketing"
-                icon={<Megaphone size={18} />}
-                activePath={pathname}
-                menuItems={[
-                  { label: 'Leads', href: '/dashboard/marketing' }
-                ]}
-              />
-
-              <SidebarMenu
-                label="Institution Partners"
-                icon={<Building2 size={18} />}
-                activePath={pathname}
-                menuItems={[
-                  { label: 'Agreement', href: '/dashboard/network' },
-                  { label: 'Contact Person', href: '/dashboard/contact-person' },
-                  { label: 'Commission Structure', href: '/dashboard/commission-structure' },
-                ]}
-              />
-
-              <SidebarMenu
-                label="Commissions"
-                icon={<DollarSign size={18} />}
-                activePath={pathname}
-                menuItems={[
-                  { label: 'Reports', href: '/dashboard/claimed' },
-                ]}
-              />
+              <SidebarMenu label="Consultation" icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: 'Profiling Test', href: '/dashboard/pipeline' }, { label: 'Assessment', href: '/dashboard/assessment' }, { label: 'Program Finder', href: '/dashboard/programs' } ]} />
+              <SidebarMenu label="Marketing" icon={<Megaphone size={18} />} activePath={pathname} menuItems={[ { label: 'Leads', href: '/dashboard/marketing' } ]} />
+              <SidebarMenu label="Institution Partners" icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: 'Agreement', href: '/dashboard/network' }, { label: 'Contact Person', href: '/dashboard/contact-person' }, { label: 'Commission Structure', href: '/dashboard/commission-structure' } ]} />
+              <SidebarMenu label="Commissions" icon={<DollarSign size={18} />} activePath={pathname} menuItems={[ { label: 'Reports', href: '/dashboard/claimed' } ]} />
             </>
           )}
 
-        </div>
-
-        {/* BOTTOM USER PROFILE */}
-        <div className="p-4 bg-[#171738] border-t border-white/5">
-          <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/5">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => setShowSettings(true)}>
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#BAD133] to-[#9bb029] flex items-center justify-center shadow-md hover:scale-105 transition-transform">
-                <span className="text-sm font-black text-[#1b1b42]">{user.name.charAt(0)}</span>
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-xs font-bold text-white truncate w-24 hover:text-[#BAD133] transition-colors">{user.name}</p>
-                <p className="text-[9px] text-slate-400 uppercase tracking-widest truncate">{user.role}</p>
-              </div>
-            </div>
-            <button onClick={handleLogout} className="p-2 text-slate-500 hover:text-red-400 hover:bg-white/10 rounded-lg transition-colors" title="Sign Out">
-              <LogOut size={16} />
-            </button>
-          </div>
         </div>
       </aside>
 
@@ -291,25 +220,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
 
           <div className="flex items-center flex-1 gap-4">
-            <button
-              className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
-              onClick={() => setIsMobileMenuOpen(true)}
-            >
+            <button className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors" onClick={() => setIsMobileMenuOpen(true)}>
               <Menu size={24} />
             </button>
           </div>
 
-          <div className="flex items-center gap-2 lg:gap-5 flex-shrink-0">
+          <div className="flex items-center gap-3 lg:gap-5 flex-shrink-0">
 
             <div className="relative">
-              <button
-                onClick={() => { setShowNotifications(!showNotifications); setShowSettings(false); setUnreadCount(0); }}
-                className={`p-2 lg:p-2.5 rounded-full transition-colors relative ${showNotifications ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
-              >
+              <button onClick={() => { setShowNotifications(!showNotifications); setShowProfileMenu(false); setUnreadCount(0); }} className={`p-2 lg:p-2.5 rounded-full transition-colors relative ${showNotifications ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}>
                 <Bell size={20} />
-                {unreadCount > 0 && (
-                  <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-                )}
+                {unreadCount > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
               </button>
 
               {showNotifications && (
@@ -339,12 +260,54 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               )}
             </div>
 
-            <button
-              onClick={() => { setShowSettings(true); setShowNotifications(false); }}
-              className={`p-2 lg:p-2.5 rounded-full transition-colors ${showSettings ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}
-            >
-              <Settings size={20} />
-            </button>
+            <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
+
+            {/* THE NEW ZOHO-STYLE PROFILE MENU */}
+            <div className="relative" ref={profileMenuRef}>
+              <button 
+                onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifications(false); }}
+                className="flex items-center gap-3 p-1 pr-3 rounded-full border border-slate-200 hover:bg-slate-50 transition-all focus:ring-2 focus:ring-[#BAD133]/20 outline-none"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#BAD133] to-[#9bb029] flex items-center justify-center text-[#1b1b42] font-black text-sm shadow-sm">
+                  {user.name.charAt(0)}
+                </div>
+                <span className="text-sm font-bold text-slate-700 hidden sm:block">{user.name.split(" ")[0]}</span>
+                <ChevronDown size={14} className="text-slate-400 hidden sm:block"/>
+              </button>
+
+              {showProfileMenu && (
+                <div className="absolute right-0 mt-3 w-72 bg-white rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                  <div className="p-5 border-b border-slate-100 bg-[#f8fafc]">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-[#282860] flex items-center justify-center text-white font-black text-xl shadow-inner">
+                        {user.name.charAt(0)}
+                      </div>
+                      <div className="overflow-hidden">
+                        <p className="font-bold text-[#282860] text-base truncate">{user.name}</p>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">{user.email || "Agent Account"}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-2">
+                    <div className="px-4 py-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Role & Access</p>
+                      <p className="text-sm font-bold text-slate-700 mt-0.5">{user.role} • {user.branch}</p>
+                    </div>
+                  </div>
+                  <div className="p-2 border-t border-slate-100">
+                    <button onClick={() => { setShowSettings(true); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-600 hover:text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
+                      <Settings size={18} className="text-slate-400" /> Account Settings
+                    </button>
+                  </div>
+                  <div className="p-2 border-t border-slate-100 bg-slate-50/50">
+                    <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors">
+                      <LogOut size={18} className="text-red-400" /> Secure Sign Out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </header>
 

@@ -271,7 +271,8 @@ export default function AgentManagement() {
                           <div className={`w-3 h-3 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} shadow-sm ring-4 ring-white`}></div>
                           <div>
                             <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{u.name}</span>
-                            <span className="text-xs text-slate-500 block mt-0.5 font-medium">{u.email}</span>
+                            {/* EMAIL INTENTIONALLY HIDDEN HERE. Replaced with short system ID */}
+                            <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {u.id.substring(0, 8)}</span>
                           </div>
                         </div>
                       </td>

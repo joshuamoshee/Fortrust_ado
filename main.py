@@ -418,6 +418,7 @@ def login_user(req: LoginRequest):
                 "user": {
                     "id": user['id'], 
                     "name": user['name'], 
+                    "email": req.email,
                     "role": user['role'],
                     "branch": user['branch'],
                     "phone": user['phone'],
