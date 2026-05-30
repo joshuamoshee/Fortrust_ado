@@ -1,710 +1,722 @@
-"use client"; 
+"use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { 
-  Sparkles, UploadCloud, Users, FileText, X, Phone, Mail, 
-  MessageSquare, Send, Clock, MessageCircle, GraduationCap, 
-  Building, Plus, Calendar, CheckCircle2, DownloadCloud, 
-  ShieldAlert, Building2, DollarSign, Activity, BrainCircuit,
-  BookOpen, Search, Download, FileSignature, Target, ChevronRight, Filter
+import React, { FormEvent, useEffect, useState, useRef, ReactNode } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
+import { createPortal } from "react-dom";
+import {
+  LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
+  Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
+  Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, GraduationCap
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
 
-const STATUS_OPTIONS = ["NEW LEAD", "QUALIFIED LEADS", "CONSULTING PROCESS", "UNI APPLICATION", "VISA", "COMPLETED"];
-
-function PipelineContent() {
+export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const action = searchParams.get('action');
-
+  const pathname = usePathname();
   const [user, setUser] = useState<any>(null);
-  const [students, setStudents] = useState<any[]>([]);
-  const [institutions, setInstitutions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // --- UI STATES ---
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   
-  // UX UPGRADE: Clean Tab Navigation
-  const [activeTab, setActiveTab] = useState<"pipeline" | "earnings">("pipeline");
-  const [searchQuery, setSearchQuery] = useState("");
+  // Tutorial States
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
   
-  // Modal States
-  const [isSingleModalOpen, setIsSingleModalOpen] = useState(false);
-  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"security" | "bank">("security");
+  const [newPassword, setNewPassword] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
-  // Panel States
-  const [selectedStudent, setSelectedStudent] = useState<any>(null); 
-  const [panelTab, setPanelTab] = useState<"overview" | "consultation" | "application">("overview");
-  
-  // Loading & Action States
-  const [isSaving, setIsSaving] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [aiReport, setAiReport] = useState<string>("");
-  const [isDraftingEmail, setIsDraftingEmail] = useState(false);
-  const [isDraftingWA, setIsDraftingWA] = useState(false);
+  const [bankName, setBankName] = useState("");
+  const [bankAccount, setBankAccount] = useState("");
+  const [bankBranch, setBankBranch] = useState("");
+  const [swiftCode, setSwiftCode] = useState("");
+  const [isUpdatingBank, setIsUpdatingBank] = useState(false);
+  const [bankMessage, setBankMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  // Timeline States
-  const [newNote, setNewNote] = useState("");
-  const [newReminderDate, setNewReminderDate] = useState(""); 
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // New Lead Form States
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newPhone, setNewPhone] = useState("");
-  const [bulkFile, setBulkFile] = useState<File | null>(null);
-  const [reportCardFiles, setReportCardFiles] = useState<File[]>([]);
-  const [psychTestFiles, setPsychTestFiles] = useState<File[]>([]);
-  const [slideOutReportCard, setSlideOutReportCard] = useState<File | null>(null);
-  const [slideOutPsychTest, setSlideOutPsychTest] = useState<File | null>(null);
-
-  // Anti-Cheat Commission States
-  const [selectedInstitutionId, setSelectedInstitutionId] = useState("");
-  const [verifyTuition, setVerifyTuition] = useState("");
-  const [verifyRate, setVerifyRate] = useState("");
-  const [verifyFile, setVerifyFile] = useState<File | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [verifyStatus, setVerifyStatus] = useState<{verified?: boolean, reason?: string, message?: string} | null>(null);
-
-  // App Tracker States
-  const [newAppUni, setNewAppUni] = useState("");
-  const [newAppProg, setNewAppProg] = useState("");
-  const [newAppStatus, setNewAppStatus] = useState("Pending");
-
-  // THE FIX: Listen for the "action" param to auto-open the modal
-  useEffect(() => {
-    if (action === 'new-student') {
-      setIsSingleModalOpen(true);
-      // Clean up the URL so it doesn't reopen on refresh
-      router.replace('/dashboard/pipeline', { scroll: false });
-    }
-  }, [action, router]);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("fortrust_user");
-    if (storedUser) {
+    if (!storedUser) {
+      router.push("/");
+    } else {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
-      fetchStudents(parsedUser.role, parsedUser.name);
-      fetchInstitutions(); 
+      setBankName(parsedUser.bank_name || "");
+      setBankAccount(parsedUser.bank_account || "");
+      setBankBranch(parsedUser.bank_branch || "");
+      setSwiftCode(parsedUser.swift_code || "");
+      setIsLoaded(true);
     }
+  }, [router]);
+
+  useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  const fetchStudents = (role: string, agentName: string) => {
-    const token = localStorage.getItem("fortrust_token");
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${role}&agent_code=${encodeURIComponent(agentName)}`, {
-      headers: { "Authorization": `Bearer ${token}` }
-    })
-      .then((res) => {
-        if (res.status === 401) {
-          localStorage.removeItem("fortrust_token");
-          window.location.href = "/";
-          return null;
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      const token = localStorage.getItem("fortrust_token");
+      if (!token) return;
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs?limit=5`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+          setNotifications(data.data);
+          setUnreadCount(data.data.length > 5 ? 5 : data.data.length);
         }
-        return res.json();
-      })
-      .then((data) => {
-        if (data && data.status === "success") {
-          setStudents(Array.isArray(data.data) ? data.data : []);
-          setSelectedStudent((prev: any) => {
-            if (!prev) return null;
-            return data.data.find((s: any) => s.id === prev.id) || prev;
-          });
-        }
-        setLoading(false);
-      })
-      .catch((err) => {
-        setLoading(false);
-      });
-  };
+      } catch (error) {}
+    };
 
-  const fetchInstitutions = async () => {
-    const token = localStorage.getItem("fortrust_token");
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/institutions`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.status === "success") {
-        setInstitutions(data.data);
-      }
-    } catch (err) {
-      console.error("Failed to load network directory");
+    if (isLoaded && user && user.role === "MASTER_ADMIN") {
+      fetchNotifications();
+      const interval = setInterval(fetchNotifications, 30000);
+      return () => clearInterval(interval);
     }
+  }, [isLoaded, user]);
+
+  const handleLogout = () => {
+    localStorage.removeItem("fortrust_user");
+    localStorage.removeItem("fortrust_token");
+    router.push("/");
   };
 
-  const getStatusColor = (status: string) => {
-    const s = status?.toUpperCase() || "";
-    if (s.includes("QUALIFIED")) return "bg-blue-100 text-blue-800 border-blue-200";
-    if (s.includes("VISA") || s.includes("APPLICATION")) return "bg-orange-100 text-orange-800 border-orange-200";
-    if (s.includes("COMPLETED") || s.includes("ACCEPTED") || s.includes("RECEIVED")) return "bg-emerald-100 text-emerald-800 border-emerald-200";
-    if (s.includes("REJECTED")) return "bg-red-100 text-red-800 border-red-200";
-    return "bg-slate-100 text-slate-700 border-slate-200";
-  };
-
-  const updateStudentStatus = async (studentId: string, newStatus: string) => {
+  const handlePasswordChange = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsChangingPassword(true);
+    setPasswordMessage(null);
     try {
       const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentId}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${user.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ password: newPassword })
       });
+
       if (res.ok) {
-        fetchStudents(user.role, user.name);
+        setPasswordMessage({ type: 'success', text: "Password updated successfully!" });
+        setNewPassword("");
+        setTimeout(() => { setPasswordMessage(null); }, 3000);
+      } else {
+        setPasswordMessage({ type: 'error', text: "Failed to update password." });
       }
-    } catch (error) {
-      alert("Network error updating status");
+    } catch (err) {
+      setPasswordMessage({ type: 'error', text: "Network Error." });
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
-  const handleSaveLead = async () => {
-    setIsSaving(true);
-    const formData = new FormData();
-    formData.append("name", newName);
-    formData.append("email", newEmail);
-    formData.append("phone", newPhone);
-    formData.append("assignee", user?.name || "Unassigned");
-    
-    if (reportCardFiles.length === 0) formData.append("report_cards", new File([""], "empty.txt", { type: "text/plain" }));
-    else reportCardFiles.forEach(file => formData.append("report_cards", file));
-
-    if (psychTestFiles.length === 0) formData.append("psych_tests", new File([""], "empty.txt", { type: "text/plain" }));
-    else psychTestFiles.forEach(file => formData.append("psych_tests", file));
-
+  const handleBankUpdate = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingBank(true);
+    setBankMessage(null);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, { method: "POST", body: formData });
-      if (!res.ok) {
-        const err = await res.json();
-        alert(`Error: ${JSON.stringify(err.detail || "Failed to save lead.")}`);
-        return;
-      }
-      setIsSingleModalOpen(false); 
-      setNewName(""); setNewEmail(""); setNewPhone(""); 
-      setReportCardFiles([]); setPsychTestFiles([]);
-      fetchStudents(user.role, user.name);       
-    } catch (error) { 
-      alert("Network Error: Could not reach the server."); 
-    } finally { setIsSaving(false); }
-  };
-
-  const handleBulkImport = async () => {
-    if (!bulkFile) return;
-    setIsSaving(true);
-    const formData = new FormData();
-    formData.append("file", bulkFile);
-    formData.append("assignee", user?.name || "Unassigned");
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/bulk`, { method: "POST", body: formData });
-      const result = await response.json();
-      if (!response.ok) return alert(result.detail || "Import failed.");
-      alert(result.message || "Import complete.");
-      setIsBulkModalOpen(false); setBulkFile(null); fetchStudents(user.role, user.name);
-    } catch (error) { alert("Error parsing document."); } finally { setIsSaving(false); }
-  };
-
-  const handleUploadToExisting = async (caseId: string) => {
-    if (reportCardFiles.length === 0 && psychTestFiles.length === 0) return alert("Please select at least one file to upload.");
-    setIsSaving(true);
-    try {
-      const formData = new FormData();
-      reportCardFiles.forEach((file) => formData.append("file", file));
-      psychTestFiles.forEach((file) => formData.append("file", file));
       const token = localStorage.getItem("fortrust_token");
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${caseId}/document`, {
-        method: "PUT", headers: { "Authorization": `Bearer ${token}` }, body: formData,
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ 
+          bank_name: bankName, bank_account: bankAccount, bank_branch: bankBranch, swift_code: swiftCode 
+        })
       });
-      if (!response.ok) throw new Error("Failed to upload to server");
-      alert("Documents successfully uploaded and saved to the student's profile!");
-      setReportCardFiles([]); setPsychTestFiles([]);
-    } catch (error: any) { alert(`Upload failed: ${error.message}`); } finally { setIsSaving(false); }
+
+      if (res.ok) {
+        setBankMessage({ type: 'success', text: "Bank details secured!" });
+        const updatedUser = { ...user, bank_name: bankName, bank_account: bankAccount, bank_branch: bankBranch, swift_code: swiftCode };
+        setUser(updatedUser);
+        localStorage.setItem("fortrust_user", JSON.stringify(updatedUser));
+        setTimeout(() => { setBankMessage(null); }, 3000);
+      } else {
+        setBankMessage({ type: 'error', text: "Failed to save bank details." });
+      }
+    } catch (err) {
+      setBankMessage({ type: 'error', text: "Network Error." });
+    } finally {
+      setIsUpdatingBank(false);
+    }
   };
 
-  const handleAddNote = async () => {
-    if (!newNote.trim() || !selectedStudent) return;
-    setIsSaving(true);
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/notes`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: newNote, author: user?.name || "Agent", reminder_date: newReminderDate || null }),
-      });
-      setNewNote(""); setNewReminderDate(""); setShowDatePicker(false);
-      fetchStudents(user.role, user.name);
-    } catch (error) { alert("Failed to save note."); } finally { setIsSaving(false); }
-  };
+  // --- TUTORIAL DATA ---
+  const TUTORIAL_STEPS = [
+    {
+      title: "1. The Agent Workspace",
+      icon: <LayoutDashboard size={40} className="text-blue-500" />,
+      bg: "bg-blue-50",
+      border: "border-blue-100",
+      description: "Your primary command center for managing student pipelines from initial contact to successful enrollment.",
+      points: [
+        "Add new student leads and assign them to specific branches or agents.",
+        "Track progress through 6 stages: New Lead ➔ Qualified ➔ Consulting ➔ Application ➔ Visa ➔ Completed.",
+        "Color-coded statuses help you instantly identify bottlenecks in the pipeline."
+      ]
+    },
+    {
+      title: "2. AI Profiling & Automation",
+      icon: <BrainCircuit size={40} className="text-purple-500" />,
+      bg: "bg-purple-50",
+      border: "border-purple-100",
+      description: "Leverage the Gemini AI engine to automate your daily consulting tasks.",
+      points: [
+        "Upload student PDF Report Cards and Psychology tests for instant AI analysis.",
+        "Generate personalized 'Hasil Reports' to match students with the best university programs.",
+        "Use the 1-Click AI Email and AI WhatsApp generators to draft tailored follow-up messages based on the student's status."
+      ]
+    },
+    {
+      title: "3. University Applications",
+      icon: <GraduationCap size={40} className="text-orange-500" />,
+      bg: "bg-orange-50",
+      border: "border-orange-100",
+      description: "Track external application statuses with global institution partners.",
+      points: [
+        "Log multiple university applications per student within their Case File.",
+        "Update live statuses: Pending ➔ Offer Received ➔ Accepted ➔ Rejected.",
+        "Upload and store verified proof documents directly in the cloud."
+      ]
+    },
+    {
+      title: "4. Commission & Financials",
+      icon: <DollarSign size={40} className="text-emerald-500" />,
+      bg: "bg-emerald-50",
+      border: "border-emerald-100",
+      description: "Securely track your earnings and manage your payout details.",
+      points: [
+        "Update your Bank Details securely in your Account Settings menu.",
+        "Moving a student to 'Completed' automatically logs the deal into the financial ledger.",
+        "Track your 'Total Commission Generated' and pending payouts live in the Earnings tab."
+      ]
+    },
+    {
+      title: "5. Master Admin Security",
+      icon: <ShieldAlert size={40} className="text-red-500" />,
+      bg: "bg-red-50",
+      border: "border-red-100",
+      description: "Advanced controls for network managers and system administrators.",
+      points: [
+        "Super CCTV: Monitor real-time logs of every login, creation, and edit across the network.",
+        "Load Balancing: Set Max Capacity limits for agents to prevent burnout and automatically flag overloaded queues.",
+        "2-Step Deletion: Safely 'Archive' rogue agents, or permanently delete them if required."
+      ]
+    }
+  ];
 
-  const handleVerifyCommission = async () => {
-    if (!verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId) return;
-    setIsVerifying(true); setVerifyStatus(null);
-    const formData = new FormData();
-    const token = localStorage.getItem("fortrust_token");
-    formData.append("institution_id", selectedInstitutionId); 
-    formData.append("tuition", verifyTuition);
-    formData.append("commission_rate", verifyRate);
-    formData.append("proof_document", verifyFile);
-
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/verify-commission`, { 
-        method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: formData 
-      });
-      const data = await response.json();
-      setVerifyStatus(data);
-      if (data.verified) fetchStudents(user.role, user.name); 
-    } catch (error) { alert("Verification server error."); } finally { setIsVerifying(false); }
-  };
-  
-  const syncApplications = async (updatedApps: any[]) => {
-    setIsSaving(true);
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/applications`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applications: updatedApps }),
-      });
-      fetchStudents(user.role, user.name); 
-    } catch (error) { alert("Failed to update applications."); } finally { setIsSaving(false); }
-  };
-
-  const handleAddApplication = () => {
-    if (!newAppUni.trim() || !newAppProg.trim()) return;
-    const currentApps = selectedStudent.applications || [];
-    const newApp = { id: Date.now().toString(), university: newAppUni, program: newAppProg, status: newAppStatus };
-    syncApplications([...currentApps, newApp]);
-    setNewAppUni(""); setNewAppProg(""); setNewAppStatus("Pending");
-  };
-
-  const handleUpdateAppStatus = (appId: string, newStatus: string) => {
-    const updatedApps = selectedStudent.applications.map((app: any) => app.id === appId ? { ...app, status: newStatus } : app);
-    syncApplications(updatedApps);
-  };
-
-  const handleGenerateAI = async (studentId: string, studentName: string) => {
-    setAiReport(`Fetching data and parsing PDF for ${studentName}...\nPlease wait...`);
-    setIsGenerating(true); setIsAiModalOpen(true);
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ai-strategy`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ case_id: studentId }), 
-      });
-      const result = await response.json();
-      setAiReport(result.report || "Failed to generate report.");
-    } catch (error) { setAiReport("Network Error."); } finally { setIsGenerating(false); }
-  };
-
-  const handleDraftEmail = async () => {
-    if (!selectedStudent) return;
-    setIsDraftingEmail(true);
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-email`, { method: "POST" });
-      const data = await response.json();
-      if (data.status === "success") {
-        const mailtoLink = `mailto:${selectedStudent.email}?subject=${encodeURIComponent(data.data.subject)}&body=${encodeURIComponent(data.data.body)}`;
-        window.location.href = mailtoLink;
-      } else alert("Failed to draft email.");
-    } catch (error) { alert("Network error drafting email."); } finally { setIsDraftingEmail(false); }
-  };
-
-  const handleDraftWhatsApp = async () => {
-    if (!selectedStudent) return;
-    setIsDraftingWA(true);
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${selectedStudent.id}/draft-whatsapp`, { method: "POST" });
-      const data = await response.json();
-      if (data.status === "success") {
-        const phone = selectedStudent.phone?.replace(/\D/g, '');
-        const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(data.data.message)}`;
-        window.open(waLink, '_blank');
-      } else alert("Failed to draft WhatsApp message.");
-    } catch (error) { alert("Network error drafting WhatsApp."); } finally { setIsDraftingWA(false); }
-  };
-
-  const activeTasks = (students || []).flatMap(student => 
-    (student.timeline || [])
-      .filter((t: any) => t.reminder_date)
-      .map((t: any) => ({ ...t, studentName: student.name, studentId: student.id }))
-  ).sort((a, b) => new Date(a.reminder_date).getTime() - new Date(b.reminder_date).getTime());
-
-  const filteredStudents = students.filter(s => 
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    s.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  if (!isLoaded || !user) return null;
 
   return (
-    <div className="space-y-6 relative p-4 lg:p-8 max-w-[1400px] mx-auto">
-      
-      {/* HEADER */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-black text-[#282860] tracking-tight flex items-center gap-2"><Target className="text-[#BAD133]" /> Agent Workspace</h2>
-          <p className="text-sm text-slate-500 mt-1">Manage your pipeline, hit targets, and track your commissions.</p>
-        </div>
-        <div className="flex gap-3 w-full lg:w-auto">
-          <button onClick={() => setIsBulkModalOpen(true)} className="flex-1 lg:flex-none flex justify-center items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-sm"><UploadCloud size={18} className="text-[#282860]" /> Bulk Scan</button>
-          <button onClick={() => setIsSingleModalOpen(true)} className="flex-1 lg:flex-none flex justify-center items-center bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-colors shadow-md shadow-[#282860]/20"><Plus size={18}/> New Lead</button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased relative overflow-hidden">
 
-      {/* --- DASHBOARD TABS --- */}
-      <div className="flex gap-6 border-b border-slate-200 mb-6 overflow-x-auto">
-        <button 
-          onClick={() => setActiveTab('pipeline')} 
-          className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors whitespace-nowrap ${activeTab === 'pipeline' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}
-        >
-          My Student Pipeline
-        </button>
-        <button 
-          onClick={() => setActiveTab('earnings')} 
-          className={`pb-3 font-bold text-sm tracking-wider uppercase transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'earnings' ? 'text-[#282860] border-b-2 border-[#282860]' : 'text-slate-400 hover:text-slate-600'}`}
-        >
-          Earnings & Payouts <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px]">Financials</span>
-        </button>
-      </div>
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
+      )}
 
-      {/* --- TAB 1: WORK ROOM (PIPELINE) --- */}
-      {activeTab === 'pipeline' && (
-        <div className="animate-in fade-in">
-          {activeTasks.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6">
-              <div className="flex items-center gap-2 mb-4"><Calendar className="text-[#BAD133]" size={20} /><h3 className="text-lg font-bold text-[#282860]">My Action Items</h3><span className="bg-[#BAD133]/20 text-[#282860] text-xs font-bold px-2 py-0.5 rounded-full ml-2">{activeTasks.length}</span></div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {activeTasks.slice(0, 3).map((task, i) => (
-                  <div key={i} className="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col justify-between group hover:border-[#BAD133] transition-colors">
-                    <div>
-                      <div className="flex justify-between items-start mb-2"><span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded-md shadow-sm">Due: {task.reminder_date}</span><button className="text-slate-300 hover:text-emerald-500 transition-colors" title="Mark Complete"><CheckCircle2 size={18}/></button></div>
-                      <p className="font-bold text-slate-900 text-sm mt-3">{task.studentName}</p>
-                      <p className="text-xs text-slate-600 mt-1 line-clamp-2 leading-relaxed">{task.note}</p>
-                    </div>
-                    <button onClick={() => { setSelectedStudent(students.find(s => s.id === task.studentId)); setPanelTab("overview"); }} className="text-xs font-bold text-[#282860] mt-4 flex items-center gap-1 group-hover:text-[#BAD133] transition-colors">Open Profile &rarr;</button>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* SIDEBAR */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#1b1b42] text-slate-300 flex flex-col h-full shadow-2xl border-r border-[#131333] transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+
+        <div className="h-16 lg:h-24 flex items-center px-6 border-b border-white/5 bg-[#171738] justify-between">
+          <div className="bg-white px-4 py-2 lg:py-3 rounded-xl w-full flex items-center justify-center shadow-md">
+            <img src="/fortrust-logo.png" alt="Fortrust" className="h-6 lg:h-8 w-auto object-contain" />
+          </div>
+          <button className="lg:hidden ml-4 text-slate-400 hover:text-white" onClick={() => setIsMobileMenuOpen(false)}>
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
+
+          {user.role !== "MASTER_ADMIN" && (
+            <>
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Agent Workspace</p>
+
+              <Link href="/dashboard/pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <LayoutDashboard size={18} className={pathname === '/dashboard/pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Student Pipeline
+              </Link>
+
+              <Link href="/dashboard/programs" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/programs' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <BookOpen size={18} className={pathname === '/dashboard/programs' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Program Finder
+              </Link>
+            </>
           )}
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[600px]">
-            <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <div className="relative w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-[#282860]" />
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[800px]">
-                <thead className="sticky top-0 bg-[#f8fafc] border-b border-slate-200 text-[10px] font-black text-slate-500 tracking-wider uppercase z-10">
-                  <tr>
-                    <th className="px-6 py-4">Student Profile</th>
-                    <th className="px-6 py-4">Program Interest</th>
-                    <th className="px-6 py-4">Pipeline Status</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
-                  {loading ? (
-                    <tr><td colSpan={4} className="p-16 text-center text-slate-400 font-medium animate-pulse">Syncing pipeline...</td></tr>
-                  ) : filteredStudents.length === 0 ? (
-                    <tr><td colSpan={4} className="p-16 text-center text-slate-500"><FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" /><p className="font-medium text-slate-700">No students found.</p></td></tr>
-                  ) : (
-                    filteredStudents.map((student) => (
-                      <tr key={student.id} className="hover:bg-slate-50/80 transition-colors group cursor-pointer" onClick={() => { setSelectedStudent(student); setPanelTab("overview"); }}>
-                        <td className="px-6 py-4">
-                          <div className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors">{student.name}</div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">{student.phone} • {student.email}</div>
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 font-medium">{student.program_interest || <span className="text-slate-300 italic">Not specified</span>}</td>
-                        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                          <select 
-                            className={`text-[10px] font-black tracking-wider uppercase px-3 py-1.5 rounded-lg border outline-none cursor-pointer ${getStatusColor(student.status)}`}
-                            value={student.status || "NEW LEAD"}
-                            onChange={(e) => updateStudentStatus(student.id, e.target.value)}
-                          >
-                            {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                          <button className="text-[#BAD133] group-hover:text-white group-hover:bg-[#BAD133] border border-[#BAD133] rounded-full p-1.5 transition-colors inline-block"><ChevronRight size={18}/></button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {user.role === "MASTER_ADMIN" && (
+            <>
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">Admin Tools</p>
+              
+              <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Main Dashboard
+              </Link>
+
+              <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                Agent Management
+              </Link>
+
+              <SidebarMenu label="Consultation" icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: 'Profiling Test', href: '/dashboard/pipeline' }, { label: 'Assessment', href: '/dashboard/assessment' }, { label: 'Program Finder', href: '/dashboard/programs' } ]} />
+              <SidebarMenu label="Marketing" icon={<Megaphone size={18} />} activePath={pathname} menuItems={[ { label: 'Leads', href: '/dashboard/marketing' } ]} />
+              <SidebarMenu label="Institution Partners" icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: 'Agreement', href: '/dashboard/network' }, { label: 'Contact Person', href: '/dashboard/contact-person' }, { label: 'Commission Structure', href: '/dashboard/commission-structure' } ]} />
+              <SidebarMenu label="Commissions" icon={<DollarSign size={18} />} activePath={pathname} menuItems={[ { label: 'Reports', href: '/dashboard/claimed' } ]} />
+            </>
+          )}
+
         </div>
-      )}
+      </aside>
 
-      {/* --- TAB 2: FINANCE ROOM (EARNINGS) --- */}
-      {activeTab === 'earnings' && (
-        <div className="space-y-6 animate-in fade-in">
-          {/* Earnings KPIs */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5">
-              <div className="h-14 w-14 rounded-full bg-blue-50 flex items-center justify-center"><Users className="text-blue-600" size={24} /></div>
-              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Closed Deals</p>
-              <p className="text-3xl font-black text-[#282860] mt-1">{students.filter(s => s.status?.toUpperCase() === "COMPLETED").length}</p></div>
-            </div>
-            
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5">
-              <div className="h-14 w-14 rounded-full bg-amber-50 flex items-center justify-center"><Clock className="text-amber-500" size={24} /></div>
-              <div><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Pending Payouts</p>
-              <p className="text-3xl font-black text-[#282860] mt-1">${students.filter(s => s.status?.toUpperCase() === "COMPLETED").reduce((acc, curr) => acc + (parseFloat(curr.agent_cut) || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p></div>
-            </div>
+      {/* MAIN CONTENT WRAPPER */}
+      <div className="flex-1 flex flex-col lg:ml-[260px] min-w-0 w-full transition-all duration-300">
 
-            <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-6 rounded-2xl shadow-lg border border-[#3a3a7a] flex items-center gap-5 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-[#BAD133] rounded-full blur-3xl opacity-20 -mr-10 -mt-10"></div>
-              <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center relative z-10"><DollarSign className="text-[#BAD133]" size={24} /></div>
-              <div className="relative z-10"><p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Total Earned YTD</p><p className="text-3xl font-black text-white mt-1">$0.00</p></div>
-            </div>
+        <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
+
+          <div className="flex items-center flex-1 gap-4">
+            <button className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors" onClick={() => setIsMobileMenuOpen(true)}>
+              <Menu size={24} />
+            </button>
           </div>
 
-          {/* Ledger Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
-              <h3 className="font-bold text-[#282860]">Commission Ledger</h3>
-              <span className="text-[10px] font-black bg-[#282860] text-white uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-sm">Your Tier Rate: {user?.role || "Agent"}</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-white text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
-                  <tr><th className="px-6 py-4">Student</th><th className="px-6 py-4">Total Commission Generated</th><th className="px-6 py-4">Your Cut</th><th className="px-6 py-4">Payment Status</th></tr>
-                </thead>
-                <tbody className="text-sm divide-y divide-slate-100">
-                  {students.filter(s => s.status?.toUpperCase() === "COMPLETED").length === 0 ? (
-                    <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-400 italic">No closed deals yet. Move a student to 'Completed' to earn commissions!</td></tr>
-                  ) : (
-                    students.filter(s => s.status?.toUpperCase() === "COMPLETED").map(student => (
-                      <tr key={student.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-[#282860]">{student.name}</td>
-                        <td className="px-6 py-4 text-slate-500">${(student.commission_earned || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                        <td className="px-6 py-4 font-black text-green-600">${(parseFloat(student.agent_cut) || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
-                        <td className="px-6 py-4"><span className="bg-amber-100 text-amber-700 px-2 py-1 flex items-center gap-1 w-fit rounded-md text-[10px] font-bold"><Clock size={12}/> PENDING</span></td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
+          <div className="flex items-center gap-3 lg:gap-5 flex-shrink-0">
 
-      {/* --- STUDENT DETAIL SLIDE-OUT PANEL --- */}
-      {selectedStudent && (
-        <>
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40" onClick={() => setSelectedStudent(null)}></div>
-          <div className="fixed inset-y-0 right-0 w-full sm:w-[600px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300">
-            
-            <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-[#1b1b42] text-white">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-[#BAD133] mb-1 block">Student Case File</span>
-                <h3 className="text-2xl font-black">{selectedStudent.name}</h3>
-                <div className="flex gap-3 mt-2 text-xs text-slate-300">
-                  <span className="flex items-center gap-1"><Mail size={12}/> {selectedStudent.email}</span>
-                  {selectedStudent.phone && <span className="flex items-center gap-1"><Phone size={12}/> {selectedStudent.phone}</span>}
-                </div>
-              </div>
-              <button onClick={() => setSelectedStudent(null)} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={20}/></button>
-            </div>
+            <div className="relative">
+              <button onClick={() => { setShowNotifications(!showNotifications); setShowProfileMenu(false); setUnreadCount(0); }} className={`p-2 lg:p-2.5 rounded-full transition-colors relative ${showNotifications ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}>
+                <Bell size={20} />
+                {unreadCount > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
+              </button>
 
-            <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6">
-              <button onClick={() => setPanelTab('overview')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'overview' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'} `}><Activity size={16}/> Overview</button>
-              <button onClick={() => setPanelTab('consultation')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'consultation' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'} `}><BrainCircuit size={16}/> Consultation & Report</button>
-              <button onClick={() => setPanelTab('application')} className={`px-4 py-4 text-sm font-bold tracking-wider transition-colors flex items-center gap-2 ${panelTab === 'application' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600'} `}><FileSignature size={16}/> Application</button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 p-6">
-              {/* TAB 1: OVERVIEW */}
-              {panelTab === "overview" && (
-                <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Pipeline Status</p>
-                    <select className="w-full bg-slate-50 border border-slate-200 text-[#282860] rounded-xl px-4 py-3 text-sm font-black tracking-wider uppercase outline-none focus:border-[#BAD133]" value={selectedStudent.status || "NEW LEAD"} onChange={(e) => updateStudentStatus(selectedStudent.id, e.target.value)}>
-                      {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-72 lg:w-96 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
+                  <div className="p-4 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
+                    <h3 className="font-bold text-[#282860]">Recent Activity</h3>
+                    {unreadCount > 0 && <span className="text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full">{unreadCount} New</span>}
                   </div>
-                  
-                  <div className="flex gap-2">
-                    <button onClick={handleDraftEmail} disabled={isDraftingEmail} className="flex-1 flex items-center justify-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-[#282860] py-3 rounded-xl font-bold transition-colors disabled:opacity-50 text-xs shadow-sm"><Sparkles size={14} className="text-[#BAD133]" /> AI Email</button>
-                    <button onClick={handleDraftWhatsApp} disabled={isDraftingWA} className="flex-1 flex items-center justify-center gap-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 py-3 rounded-xl font-bold transition-colors disabled:opacity-50 text-xs shadow-sm"><Sparkles size={14} className="text-emerald-500" /> AI WhatsApp</button>
-                  </div>
-
-                  <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm min-h-[250px]">
-                    <p className="text-[10px] font-bold text-[#282860] uppercase tracking-widest flex items-center gap-2 mb-4"><MessageSquare size={14}/> Activity Timeline</p>
-                    <div className="relative mb-6">
-                      <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="Log a call, text, or set a reminder..." className="w-full border border-slate-200 rounded-xl p-3 pr-12 pb-10 text-sm outline-none focus:border-[#282860] focus:ring-2 focus:ring-[#282860]/10 resize-none h-24 shadow-sm" />
-                      <div className="absolute bottom-3 left-3 flex items-center gap-2">
-                        <button onClick={() => setShowDatePicker(!showDatePicker)} className={`p-1.5 rounded-md text-xs font-bold transition-colors flex items-center gap-1 ${newReminderDate ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-200'}`}><Calendar size={14} /> {newReminderDate ? "Task Set" : "Set Reminder"}</button>
-                        {showDatePicker && (<input type="date" value={newReminderDate} onChange={(e) => { setNewReminderDate(e.target.value); setShowDatePicker(false); }} className="text-xs border border-slate-300 rounded p-1 outline-none text-slate-600 bg-white" />)}
-                      </div>
-                      <button onClick={handleAddNote} disabled={isSaving || !newNote.trim()} className="absolute bottom-3 right-3 bg-[#282860] text-white p-1.5 rounded-lg hover:bg-[#1b1b42] transition-colors disabled:opacity-50"><Send size={14} /></button>
-                    </div>
-
-                    <div className="space-y-4">
-                      {selectedStudent.timeline && selectedStudent.timeline.length > 0 ? (
-                        [...selectedStudent.timeline].reverse().map((entry: any, index: number) => (
-                          <div key={index} className="flex gap-3 relative">
-                            {index !== selectedStudent.timeline.length - 1 && (<div className="absolute left-3.5 top-8 bottom-[-16px] w-[2px] bg-slate-200"></div>)}
-                            <div className="w-7 h-7 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center flex-shrink-0 z-10">{entry.reminder_date ? <Calendar size={12} className="text-[#BAD133]"/> : <Clock size={12} className="text-slate-400" />}</div>
-                            <div className="flex-1 bg-slate-50 border border-slate-100 p-3 rounded-lg shadow-sm">
-                              <div className="flex justify-between items-start mb-1"><span className="text-xs font-bold text-slate-900">{entry.author}</span><span className="text-[10px] text-slate-400 font-medium">{entry.date}</span></div>
-                              <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{entry.note}</p>
-                              {entry.reminder_date && (<div className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-[#BAD133] bg-[#BAD133]/10 px-2 py-1 rounded-md"><Calendar size={10}/> Reminder: {entry.reminder_date}</div>)}
-                            </div>
-                          </div>
-                        ))
-                      ) : (<div className="text-center text-slate-400 text-sm italic py-4">No activity logged yet.</div>)}
-                    </div>
-                  </div>
-
-                  <div className="p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2 mb-4"><ShieldAlert size={14} className="text-orange-500"/> Verify Commission Check</p>
-                    {selectedStudent.status?.toUpperCase().includes("COMPLETED") ? (
-                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center">
-                        <CheckCircle2 size={24} className="text-emerald-500 mx-auto mb-2" />
-                        <p className="font-bold text-emerald-800 text-sm">Deal Verified & Commission Logged</p>
-                      </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <p className="text-center text-sm text-slate-500 py-6">No recent activity.</p>
                     ) : (
-                      <div className="space-y-4">
-                        <div className="space-y-1.5">
-                          <Label className="text-xs font-bold text-slate-600 flex items-center gap-1"><Building2 size={12}/> University Partner</Label>
-                          <select value={selectedInstitutionId} onChange={(e) => setSelectedInstitutionId(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg p-2.5 focus:ring-[#BAD133] outline-none bg-slate-50">
-                            <option value="">-- Choose Partner --</option>
-                            {institutions.map(inst => <option key={inst.id} value={inst.id}>{inst.name} ({inst.country})</option>)}
-                          </select>
+                      notifications.map((note) => (
+                        <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors flex gap-3">
+                          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${note.action === 'CREATE' ? 'bg-green-500' : note.action === 'DELETE' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-700">
+                              {note.changed_by} <span className="font-medium text-slate-500">{note.action.toLowerCase()}d</span> {note.entity}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">{new Date(note.created_at).toLocaleString()}</p>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Tuition ($)</Label><Input type="number" placeholder="Tuition" value={verifyTuition} onChange={(e) => setVerifyTuition(e.target.value)} className="text-xs" /></div>
-                          <div className="space-y-1.5"><Label className="text-xs font-bold text-slate-600">Rate (%)</Label><Input type="number" step="0.01" placeholder="e.g. 10%" value={verifyRate} onChange={(e) => setVerifyRate(e.target.value)} className="text-xs" /></div>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label className="text-xs font-bold text-slate-600">Proof Document (PDF)</Label>
-                          <Input type="file" accept=".pdf" onChange={(e) => setVerifyFile(e.target.files?.[0] || null)} className="text-xs cursor-pointer" />
-                        </div>
-                        <button onClick={handleVerifyCommission} disabled={isVerifying || !verifyFile || !verifyTuition || !verifyRate || !selectedInstitutionId} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors flex justify-center items-center gap-2 disabled:opacity-50 shadow-md">
-                          {isVerifying ? "Verifying..." : "Verify Deal"}
-                        </button>
-                      </div>
+                      ))
                     )}
                   </div>
                 </div>
               )}
+            </div>
 
-              {/* TAB 2: CONSULTATION & REPORT */}
-              {panelTab === "consultation" && (
-                <div className="space-y-6 animate-in fade-in">
-                  <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-6 rounded-xl border border-slate-700 shadow-sm text-white">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="font-black text-lg flex items-center gap-2"><BrainCircuit className="text-[#BAD133]"/> AI Profiling Test</h3>
-                        <p className="text-xs text-slate-300 mt-1">Send a dynamic assessment to align the student's skills with the best university programs.</p>
-                      </div>
-                    </div>
-                    <div className="bg-white/10 p-4 rounded-lg flex items-center justify-between border border-white/10">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Status</p>
-                        <p className="font-black text-[#BAD133]">Completed</p>
-                      </div>
-                      <button className="bg-[#BAD133] text-[#1b1b42] px-4 py-2 rounded-lg text-xs font-bold shadow-md hover:bg-[#a4b82d] transition-colors">
-                        Resend Test Link
-                      </button>
-                    </div>
-                  </div>
+            <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
 
-                  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
-                      <h3 className="font-bold text-[#282860] flex items-center gap-2"><BookOpen size={18} className="text-[#BAD133]"/> AI Profiling Hasil Report</h3>
-                      <button onClick={() => handleGenerateAI(selectedStudent.id, selectedStudent.name)} className="text-xs font-bold bg-[#BAD133]/20 text-[#282860] px-3 py-1 rounded-md hover:bg-[#BAD133] hover:text-white transition-colors">Regenerate AI</button>
-                    </div>
-                    
-                    <div className="flex items-center gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4">
-                      <div className="w-12 h-12 bg-red-100 text-red-600 rounded-lg flex items-center justify-center font-black text-xs border border-red-200">PDF</div>
-                      <div className="flex-1">
-                        <p className="font-bold text-sm text-[#282860]">Report_{selectedStudent.name.replace(/\s+/g, '_')}.pdf</p>
-                        <p className="text-xs text-slate-500">Generated automatically via AI Scoring Engine</p>
-                      </div>
-                      <a href={`${process.env.NEXT_PUBLIC_API_URL}/api/documents/Report_${selectedStudent.name.replace(/\s+/g, '_')}.pdf`} target="_blank" rel="noopener noreferrer" className="p-2 bg-white border border-slate-200 text-slate-600 hover:text-[#282860] hover:border-[#282860] rounded-lg transition-all shadow-sm">
-                        <Download size={18} />
-                      </a>
-                    </div>
-
-                    <div className="space-y-1 mt-6">
-                       <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Consultor Notes</label>
-                       <textarea rows={4} className="w-full p-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] bg-white" placeholder="Add your analysis and recommendations based on the AI report here..."></textarea>
-                       <div className="flex justify-end mt-2"><button className="bg-slate-100 text-slate-600 hover:bg-[#282860] hover:text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors">Save Notes</button></div>
-                    </div>
-                  </div>
+            {/* ZOHO-STYLE PROFILE MENU */}
+            <div className="relative" ref={profileMenuRef}>
+              <button 
+                onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifications(false); }}
+                className="flex items-center gap-3 p-1 pr-3 rounded-full border border-slate-200 hover:bg-slate-50 transition-all focus:ring-2 focus:ring-[#BAD133]/20 outline-none"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#BAD133] to-[#9bb029] flex items-center justify-center text-[#1b1b42] font-black text-sm shadow-sm">
+                  {user.name.charAt(0)}
                 </div>
-              )}
+                <span className="text-sm font-bold text-slate-700 hidden sm:block">{user.name.split(" ")[0]}</span>
+                <ChevronDown size={14} className="text-slate-400 hidden sm:block"/>
+              </button>
 
-              {/* TAB 3: APPLICATION TRACKER */}
-              {panelTab === "application" && (
-                <div className="space-y-6 animate-in fade-in">
-                  <div className="space-y-3 mb-5">
-                    {selectedStudent.applications && selectedStudent.applications.length > 0 ? (
-                      selectedStudent.applications.map((app: any) => (
-                        <div key={app.id} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm"><div className="flex justify-between items-start mb-2"><div><p className="font-bold text-[#282860] text-sm flex items-center gap-1.5"><Building size={14} className="text-slate-400"/> {app.university}</p><p className="text-xs text-slate-500 mt-0.5">{app.program}</p></div><select value={app.status} onChange={(e) => handleUpdateAppStatus(app.id, e.target.value)} className={`text-[10px] font-bold uppercase tracking-wider py-1 px-2 rounded-md outline-none border cursor-pointer ${getStatusColor(app.status)}`}><option value="Pending">Pending</option><option value="Offer Received">Offer Received</option><option value="Accepted">Accepted (Enrolled)</option><option value="Rejected">Rejected</option></select></div></div>
-                      ))
-                    ) : (<div className="text-xs text-slate-400 italic text-center py-8">No applications started yet.</div>)}
+              {showProfileMenu && (
+                <div className="absolute right-0 mt-3 w-72 bg-white rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+                  <div className="p-5 border-b border-slate-100 bg-[#f8fafc]">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-full bg-[#282860] flex items-center justify-center text-white font-black text-xl shadow-inner">
+                        {user.name.charAt(0)}
+                      </div>
+                      <div className="overflow-hidden">
+                        <p className="font-bold text-[#282860] text-base truncate">{user.name}</p>
+                        <p className="text-xs text-slate-500 truncate mt-0.5">{user.email || "Agent Account"}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 space-y-3">
-                    <p className="text-xs font-bold text-slate-600">Add New Application</p>
-                    <div className="space-y-2"><Input placeholder="e.g. Monash University" value={newAppUni} onChange={(e) => setNewAppUni(e.target.value)} className="text-sm bg-white" /><Input placeholder="e.g. Bachelor of Business" value={newAppProg} onChange={(e) => setNewAppProg(e.target.value)} className="text-sm bg-white" /></div>
-                    <button onClick={handleAddApplication} disabled={!newAppUni || !newAppProg || isSaving} className="w-full bg-white hover:bg-slate-100 text-[#282860] border border-slate-200 font-bold py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-1 disabled:opacity-50"><Plus size={16}/> Add to Tracker</button>
+                  <div className="p-2">
+                    <div className="px-4 py-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Role & Access</p>
+                      <p className="text-sm font-bold text-slate-700 mt-0.5">{user.role} • {user.branch}</p>
+                    </div>
                   </div>
                   
-                  <div className="p-6 mt-4 border border-slate-200 bg-white rounded-xl">
-                    <p className="text-[10px] font-bold text-[#BAD133] uppercase tracking-widest flex items-center gap-2 mb-4"><FileText size={14}/> Student Documents</p>
-                    <div className="space-y-4">
-                      <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">School Report Card (Grades)</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutReportCard(e.target.files?.[0] || null)} /></div></div>
-                      <div className="space-y-1.5"><Label className="text-xs font-semibold text-slate-600">Psychology Test</Label><div className="border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 transition-colors"><Input type="file" accept=".pdf" className="border-none shadow-none text-xs cursor-pointer bg-transparent" onChange={(e) => setSlideOutPsychTest(e.target.files?.[0] || null)} /></div></div>
-                      {(slideOutReportCard || slideOutPsychTest) && (<button onClick={() => handleUploadToExisting(selectedStudent.id)} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white font-bold py-2.5 rounded-lg mt-2 text-sm transition-colors shadow-md disabled:opacity-50">{isSaving ? "Uploading..." : "Save Documents"}</button>)}
-                    </div>
+                  {/* TUTORIAL & SETTINGS BUTTONS */}
+                  <div className="p-2 border-t border-slate-100 space-y-1">
+                    <button onClick={() => { setShowTutorial(true); setTutorialStep(0); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
+                      <HelpCircle size={18} className="text-[#BAD133]" /> Platform Tutorial
+                    </button>
+                    <button onClick={() => { setShowSettings(true); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-600 hover:text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
+                      <Settings size={18} className="text-slate-400" /> Account Settings
+                    </button>
+                  </div>
+
+                  <div className="p-2 border-t border-slate-100 bg-slate-50/50">
+                    <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors">
+                      <LogOut size={18} className="text-red-400" /> Secure Sign Out
+                    </button>
                   </div>
                 </div>
               )}
             </div>
+
           </div>
-        </>
+        </header>
+
+        <main className="flex-1 w-full max-w-[1600px] mx-auto overflow-x-hidden p-3 lg:p-6">
+          {children}
+        </main>
+      </div>
+
+      {/* --- PLATFORM TUTORIAL MODAL (Interactive Carousel) --- */}
+      {showTutorial && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            
+            <div className="p-6 flex justify-between items-center bg-white">
+              <h2 className="text-lg font-black text-[#282860] flex items-center gap-2">
+                <HelpCircle size={20} className="text-[#BAD133]" /> Fortrust OS Guide
+              </h2>
+              <button onClick={() => setShowTutorial(false)} className="text-slate-400 hover:text-slate-600 transition-colors bg-slate-100 p-2 rounded-full hover:bg-slate-200">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-8 flex-1 bg-slate-50 border-y border-slate-100 min-h-[350px] flex flex-col justify-center">
+               <div className="flex flex-col md:flex-row gap-6 items-center md:items-start animate-in fade-in slide-in-from-right-4 duration-300" key={tutorialStep}>
+                 <div className={`w-24 h-24 rounded-3xl flex items-center justify-center shrink-0 shadow-sm border ${TUTORIAL_STEPS[tutorialStep].bg} ${TUTORIAL_STEPS[tutorialStep].border}`}>
+                    {TUTORIAL_STEPS[tutorialStep].icon}
+                 </div>
+                 <div>
+                   <h3 className="font-black text-[#282860] text-2xl tracking-tight">{TUTORIAL_STEPS[tutorialStep].title}</h3>
+                   <p className="text-slate-500 text-sm mt-2 leading-relaxed font-medium">
+                     {TUTORIAL_STEPS[tutorialStep].description}
+                   </p>
+                   <ul className="mt-5 space-y-3">
+                     {TUTORIAL_STEPS[tutorialStep].points.map((point, idx) => (
+                       <li key={idx} className="flex items-start gap-3 text-sm text-slate-700">
+                         <div className="mt-1 w-1.5 h-1.5 rounded-full bg-[#BAD133] shrink-0"></div>
+                         <span className="leading-relaxed">{point}</span>
+                       </li>
+                     ))}
+                   </ul>
+                 </div>
+               </div>
+            </div>
+
+            <div className="p-5 bg-white flex items-center justify-between">
+              <button 
+                onClick={() => setTutorialStep(prev => Math.max(0, prev - 1))}
+                disabled={tutorialStep === 0}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+              >
+                <ChevronLeft size={18}/> Previous
+              </button>
+              
+              <div className="flex items-center gap-2">
+                {TUTORIAL_STEPS.map((_, idx) => (
+                  <div key={idx} className={`h-2 rounded-full transition-all duration-300 ${tutorialStep === idx ? "w-6 bg-[#BAD133]" : "w-2 bg-slate-200"}`}></div>
+                ))}
+              </div>
+
+              {tutorialStep === TUTORIAL_STEPS.length - 1 ? (
+                <button 
+                  onClick={() => setShowTutorial(false)}
+                  className="flex items-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-md active:scale-95"
+                >
+                  Get Started <CheckCircle size={18}/>
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setTutorialStep(prev => Math.min(TUTORIAL_STEPS.length - 1, prev + 1))}
+                  className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-[#282860] px-6 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-95"
+                >
+                  Next <ChevronRight size={18}/>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* --- ALL MODALS REMAIN THE SAME --- */}
-      <Dialog open={isBulkModalOpen} onOpenChange={setIsBulkModalOpen}>
-        <DialogContent className="rounded-2xl">
-          <DialogHeader><DialogTitle className="flex items-center gap-2 text-xl"><Users className="text-[#BAD133]" /> AI Bulk Scanner</DialogTitle><DialogDescription className="text-slate-500 mt-2">Upload a raw PDF list from a school expo. Gemini AI will extract data.</DialogDescription></DialogHeader>
-          <div className="py-6"><div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center bg-slate-50 hover:bg-slate-100 transition-colors"><UploadCloud className="mx-auto h-12 w-12 text-slate-400 mb-4" /><Input type="file" accept=".pdf,.csv" onChange={(e) => setBulkFile(e.target.files?.[0] || null)} className="max-w-xs mx-auto bg-white cursor-pointer" /></div></div>
-          <DialogFooter><button onClick={handleBulkImport} disabled={isSaving || !bulkFile} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white py-3 rounded-xl font-medium disabled:opacity-50 transition-colors">{isSaving ? "Scanning..." : "Scan & Import Students"}</button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isSingleModalOpen} onOpenChange={setIsSingleModalOpen}>
-        <DialogContent className="rounded-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="text-xl">Add Student Data</DialogTitle></DialogHeader>
-          <div className="space-y-4 pt-4">
-            <div className="space-y-1.5"><Label className="text-slate-600">Full Name (As per Passport)</Label><Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. John Doe" className="focus-visible:ring-[#BAD133]" /></div>
-            <div className="grid grid-cols-2 gap-4"><div className="space-y-1.5"><Label className="text-slate-600">Email Address</Label><Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="john@example.com" className="focus-visible:ring-[#BAD133]" /></div><div className="space-y-1.5"><Label className="text-slate-600">Phone Number</Label><Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="+1 555..." className="focus-visible:ring-[#BAD133]" /></div></div>
+      {/* COMPREHENSIVE ACCOUNT SETTINGS MODAL */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
             
-            <div className="space-y-4 pt-4 border-t border-slate-100 mt-2">
-              <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">1. School Report Card (Optional)</Label><div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group"><Input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setReportCardFiles(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" /><div className="flex flex-col items-center justify-center pointer-events-none"><UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" /><span className="font-semibold text-[#282860] text-sm">Upload File</span><span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - You can select multiple files)</span></div></div>{reportCardFiles.length > 0 && (<div className="flex flex-col items-end"><p className="text-xs font-semibold text-[#BAD133] mt-1">{reportCardFiles.length} file(s) selected</p>{reportCardFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}</div>)}</div>
-              <div className="space-y-2"><Label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">2. Psychology / Profiling Test (Optional)</Label><div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 hover:bg-slate-50 transition-colors text-center cursor-pointer group"><Input type="file" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setPsychTestFiles(Array.from(e.target.files || []))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" /><div className="flex flex-col items-center justify-center pointer-events-none"><UploadCloud size={24} className="mb-2 text-slate-400 group-hover:text-[#282860] transition-colors" /><span className="font-semibold text-[#282860] text-sm">Upload File</span><span className="text-[11px] text-slate-400 mt-1">(PDF, DOCX, JPG - You can select multiple files)</span></div></div>{psychTestFiles.length > 0 && (<div className="flex flex-col items-end"><p className="text-xs font-semibold text-[#BAD133] mt-1">{psychTestFiles.length} file(s) selected</p>{psychTestFiles.map((f, i) => <span key={i} className="text-[10px] text-slate-400">{f.name}</span>)}</div>)}</div>
+            <div className="p-5 lg:p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
+              <h2 className="text-lg lg:text-xl font-bold text-[#282860] flex items-center gap-2">
+                <Settings size={20} className="text-[#BAD133]" />
+                Account Settings
+              </h2>
+              <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={24} />
+              </button>
             </div>
-            <button onClick={handleSaveLead} disabled={isSaving} className="w-full bg-[#282860] hover:bg-[#1b1b42] text-white py-3 rounded-xl mt-4 font-medium disabled:opacity-50 transition-colors shadow-md shadow-[#282860]/10">{isSaving ? "Saving..." : "Create Profile"}</button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={isAiModalOpen} onOpenChange={setIsAiModalOpen}>
-        <DialogContent className="sm:max-w-[850px] max-h-[85vh] flex flex-col rounded-2xl p-0 overflow-hidden"><div className="bg-[#1b1b42] p-5 flex items-center gap-3"><div className="p-2 bg-[#282860] rounded-lg border border-[#BAD133]/30"><Sparkles className="text-[#BAD133]" size={20} /></div><DialogTitle className="text-white text-lg font-bold tracking-wide">AI Strategic Assessment</DialogTitle></div><div className="flex-1 overflow-y-auto p-8 bg-white">{isGenerating ? (<div className="flex flex-col items-center justify-center h-64 text-[#282860]"><Sparkles className="animate-spin mb-4 text-[#BAD133]" size={40} /><p className="whitespace-pre-line text-center font-semibold text-slate-600 leading-relaxed">{aiReport}</p></div>) : (<div className="text-sm text-slate-800 leading-relaxed prose prose-blue max-w-none"><ReactMarkdown>{aiReport}</ReactMarkdown></div>)}</div></DialogContent>
-      </Dialog>
+            <div className="flex bg-slate-50 border-b border-slate-200">
+              <button onClick={() => setSettingsTab('security')} className={`flex-1 py-3 text-sm font-bold transition-colors ${settingsTab === 'security' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>Security</button>
+              {user.role !== "MASTER_ADMIN" && (
+                <button onClick={() => setSettingsTab('bank')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'bank' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
+                  <Landmark size={16}/> Bank & Commissions
+                </button>
+              )}
+            </div>
+
+            <div className="p-5 lg:p-6 overflow-y-auto flex-1">
+              
+              <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
+                <div className="w-12 h-12 rounded-full bg-[#282860] flex items-center justify-center text-white font-black text-xl">
+                  {user.name.charAt(0)}
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800 text-lg">{user.name}</p>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mt-0.5">{user.role} • {user.branch}</p>
+                  
+                  {(user.phone || user.corporation_name) && (
+                    <div className="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-3">
+                      {user.phone && (
+                        <span className="flex items-center gap-1"><Phone size={10} className="text-slate-400"/> {user.phone}</span>
+                      )}
+                      {user.phone && user.corporation_name && <span className="text-slate-300">|</span>}
+                      {user.corporation_name && (
+                        <span className="flex items-center gap-1 font-bold text-[#282860]"><Building2 size={10} className="text-[#BAD133]"/> {user.corporation_name}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {settingsTab === 'security' && (
+                <form onSubmit={handlePasswordChange} className="space-y-4 animate-in fade-in">
+                  <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
+                    <Lock size={16} className="text-slate-400" /> Change Password
+                  </h3>
+                  
+                  {passwordMessage && (
+                    <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2
+                      ${passwordMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                      {passwordMessage.type === 'success' ? <CheckCircle size={14} /> : <ShieldAlert size={14} />}
+                      {passwordMessage.text}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-500">New Password</label>
+                    <input type="password" required minLength={6} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
+                  </div>
+                  
+                  <div className="pt-2 flex justify-end">
+                    <button type="submit" disabled={isChangingPassword || !newPassword} className="w-full lg:w-auto bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+                      {isChangingPassword ? "Saving..." : "Update Password"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {settingsTab === 'bank' && user.role !== "MASTER_ADMIN" && (
+                <form onSubmit={handleBankUpdate} className="space-y-4 animate-in fade-in">
+                  <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
+                    <DollarSign size={16} className="text-slate-400" /> Commission Transfer Details
+                  </h3>
+                  
+                  <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-lg border border-blue-200 font-medium mb-4">
+                    Ensure these details are accurate. This account will receive all your commission payouts for closed deals.
+                  </div>
+
+                  {bankMessage && (
+                    <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2
+                      ${bankMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                      {bankMessage.type === 'success' ? <CheckCircle size={14} /> : <ShieldAlert size={14} />}
+                      {bankMessage.text}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">Bank Name</label>
+                      <input type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g., Bank Central Asia (BCA)" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">Account Number</label>
+                      <input type="text" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} placeholder="e.g., 123-456-7890" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-[#282860]" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">Branch Location</label>
+                      <input type="text" value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} placeholder="e.g., Jakarta Sudirman" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500">SWIFT Code (If applicable)</label>
+                      <input type="text" value={swiftCode} onChange={(e) => setSwiftCode(e.target.value)} placeholder="e.g., CENAIDJA" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:border-[#282860]" />
+                    </div>
+                  </div>
+                  
+                  <div className="pt-2 flex justify-end">
+                    <button type="submit" disabled={isUpdatingBank} className="w-full lg:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                      {isUpdatingBank ? "Saving..." : <><CheckCircle size={16}/> Save Bank Details</>}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default function PipelinePageWrapper() {
+// --- SIDEBAR DROPDOWN COMPONENT ---
+
+type SidebarMenuItem = {
+  label: string;
+  href: string;
+  icon?: React.ReactNode;
+  iconClassName?: string | ((active: boolean) => string);
+};
+
+type SidebarMenuProps = {
+  label: string;
+  icon?: React.ReactNode;
+  menuItems: SidebarMenuItem[];
+  activePath: string;
+};
+
+function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
+  const [submenuOpen, setSubmenuOpen] = React.useState(false);
+  const btnRef = React.useRef<HTMLDivElement>(null);
+  const [submenuPos, setSubmenuPos] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const submenuHover = React.useRef(false);
+
+  React.useEffect(() => {
+    if (submenuOpen && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      let top = rect.top;
+      const submenuHeight = 48 * menuItems.length;
+      if (top + submenuHeight > window.innerHeight) {
+        top = window.innerHeight - submenuHeight - 16;
+      }
+      setSubmenuPos({
+        top,
+        left: rect.right + 8,
+      });
+    }
+  }, [submenuOpen, menuItems.length]);
+
+  React.useEffect(() => {
+    if (!submenuOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (
+        btnRef.current &&
+        !btnRef.current.contains(e.target as Node) &&
+        document.getElementById('sidebarmenu-submenu') &&
+        !document.getElementById('sidebarmenu-submenu')!.contains(e.target as Node)
+      ) {
+        setSubmenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [submenuOpen]);
+
+  const isActive = menuItems.some(item => item.href === activePath);
+  
   return (
-    <Suspense fallback={<div className="p-10 text-center animate-pulse text-slate-400">Loading Pipeline...</div>}>
-      <PipelineContent />
-    </Suspense>
-  )
+    <>
+      <div
+        ref={btnRef}
+        className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 cursor-pointer ${
+          isActive
+            ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5'
+            : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'
+        }`}
+        onMouseEnter={() => setSubmenuOpen(true)}
+        onMouseLeave={() => !submenuHover.current && setTimeout(() => setSubmenuOpen(false), 200)}
+        onClick={() => setSubmenuOpen((v) => !v)}
+        style={{ position: 'relative', zIndex: 51 }}
+      >
+        {icon && React.isValidElement(icon)
+          ? React.cloneElement(icon as React.ReactElement<any>, {
+              className: isActive
+                ? 'text-[#BAD133]'
+                : 'text-slate-500 group-hover:text-white transition-colors',
+            })
+          : icon}
+        {label}
+      </div>
+      {submenuOpen && typeof window !== 'undefined' && createPortal(
+        <div
+          id="sidebarmenu-submenu"
+          onMouseEnter={() => {
+            submenuHover.current = true;
+            setSubmenuOpen(true);
+          }}
+          onMouseLeave={() => {
+            submenuHover.current = false;
+            setTimeout(() => setSubmenuOpen(false), 200);
+          }}
+          style={{
+            position: 'fixed',
+            top: submenuPos.top,
+            left: submenuPos.left,
+            minWidth: 192,
+            background: '#23234a',
+            borderRadius: 12,
+            boxShadow: '0 8px 32px 0 rgba(0,0,0,0.18)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            padding: '8px 0',
+            zIndex: 9999,
+            transition: 'opacity 0.2s',
+          }}
+        >
+          {menuItems.map(item => {
+            const active = activePath === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`block px-5 py-2 rounded-lg text-sm font-semibold transition-colors ${active ? 'bg-[#BAD133] text-[#1b1b42]' : 'text-slate-300 hover:bg-white/10 hover:text-white'}`}
+                onClick={() => setSubmenuOpen(false)}
+              >
+                {item.icon && React.isValidElement(item.icon)
+                  ? React.cloneElement(item.icon as React.ReactElement<any>, {
+                      className:
+                        typeof item.iconClassName === 'function'
+                          ? item.iconClassName(active)
+                          : item.iconClassName || (active
+                              ? 'text-[#BAD133]'
+                              : 'text-slate-500 group-hover:text-white transition-colors'),
+                    })
+                  : item.icon}
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </>
+  );
 }

@@ -5,7 +5,7 @@ import {
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, 
   Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
-  Archive, RefreshCcw, MoreHorizontal
+  Archive, RefreshCcw
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
@@ -164,7 +164,11 @@ export default function AgentManagement() {
   };
 
   const filteredUsers = systemUsers.filter(u => {
-    const matchesSearch = u.name.toLowerCase().includes(searchQuery.toLowerCase()) || u.email.toLowerCase().includes(searchQuery.toLowerCase());
+    // THE FIX: Safe lowercase checking to prevent crash if data is missing
+    const safeName = (u.name || "").toLowerCase();
+    const safeEmail = (u.email || "").toLowerCase();
+    const matchesSearch = safeName.includes(searchQuery.toLowerCase()) || safeEmail.includes(searchQuery.toLowerCase());
+    
     const matchesRole = roleFilter === "All" || u.role === roleFilter;
     const matchesBranch = branchFilter === "All" || u.branch === branchFilter;
     const isArchived = u.is_archived === true;
@@ -194,7 +198,7 @@ export default function AgentManagement() {
         </div>
       )}
 
-      {/* HEADER: Clean, spacious, enterprise look */}
+      {/* HEADER */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
@@ -208,10 +212,9 @@ export default function AgentManagement() {
         </button>
       </div>
 
-      {/* UX POLISH: Filter Bar merged beautifully with Tabs */}
+      {/* Filter Bar & Tabs */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col overflow-hidden">
         
-        {/* Toggle Tabs */}
         <div className="flex px-2 pt-2 border-b border-slate-100 bg-slate-50/50">
           <button onClick={() => setViewTab('active')} className={`px-6 py-3.5 text-sm font-bold tracking-wide transition-all rounded-t-xl ${viewTab === 'active' ? 'bg-white text-[#282860] border-t border-x border-slate-200 shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.02)]' : 'text-slate-400 hover:text-slate-600'}`}>
             Active Agents
@@ -221,7 +224,6 @@ export default function AgentManagement() {
           </button>
         </div>
 
-        {/* Filters */}
         <div className="p-4 flex flex-col md:flex-row gap-4 items-center bg-white">
           <div className="flex items-center text-slate-400 bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 w-full md:w-96 focus-within:border-[#BAD133] focus-within:ring-2 focus-within:ring-[#BAD133]/20 transition-all">
             <Search size={18} className="mr-3 text-slate-400" />
@@ -240,7 +242,7 @@ export default function AgentManagement() {
         </div>
       </div>
 
-      {/* MAIN DATA TABLE: High-end spacing and typography */}
+      {/* MAIN DATA TABLE */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse min-w-[1000px]">
@@ -271,8 +273,8 @@ export default function AgentManagement() {
                           <div className={`w-3 h-3 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} shadow-sm ring-4 ring-white`}></div>
                           <div>
                             <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{u.name}</span>
-                            {/* EMAIL INTENTIONALLY HIDDEN HERE. Replaced with short system ID */}
-                            <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {u.id.substring(0, 8)}</span>
+                            {/* EMAIL INTENTIONALLY HIDDEN. Replaced with short system ID */}
+                            <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {u.id?.substring(0, 8) || "N/A"}</span>
                           </div>
                         </div>
                       </td>
@@ -334,6 +336,7 @@ export default function AgentManagement() {
                   {selectedAgent.is_archived && <span className="bg-red-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Archived</span>}
                   {selectedAgent.is_active === false && !selectedAgent.is_archived && <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Frozen</span>}
                 </h3>
+                {/* EMAIL IS VISIBLE HERE */}
                 <p className="text-sm text-slate-300 mt-2 flex items-center gap-2"><Mail size={14} className="text-slate-400"/> {selectedAgent.email}</p>
               </div>
               <button onClick={() => setSelectedAgent(null)} className="p-2 hover:bg-white/20 rounded-full transition-colors relative z-10"><X size={24}/></button>
@@ -440,7 +443,7 @@ export default function AgentManagement() {
         </>
       )}
 
-      {/* --- ADD NEW AGENT MODAL (Refined styling) --- */}
+      {/* --- ADD NEW AGENT MODAL --- */}
       {isUserModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
