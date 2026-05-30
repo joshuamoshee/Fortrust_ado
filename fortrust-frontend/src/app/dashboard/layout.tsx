@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
-  Phone, ChevronDown
+  Phone, ChevronDown, HelpCircle, PlayCircle
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -20,6 +20,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false); // NEW: Tutorial State
   
   const [settingsTab, setSettingsTab] = useState<"security" | "bank">("security");
   const [newPassword, setNewPassword] = useState("");
@@ -294,11 +295,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       <p className="text-sm font-bold text-slate-700 mt-0.5">{user.role} • {user.branch}</p>
                     </div>
                   </div>
-                  <div className="p-2 border-t border-slate-100">
+                  
+                  {/* TUTORIAL & SETTINGS BUTTONS */}
+                  <div className="p-2 border-t border-slate-100 space-y-1">
+                    <button onClick={() => { setShowTutorial(true); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
+                      <HelpCircle size={18} className="text-[#BAD133]" /> Platform Tutorial
+                    </button>
                     <button onClick={() => { setShowSettings(true); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-600 hover:text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
                       <Settings size={18} className="text-slate-400" /> Account Settings
                     </button>
                   </div>
+
                   <div className="p-2 border-t border-slate-100 bg-slate-50/50">
                     <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors">
                       <LogOut size={18} className="text-red-400" /> Secure Sign Out
@@ -315,6 +322,53 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* --- PLATFORM TUTORIAL MODAL --- */}
+      {showTutorial && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#1b1b42] text-white">
+              <h2 className="text-xl font-black flex items-center gap-3">
+                <div className="bg-[#282860] p-2 rounded-xl border border-white/10"><HelpCircle size={20} className="text-[#BAD133]" /></div>
+                Fortrust OS: Quick Start Guide
+              </h2>
+              <button onClick={() => setShowTutorial(false)} className="text-slate-400 hover:text-white transition-colors bg-white/5 p-2 rounded-full hover:bg-white/10">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-8 overflow-y-auto custom-scrollbar flex-1 bg-slate-50 space-y-6">
+              
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-5 hover:border-[#BAD133] transition-colors">
+                 <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center shrink-0"><LayoutDashboard size={28}/></div>
+                 <div>
+                   <h3 className="font-black text-[#282860] text-lg">1. The Pipeline (Agent Workspace)</h3>
+                   <p className="text-slate-500 text-sm mt-2 leading-relaxed">This is your main battle station. Add new leads, track their status from 'New Lead' to 'Completed', and generate AI Profiling Reports. Moving a student to 'Completed' automatically logs your commission into the financial ledger.</p>
+                 </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-5 hover:border-[#BAD133] transition-colors">
+                 <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center shrink-0"><DollarSign size={28}/></div>
+                 <div>
+                   <h3 className="font-black text-[#282860] text-lg">2. Tracking Commissions</h3>
+                   <p className="text-slate-500 text-sm mt-2 leading-relaxed">Ensure your Bank Details are updated in your Account Settings. When a deal closes, Master Admins will verify the tuition receipt and process your payout. You can track pending payouts in the <b>Financials</b> tab.</p>
+                 </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-5 hover:border-[#BAD133] transition-colors">
+                 <div className="w-14 h-14 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center shrink-0"><PlayCircle size={28}/></div>
+                 <div>
+                   <h3 className="font-black text-[#282860] text-lg">3. Need more help?</h3>
+                   <p className="text-slate-500 text-sm mt-2 leading-relaxed">Watch our full video walkthrough on how to parse PDF report cards and auto-generate AI university recommendations using the Google Gemini engine.</p>
+                   <button className="mt-4 bg-[#282860] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#1b1b42] transition-all shadow-md flex items-center gap-2">
+                     <PlayCircle size={16}/> Watch Video Guide
+                   </button>
+                 </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* COMPREHENSIVE ACCOUNT SETTINGS MODAL */}
       {showSettings && (
