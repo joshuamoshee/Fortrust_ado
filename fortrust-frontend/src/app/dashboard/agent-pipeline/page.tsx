@@ -164,8 +164,9 @@ export default function AgentManagement() {
   };
 
   const filteredUsers = systemUsers.filter(u => {
-    const safeName = (u.name || "").toLowerCase();
-    const safeEmail = (u.email || "").toLowerCase();
+    // 100% Type-Safe Data Checking
+    const safeName = String(u.name || "").toLowerCase();
+    const safeEmail = String(u.email || "").toLowerCase();
     const matchesSearch = safeName.includes(searchQuery.toLowerCase()) || safeEmail.includes(searchQuery.toLowerCase());
     
     const matchesRole = roleFilter === "All" || u.role === roleFilter;
@@ -178,7 +179,6 @@ export default function AgentManagement() {
   // --- ENTERPRISE SKELETON LOADER ---
   if (loading) return (
     <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative">
-      {/* Header Skeleton */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
           <div className="h-10 w-72 bg-slate-200 rounded-xl animate-pulse mb-3"></div>
@@ -187,7 +187,6 @@ export default function AgentManagement() {
         <div className="h-12 w-44 bg-slate-200 rounded-xl animate-pulse shrink-0"></div>
       </div>
 
-      {/* Filter Bar Skeleton */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col overflow-hidden">
         <div className="flex px-2 pt-2 border-b border-slate-100 bg-slate-50/50 gap-2">
           <div className="h-12 w-36 bg-slate-200 rounded-t-xl animate-pulse"></div>
@@ -202,7 +201,6 @@ export default function AgentManagement() {
         </div>
       </div>
 
-      {/* Table Skeleton */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse min-w-[1000px]">
@@ -262,7 +260,6 @@ export default function AgentManagement() {
   return (
     <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative">
       
-      {/* Toast Notification */}
       {notification && (
         <div className={`fixed top-6 right-6 z-[100] px-6 py-4 rounded-2xl font-bold flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4
           ${notification.type === 'success' ? 'bg-[#282860] text-white border border-[#3a3a7a]' : 'bg-red-500 text-white border border-red-600'}`}>
@@ -274,7 +271,6 @@ export default function AgentManagement() {
         </div>
       )}
 
-      {/* HEADER */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
@@ -288,9 +284,7 @@ export default function AgentManagement() {
         </button>
       </div>
 
-      {/* Filter Bar & Tabs */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col overflow-hidden">
-        
         <div className="flex px-2 pt-2 border-b border-slate-100 bg-slate-50/50">
           <button onClick={() => setViewTab('active')} className={`px-6 py-3.5 text-sm font-bold tracking-wide transition-all rounded-t-xl ${viewTab === 'active' ? 'bg-white text-[#282860] border-t border-x border-slate-200 shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.02)]' : 'text-slate-400 hover:text-slate-600'}`}>
             Active Agents
@@ -318,7 +312,6 @@ export default function AgentManagement() {
         </div>
       </div>
 
-      {/* MAIN DATA TABLE */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse min-w-[1000px]">
@@ -336,8 +329,9 @@ export default function AgentManagement() {
                 <tr><td colSpan={5} className="p-16 text-center text-slate-400 font-medium">No agents found matching your current filters.</td></tr>
               ) : (
                 filteredUsers.map((u) => {
-                  const activeCount = getAgentStudents(u.name).length;
-                  const closedCount = getAgentClosedDeals(u.name).length;
+                  const safeName = String(u.name || "Unknown");
+                  const activeCount = getAgentStudents(safeName).length;
+                  const closedCount = getAgentClosedDeals(safeName).length;
                   const winRate = (activeCount + closedCount) > 0 ? Math.round((closedCount / (activeCount + closedCount)) * 100) : 0;
                   const maxCap = u.max_capacity || 50;
                   const status = getLoadStatus(activeCount, maxCap);
@@ -348,14 +342,15 @@ export default function AgentManagement() {
                         <div className="flex items-center gap-4">
                           <div className={`w-3 h-3 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} shadow-sm ring-4 ring-white`}></div>
                           <div>
-                            <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{u.name}</span>
-                            <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {u.id?.substring(0, 8) || "N/A"}</span>
+                            <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{safeName}</span>
+                            {/* THE FIX: Absolute Type Safety to prevent substring crash */}
+                            <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {String(u.id || "N/A").substring(0, 8)}</span>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-5">
-                        <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold block w-fit mb-2 uppercase tracking-wider">{u.role}</span>
-                        <span className="font-bold text-slate-500 text-xs flex items-center gap-1.5"><MapPin size={14}/> {u.branch}</span>
+                        <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold block w-fit mb-2 uppercase tracking-wider">{u.role || "N/A"}</span>
+                        <span className="font-bold text-slate-500 text-xs flex items-center gap-1.5"><MapPin size={14}/> {u.branch || "N/A"}</span>
                       </td>
                       <td className="px-6 py-5">
                         <div className="w-48">
@@ -378,12 +373,12 @@ export default function AgentManagement() {
                         {viewTab === "active" ? (
                           <>
                             <button onClick={() => setEditingUser(u)} className="text-slate-500 hover:text-[#282860] hover:bg-slate-100 font-bold text-[11px] uppercase tracking-wider px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 border border-transparent hover:border-slate-200"><Edit2 size={14}/> Config</button>
-                            <button onClick={() => handleDeleteUser(u.id, u.name, false)} className="text-red-400 hover:text-white hover:bg-red-500 bg-white border border-slate-200 hover:border-red-500 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm" title="Archive Agent"><Archive size={14} /> Archive</button>
+                            <button onClick={() => handleDeleteUser(u.id, safeName, false)} className="text-red-400 hover:text-white hover:bg-red-500 bg-white border border-slate-200 hover:border-red-500 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm" title="Archive Agent"><Archive size={14} /> Archive</button>
                           </>
                         ) : (
                           <>
-                            <button onClick={() => handleRestoreUser(u.id, u.name)} className="text-blue-600 hover:text-white hover:bg-blue-600 font-bold text-[11px] uppercase tracking-wider bg-white border border-blue-200 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"><RefreshCcw size={14}/> Restore</button>
-                            <button onClick={() => handleDeleteUser(u.id, u.name, true)} className="text-red-600 hover:text-white hover:bg-red-600 bg-red-50 px-3 py-2 rounded-xl border border-red-200 transition-all flex items-center gap-1.5 shadow-sm" title="Delete Permanently"><Trash2 size={16} /></button>
+                            <button onClick={() => handleRestoreUser(u.id, safeName)} className="text-blue-600 hover:text-white hover:bg-blue-600 font-bold text-[11px] uppercase tracking-wider bg-white border border-blue-200 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"><RefreshCcw size={14}/> Restore</button>
+                            <button onClick={() => handleDeleteUser(u.id, safeName, true)} className="text-red-600 hover:text-white hover:bg-red-600 bg-red-50 px-3 py-2 rounded-xl border border-red-200 transition-all flex items-center gap-1.5 shadow-sm" title="Delete Permanently"><Trash2 size={16} /></button>
                           </>
                         )}
                       </td>
@@ -407,11 +402,11 @@ export default function AgentManagement() {
               <div className="relative z-10">
                 <span className="text-[10px] font-black uppercase tracking-widest text-[#BAD133] mb-2 block">Agent Dossier</span>
                 <h3 className="text-3xl font-black flex items-center gap-3">
-                  {selectedAgent.name} 
+                  {selectedAgent.name || "Unknown"} 
                   {selectedAgent.is_archived && <span className="bg-red-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Archived</span>}
                   {selectedAgent.is_active === false && !selectedAgent.is_archived && <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Frozen</span>}
                 </h3>
-                <p className="text-sm text-slate-300 mt-2 flex items-center gap-2"><Mail size={14} className="text-slate-400"/> {selectedAgent.email}</p>
+                <p className="text-sm text-slate-300 mt-2 flex items-center gap-2"><Mail size={14} className="text-slate-400"/> {selectedAgent.email || "N/A"}</p>
               </div>
               <button onClick={() => setSelectedAgent(null)} className="p-2 hover:bg-white/20 rounded-full transition-colors relative z-10"><X size={24}/></button>
             </div>
@@ -430,7 +425,7 @@ export default function AgentManagement() {
             
             <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
               {panelTab === 'overview' && (() => {
-                const activeCount = getAgentStudents(selectedAgent.name).length;
+                const activeCount = getAgentStudents(selectedAgent.name || "").length;
                 const maxCap = selectedAgent.max_capacity || 50;
                 const status = getLoadStatus(activeCount, maxCap);
 
@@ -457,7 +452,7 @@ export default function AgentManagement() {
                       </div>
                       <div className="bg-emerald-50 border border-emerald-100 p-6 rounded-2xl shadow-sm text-center flex flex-col justify-center">
                         <p className="text-xs font-bold text-emerald-700 uppercase tracking-widest">Closed Won</p>
-                        <p className="text-4xl font-black text-emerald-600 mt-2">{getAgentClosedDeals(selectedAgent.name).length}</p>
+                        <p className="text-4xl font-black text-emerald-600 mt-2">{getAgentClosedDeals(selectedAgent.name || "").length}</p>
                       </div>
                     </div>
                   </div>
@@ -469,7 +464,7 @@ export default function AgentManagement() {
                   <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] p-8 rounded-3xl shadow-xl relative overflow-hidden text-white border border-[#3a3a7a]">
                     <div className="absolute top-0 right-0 w-40 h-40 bg-[#BAD133] rounded-full blur-[60px] opacity-20 -mr-10 -mt-10"></div>
                     <p className="text-xs font-bold text-[#BAD133] uppercase tracking-widest mb-2 relative z-10">Total Commission Generated</p>
-                    <p className="text-5xl font-black text-white relative z-10 tracking-tight">${getAgentClosedDeals(selectedAgent.name).reduce((sum, s) => sum + (parseFloat(s.agent_cut || 0)), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+                    <p className="text-5xl font-black text-white relative z-10 tracking-tight">${getAgentClosedDeals(selectedAgent.name || "").reduce((sum, s) => sum + (parseFloat(s.agent_cut || 0)), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
                   </div>
                 </div>
               )}
@@ -482,17 +477,17 @@ export default function AgentManagement() {
                       <div className="p-2 bg-blue-500/20 rounded-lg"><Cctv className="text-blue-400" size={20}/></div>
                       <p className="text-sm font-bold uppercase tracking-widest text-slate-200">Secure System CCTV</p>
                     </div>
-                    <span className="relative z-10 bg-[#1e293b] text-slate-300 border border-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg shadow-inner">{getAgentLogs(selectedAgent.name).length} Logs</span>
+                    <span className="relative z-10 bg-[#1e293b] text-slate-300 border border-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg shadow-inner">{getAgentLogs(selectedAgent.name || "").length} Logs</span>
                   </div>
                   
-                  {getAgentLogs(selectedAgent.name).length === 0 ? (
+                  {getAgentLogs(selectedAgent.name || "").length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 border-dashed">
                       <Cctv size={48} className="mx-auto text-slate-200 mb-4" />
                       <p className="text-sm text-slate-500 font-medium">No system actions recorded yet.</p>
                     </div>
                   ) : (
                     <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-200 before:to-transparent">
-                      {getAgentLogs(selectedAgent.name).map(log => (
+                      {getAgentLogs(selectedAgent.name || "").map(log => (
                         <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
                           <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-[#f8fafc] shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 shadow-sm relative z-10
                             ${log.action === 'CREATE' ? 'bg-emerald-500' : log.action === 'UPDATE' ? 'bg-blue-500' : 'bg-amber-500'}`}>
