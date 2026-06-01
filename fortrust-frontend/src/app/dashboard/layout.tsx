@@ -25,6 +25,8 @@ const translations = {
     assessment: "Assessment",
     marketing: "Marketing",
     leads: "Leads",
+    budgetRoi: "Budget & ROI",
+    aiStrategist: "AI Strategist",
     institutionPartners: "Institution Partners",
     agreement: "Agreement",
     contactPerson: "Contact Person",
@@ -49,6 +51,8 @@ const translations = {
     assessment: "Penilaian",
     marketing: "Pemasaran",
     leads: "Prospek",
+    budgetRoi: "Anggaran & ROI",
+    aiStrategist: "Strategi AI",
     institutionPartners: "Mitra Institusi",
     agreement: "Perjanjian",
     contactPerson: "Kontak Personal",
@@ -339,7 +343,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               </Link>
 
               <SidebarMenu label={t.consultation} icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: t.profilingTest, href: '/dashboard/pipeline' }, { label: t.assessment, href: '/dashboard/assessment' }, { label: t.programFinder, href: '/dashboard/programs' } ]} />
-              <SidebarMenu label={t.marketing} icon={<Megaphone size={18} />} activePath={pathname} menuItems={[ { label: t.leads, href: '/dashboard/marketing' } ]} />
+              
+              {/* THE FIX: Updated Marketing Hub Links */}
+              <SidebarMenu label={t.marketing} icon={<Megaphone size={18} />} activePath={pathname} menuItems={[ 
+                { label: t.leads, href: '/dashboard/marketing' },
+                { label: t.budgetRoi, href: '/dashboard/marketing/budget' },
+                { label: t.aiStrategist, href: '/dashboard/marketing/strategist' }
+              ]} />
+              
               <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
               <SidebarMenu label={t.commissions} icon={<DollarSign size={18} />} activePath={pathname} menuItems={[ { label: t.reports, href: '/dashboard/claimed' } ]} />
             </>
