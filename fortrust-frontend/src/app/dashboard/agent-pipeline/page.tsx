@@ -164,7 +164,6 @@ export default function AgentManagement() {
   };
 
   const filteredUsers = systemUsers.filter(u => {
-    // THE FIX: Safe lowercase checking to prevent crash if data is missing
     const safeName = (u.name || "").toLowerCase();
     const safeEmail = (u.email || "").toLowerCase();
     const matchesSearch = safeName.includes(searchQuery.toLowerCase()) || safeEmail.includes(searchQuery.toLowerCase());
@@ -176,10 +175,87 @@ export default function AgentManagement() {
     return matchesSearch && matchesRole && matchesBranch && matchesTab;
   });
 
+  // --- ENTERPRISE SKELETON LOADER ---
   if (loading) return (
-    <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#BAD133] mb-4"></div>
-      <p className="font-medium tracking-wide">Syncing Agent Data...</p>
+    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative">
+      {/* Header Skeleton */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+        <div>
+          <div className="h-10 w-72 bg-slate-200 rounded-xl animate-pulse mb-3"></div>
+          <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse"></div>
+        </div>
+        <div className="h-12 w-44 bg-slate-200 rounded-xl animate-pulse shrink-0"></div>
+      </div>
+
+      {/* Filter Bar Skeleton */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col overflow-hidden">
+        <div className="flex px-2 pt-2 border-b border-slate-100 bg-slate-50/50 gap-2">
+          <div className="h-12 w-36 bg-slate-200 rounded-t-xl animate-pulse"></div>
+          <div className="h-12 w-40 bg-slate-100 rounded-t-xl animate-pulse"></div>
+        </div>
+        <div className="p-4 flex flex-col md:flex-row gap-4 items-center bg-white">
+           <div className="h-12 w-full md:w-96 bg-slate-100 rounded-xl animate-pulse"></div>
+           <div className="flex w-full md:w-auto gap-4">
+             <div className="h-12 flex-1 md:w-48 bg-slate-100 rounded-xl animate-pulse"></div>
+             <div className="h-12 flex-1 md:w-48 bg-slate-100 rounded-xl animate-pulse"></div>
+           </div>
+        </div>
+      </div>
+
+      {/* Table Skeleton */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left border-collapse min-w-[1000px]">
+            <thead className="bg-[#f8fafc] border-b border-slate-200">
+              <tr>
+                <th className="px-6 py-5"><div className="h-3 w-28 bg-slate-200 rounded animate-pulse"></div></th>
+                <th className="px-6 py-5"><div className="h-3 w-36 bg-slate-200 rounded animate-pulse"></div></th>
+                <th className="px-6 py-5"><div className="h-3 w-32 bg-slate-200 rounded animate-pulse"></div></th>
+                <th className="px-6 py-5"><div className="h-3 w-36 bg-slate-200 rounded animate-pulse"></div></th>
+                <th className="px-6 py-5 text-right"><div className="h-3 w-20 bg-slate-200 rounded animate-pulse ml-auto"></div></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {[...Array(6)].map((_, i) => (
+                <tr key={i}>
+                  <td className="px-6 py-5">
+                    <div className="flex items-center gap-4">
+                      <div className="w-3 h-3 rounded-full bg-slate-200 ring-4 ring-white animate-pulse shrink-0"></div>
+                      <div className="flex flex-col gap-2">
+                        <div className="h-4 w-40 bg-slate-200 rounded animate-pulse"></div>
+                        <div className="h-3 w-24 bg-slate-100 rounded animate-pulse"></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="h-6 w-28 bg-slate-100 rounded-lg animate-pulse mb-2.5"></div>
+                    <div className="h-3 w-20 bg-slate-100 rounded animate-pulse"></div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="w-48">
+                      <div className="flex justify-between items-end mb-2">
+                        <div className="h-3 w-16 bg-slate-200 rounded animate-pulse"></div>
+                        <div className="h-3 w-10 bg-slate-200 rounded animate-pulse"></div>
+                      </div>
+                      <div className="h-2.5 w-full bg-slate-100 rounded-full animate-pulse"></div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-24 bg-slate-100 rounded-lg animate-pulse"></div>
+                      <div className="h-8 w-24 bg-slate-100 rounded-lg animate-pulse"></div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5 flex justify-end gap-3">
+                    <div className="h-9 w-24 bg-slate-100 rounded-xl animate-pulse"></div>
+                    <div className="h-9 w-28 bg-slate-100 rounded-xl animate-pulse"></div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 
@@ -273,7 +349,6 @@ export default function AgentManagement() {
                           <div className={`w-3 h-3 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} shadow-sm ring-4 ring-white`}></div>
                           <div>
                             <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{u.name}</span>
-                            {/* EMAIL INTENTIONALLY HIDDEN. Replaced with short system ID */}
                             <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {u.id?.substring(0, 8) || "N/A"}</span>
                           </div>
                         </div>
@@ -336,7 +411,6 @@ export default function AgentManagement() {
                   {selectedAgent.is_archived && <span className="bg-red-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Archived</span>}
                   {selectedAgent.is_active === false && !selectedAgent.is_archived && <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Frozen</span>}
                 </h3>
-                {/* EMAIL IS VISIBLE HERE */}
                 <p className="text-sm text-slate-300 mt-2 flex items-center gap-2"><Mail size={14} className="text-slate-400"/> {selectedAgent.email}</p>
               </div>
               <button onClick={() => setSelectedAgent(null)} className="p-2 hover:bg-white/20 rounded-full transition-colors relative z-10"><X size={24}/></button>
