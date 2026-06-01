@@ -7,7 +7,8 @@ import { createPortal } from "react-dom";
 import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
-  Phone, ChevronDown, HelpCircle, PlayCircle
+  Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
+  GraduationCap, Globe
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -20,9 +21,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showTutorial, setShowTutorial] = useState(false); // NEW: Tutorial State
   
-  const [settingsTab, setSettingsTab] = useState<"security" | "bank">("security");
+  // Tutorial States
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  
+  // Settings States
+  const [settingsTab, setSettingsTab] = useState<"preferences" | "security" | "bank">("preferences");
+  
+  const [language, setLanguage] = useState<"EN" | "ID">("EN");
+  const [languageMessage, setLanguageMessage] = useState<{ type: 'success', text: string } | null>(null);
+
   const [newPassword, setNewPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -42,6 +51,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const storedUser = localStorage.getItem("fortrust_user");
+    const storedLang = localStorage.getItem("fortrust_lang") as "EN" | "ID";
+    if (storedLang) setLanguage(storedLang);
+
     if (!storedUser) {
       router.push("/");
     } else {
@@ -94,6 +106,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     localStorage.removeItem("fortrust_user");
     localStorage.removeItem("fortrust_token");
     router.push("/");
+  };
+
+  const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLang = e.target.value as "EN" | "ID";
+    setLanguage(newLang);
+    localStorage.setItem("fortrust_lang", newLang);
+    setLanguageMessage({ type: 'success', text: "Language preference saved. Interface will update shortly." });
+    setTimeout(() => setLanguageMessage(null), 3000);
   };
 
   const handlePasswordChange = async (e: FormEvent) => {
@@ -151,6 +171,70 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setIsUpdatingBank(false);
     }
   };
+
+  // --- TUTORIAL DATA ---
+  const TUTORIAL_STEPS = [
+    {
+      title: "1. The Agent Workspace",
+      icon: <LayoutDashboard size={40} className="text-blue-500" />,
+      bg: "bg-blue-50",
+      border: "border-blue-100",
+      description: "Your primary command center for managing student pipelines from initial contact to successful enrollment.",
+      points: [
+        "Add new student leads and assign them to specific branches or agents.",
+        "Track progress through 6 stages: New Lead ➔ Qualified ➔ Consulting ➔ Application ➔ Visa ➔ Completed.",
+        "Color-coded statuses help you instantly identify bottlenecks in the pipeline."
+      ]
+    },
+    {
+      title: "2. AI Profiling & Automation",
+      icon: <BrainCircuit size={40} className="text-purple-500" />,
+      bg: "bg-purple-50",
+      border: "border-purple-100",
+      description: "Leverage the Gemini AI engine to automate your daily consulting tasks.",
+      points: [
+        "Upload student PDF Report Cards and Psychology tests for instant AI analysis.",
+        "Generate personalized 'Hasil Reports' to match students with the best university programs.",
+        "Use the 1-Click AI Email and AI WhatsApp generators to draft tailored follow-up messages based on the student's status."
+      ]
+    },
+    {
+      title: "3. University Applications",
+      icon: <GraduationCap size={40} className="text-orange-500" />,
+      bg: "bg-orange-50",
+      border: "border-orange-100",
+      description: "Track external application statuses with global institution partners.",
+      points: [
+        "Log multiple university applications per student within their Case File.",
+        "Update live statuses: Pending ➔ Offer Received ➔ Accepted ➔ Rejected.",
+        "Upload and store verified proof documents directly in the cloud."
+      ]
+    },
+    {
+      title: "4. Commission & Financials",
+      icon: <DollarSign size={40} className="text-emerald-500" />,
+      bg: "bg-emerald-50",
+      border: "border-emerald-100",
+      description: "Securely track your earnings and manage your payout details.",
+      points: [
+        "Update your Bank Details securely in your Account Settings menu.",
+        "Moving a student to 'Completed' automatically logs the deal into the financial ledger.",
+        "Track your 'Total Commission Generated' and pending payouts live in the Earnings tab."
+      ]
+    },
+    {
+      title: "5. Master Admin Security",
+      icon: <ShieldAlert size={40} className="text-red-500" />,
+      bg: "bg-red-50",
+      border: "border-red-100",
+      description: "Advanced controls for network managers and system administrators.",
+      points: [
+        "Super CCTV: Monitor real-time logs of every login, creation, and edit across the network.",
+        "Load Balancing: Set Max Capacity limits for agents to prevent burnout and automatically flag overloaded queues.",
+        "2-Step Deletion: Safely 'Archive' rogue agents, or permanently delete them if required."
+      ]
+    }
+  ];
 
   if (!isLoaded || !user) return null;
 
@@ -263,7 +347,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
             <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
 
-            {/* THE NEW ZOHO-STYLE PROFILE MENU */}
+            {/* ZOHO-STYLE PROFILE MENU */}
             <div className="relative" ref={profileMenuRef}>
               <button 
                 onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifications(false); }}
@@ -298,7 +382,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   
                   {/* TUTORIAL & SETTINGS BUTTONS */}
                   <div className="p-2 border-t border-slate-100 space-y-1">
-                    <button onClick={() => { setShowTutorial(true); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
+                    <button onClick={() => { setShowTutorial(true); setTutorialStep(0); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
                       <HelpCircle size={18} className="text-[#BAD133]" /> Platform Tutorial
                     </button>
                     <button onClick={() => { setShowSettings(true); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-600 hover:text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
@@ -323,54 +407,78 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      {/* --- PLATFORM TUTORIAL MODAL --- */}
+      {/* --- PLATFORM TUTORIAL MODAL (Interactive Carousel) --- */}
       {showTutorial && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#1b1b42] text-white">
-              <h2 className="text-xl font-black flex items-center gap-3">
-                <div className="bg-[#282860] p-2 rounded-xl border border-white/10"><HelpCircle size={20} className="text-[#BAD133]" /></div>
-                Fortrust OS: Quick Start Guide
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            
+            <div className="p-6 flex justify-between items-center bg-white">
+              <h2 className="text-lg font-black text-[#282860] flex items-center gap-2">
+                <HelpCircle size={20} className="text-[#BAD133]" /> Fortrust OS Guide
               </h2>
-              <button onClick={() => setShowTutorial(false)} className="text-slate-400 hover:text-white transition-colors bg-white/5 p-2 rounded-full hover:bg-white/10">
+              <button onClick={() => setShowTutorial(false)} className="text-slate-400 hover:text-slate-600 transition-colors bg-slate-100 p-2 rounded-full hover:bg-slate-200">
                 <X size={20} />
               </button>
             </div>
-            <div className="p-8 overflow-y-auto custom-scrollbar flex-1 bg-slate-50 space-y-6">
+
+            <div className="p-8 flex-1 bg-slate-50 border-y border-slate-100 min-h-[350px] flex flex-col justify-center">
+               <div className="flex flex-col md:flex-row gap-6 items-center md:items-start animate-in fade-in slide-in-from-right-4 duration-300" key={tutorialStep}>
+                 <div className={`w-24 h-24 rounded-3xl flex items-center justify-center shrink-0 shadow-sm border ${TUTORIAL_STEPS[tutorialStep].bg} ${TUTORIAL_STEPS[tutorialStep].border}`}>
+                    {TUTORIAL_STEPS[tutorialStep].icon}
+                 </div>
+                 <div>
+                   <h3 className="font-black text-[#282860] text-2xl tracking-tight">{TUTORIAL_STEPS[tutorialStep].title}</h3>
+                   <p className="text-slate-500 text-sm mt-2 leading-relaxed font-medium">
+                     {TUTORIAL_STEPS[tutorialStep].description}
+                   </p>
+                   <ul className="mt-5 space-y-3">
+                     {TUTORIAL_STEPS[tutorialStep].points.map((point, idx) => (
+                       <li key={idx} className="flex items-start gap-3 text-sm text-slate-700">
+                         <div className="mt-1 w-1.5 h-1.5 rounded-full bg-[#BAD133] shrink-0"></div>
+                         <span className="leading-relaxed">{point}</span>
+                       </li>
+                     ))}
+                   </ul>
+                 </div>
+               </div>
+            </div>
+
+            <div className="p-5 bg-white flex items-center justify-between">
+              <button 
+                onClick={() => setTutorialStep(prev => Math.max(0, prev - 1))}
+                disabled={tutorialStep === 0}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+              >
+                <ChevronLeft size={18}/> Previous
+              </button>
               
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-5 hover:border-[#BAD133] transition-colors">
-                 <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center shrink-0"><LayoutDashboard size={28}/></div>
-                 <div>
-                   <h3 className="font-black text-[#282860] text-lg">1. The Pipeline (Agent Workspace)</h3>
-                   <p className="text-slate-500 text-sm mt-2 leading-relaxed">This is your main battle station. Add new leads, track their status from 'New Lead' to 'Completed', and generate AI Profiling Reports. Moving a student to 'Completed' automatically logs your commission into the financial ledger.</p>
-                 </div>
+              <div className="flex items-center gap-2">
+                {TUTORIAL_STEPS.map((_, idx) => (
+                  <div key={idx} className={`h-2 rounded-full transition-all duration-300 ${tutorialStep === idx ? "w-6 bg-[#BAD133]" : "w-2 bg-slate-200"}`}></div>
+                ))}
               </div>
 
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-5 hover:border-[#BAD133] transition-colors">
-                 <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center shrink-0"><DollarSign size={28}/></div>
-                 <div>
-                   <h3 className="font-black text-[#282860] text-lg">2. Tracking Commissions</h3>
-                   <p className="text-slate-500 text-sm mt-2 leading-relaxed">Ensure your Bank Details are updated in your Account Settings. When a deal closes, Master Admins will verify the tuition receipt and process your payout. You can track pending payouts in the <b>Financials</b> tab.</p>
-                 </div>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-5 hover:border-[#BAD133] transition-colors">
-                 <div className="w-14 h-14 bg-purple-50 text-purple-600 rounded-full flex items-center justify-center shrink-0"><PlayCircle size={28}/></div>
-                 <div>
-                   <h3 className="font-black text-[#282860] text-lg">3. Need more help?</h3>
-                   <p className="text-slate-500 text-sm mt-2 leading-relaxed">Watch our full video walkthrough on how to parse PDF report cards and auto-generate AI university recommendations using the Google Gemini engine.</p>
-                   <button className="mt-4 bg-[#282860] text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-[#1b1b42] transition-all shadow-md flex items-center gap-2">
-                     <PlayCircle size={16}/> Watch Video Guide
-                   </button>
-                 </div>
-              </div>
-
+              {tutorialStep === TUTORIAL_STEPS.length - 1 ? (
+                <button 
+                  onClick={() => setShowTutorial(false)}
+                  className="flex items-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-md active:scale-95"
+                >
+                  Get Started <CheckCircle size={18}/>
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setTutorialStep(prev => Math.min(TUTORIAL_STEPS.length - 1, prev + 1))}
+                  className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-[#282860] px-6 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-95"
+                >
+                  Next <ChevronRight size={18}/>
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* COMPREHENSIVE ACCOUNT SETTINGS MODAL */}
+      {/* COMPREHENSIVE ACCOUNT SETTINGS MODAL (WITH PREFERENCES) */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
@@ -386,7 +494,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             </div>
 
             <div className="flex bg-slate-50 border-b border-slate-200">
-              <button onClick={() => setSettingsTab('security')} className={`flex-1 py-3 text-sm font-bold transition-colors ${settingsTab === 'security' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>Security</button>
+              <button onClick={() => setSettingsTab('preferences')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'preferences' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
+                <Globe size={16}/> Preferences
+              </button>
+              <button onClick={() => setSettingsTab('security')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'security' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
+                <Lock size={16}/> Security
+              </button>
               {user.role !== "MASTER_ADMIN" && (
                 <button onClick={() => setSettingsTab('bank')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'bank' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
                   <Landmark size={16}/> Bank & Commissions
@@ -418,6 +531,38 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 </div>
               </div>
 
+              {/* TAB 1: PREFERENCES */}
+              {settingsTab === 'preferences' && (
+                <div className="space-y-4 animate-in fade-in">
+                  <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
+                    <Globe size={16} className="text-slate-400" /> Language & Interface
+                  </h3>
+                  
+                  {languageMessage && (
+                    <div className="p-3 rounded-lg text-xs font-bold flex items-center gap-2 bg-green-50 text-green-700 border border-green-200">
+                      <CheckCircle size={14} /> {languageMessage.text}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-500">System Language</label>
+                    <div className="relative mt-1">
+                      <select 
+                        value={language} 
+                        onChange={handleLanguageChange} 
+                        className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#282860] focus:outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 appearance-none cursor-pointer"
+                      >
+                        <option value="EN">🇺🇸 English (US)</option>
+                        <option value="ID">🇮🇩 Bahasa Indonesia</option>
+                      </select>
+                      <ChevronDown size={16} className="absolute right-4 top-3 text-slate-400 pointer-events-none" />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2">Note: Full localization requires a system refresh. AI-generated reports will adapt based on student document language.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: SECURITY */}
               {settingsTab === 'security' && (
                 <form onSubmit={handlePasswordChange} className="space-y-4 animate-in fade-in">
                   <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
@@ -445,6 +590,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 </form>
               )}
 
+              {/* TAB 3: BANK DETAILS */}
               {settingsTab === 'bank' && user.role !== "MASTER_ADMIN" && (
                 <form onSubmit={handleBankUpdate} className="space-y-4 animate-in fade-in">
                   <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">

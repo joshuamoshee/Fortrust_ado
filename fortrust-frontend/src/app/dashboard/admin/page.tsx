@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Award, Users, FileText, DollarSign, TrendingUp, TrendingDown,
   Info, Plus, Calendar, Building2, GraduationCap, ChevronDown,
-  X, Sparkles, Loader2, Activity, LogOut, Clock, Target, CheckCircle2,Cctv
+  X, Sparkles, Loader2, Activity, LogOut, Clock, Target, CheckCircle2, Cctv
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -23,7 +23,10 @@ export default function MasterDashboardPage() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [showCustomModal, setShowCustomModal] = useState(false);
+  
+  // Dropdown States
   const [showTimeMenu, setShowTimeMenu] = useState(false);
+  const [showNewMenu, setShowNewMenu] = useState(false); // STATE BARU UNTUK DROPDOWN "+ NEW"
 
   const [stats, setStats] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -31,11 +34,17 @@ export default function MasterDashboardPage() {
 
   const [openTip, setOpenTip] = useState<string | null>(null);
   const timeMenuRef = useRef<HTMLDivElement>(null);
+  const newMenuRef = useRef<HTMLDivElement>(null); // REF BARU UNTUK DROPDOWN "+ NEW"
 
   useEffect(() => {
     const handle = (e: MouseEvent) => {
+      // Tutup menu waktu jika diklik di luar
       if (timeMenuRef.current && !timeMenuRef.current.contains(e.target as Node)) {
         setShowTimeMenu(false);
+      }
+      // Tutup menu "+ New" jika diklik di luar
+      if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) {
+        setShowNewMenu(false);
       }
     };
     document.addEventListener('mousedown', handle);
@@ -100,15 +109,30 @@ export default function MasterDashboardPage() {
         </div>
 
         <div className="flex flex-wrap gap-3 items-center">
-          <Link href="/dashboard/agent-pipeline" className="bg-white border border-slate-200 hover:border-[#BAD133] hover:text-[#282860] text-slate-600 text-sm font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm">
-            <Plus size={16} className="text-[#BAD133]" /> Agent
-          </Link>
-          <Link href="/dashboard/network" className="bg-white border border-slate-200 hover:border-[#BAD133] hover:text-[#282860] text-slate-600 text-sm font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-sm">
-            <Plus size={16} className="text-[#BAD133]" /> Institution
-          </Link>
-          <Link href="/dashboard/pipeline?action=new-student" className="bg-[#282860] hover:bg-[#1b1b42] text-white text-sm font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md">
-            <Plus size={16} /> New Student
-          </Link>
+          
+          {/* THE FIX: DROPDOWN "+ NEW" BUTTON */}
+          <div className="relative" ref={newMenuRef}>
+            <button 
+              onClick={() => setShowNewMenu(!showNewMenu)} 
+              className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white text-sm font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md"
+            >
+              <Plus size={16} /> New <ChevronDown size={14} className={`text-slate-300 transition-transform duration-200 ${showNewMenu ? 'rotate-180' : ''}`}/>
+            </button>
+
+            {showNewMenu && (
+              <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] border border-slate-100 overflow-hidden z-40 animate-in fade-in slide-in-from-top-2">
+                <Link href="/dashboard/pipeline?action=new-student" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 transition-colors border-b border-slate-50 text-[#282860]">
+                  <GraduationCap size={18} className="text-[#BAD133]" /> New Student
+                </Link>
+                <Link href="/dashboard/agent-pipeline" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 transition-colors border-b border-slate-50 text-slate-600">
+                  <Users size={18} className="text-slate-400" /> New Agent
+                </Link>
+                <Link href="/dashboard/network" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 transition-colors text-slate-600">
+                  <Building2 size={18} className="text-slate-400" /> New Institution
+                </Link>
+              </div>
+            )}
+          </div>
 
           <div className="relative ml-2" ref={timeMenuRef}>
             <button onClick={() => setShowTimeMenu(!showTimeMenu)} className="bg-white border border-slate-200 hover:bg-slate-50 text-[#282860] text-sm font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-sm transition-all">
@@ -134,7 +158,6 @@ export default function MasterDashboardPage() {
         </div>
       ) : (
         <>
-          {/* CLIENT REVISION: Polished KPI Cards with the sub-metrics perfectly formatted */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             
             {/* KPI 1: Active Pipeline */}
