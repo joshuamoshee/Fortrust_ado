@@ -5,7 +5,7 @@ import {
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, 
   Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
-  Archive, RefreshCcw
+  Archive, RefreshCcw, Phone, Landmark, Percent, PhoneCall, Building2
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
@@ -28,6 +28,7 @@ export default function AgentManagement() {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPhone, setNewUserPhone] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("Individual Agent");
   const [newUserBranch, setNewUserBranch] = useState("Jakarta");
@@ -76,7 +77,7 @@ export default function AgentManagement() {
         method: "POST", 
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ 
-          name: newUserName, email: newUserEmail, password: newUserPassword, 
+          name: newUserName, email: newUserEmail, phone: newUserPhone, password: newUserPassword, 
           role: newUserRole, branch: newUserBranch, max_capacity: newUserCapacity 
         }),
       });
@@ -85,7 +86,7 @@ export default function AgentManagement() {
       if (response.ok) {
         setNotification({type: 'success', message: 'Agent account successfully deployed.'});
         fetchData(); 
-        setTimeout(() => { setIsUserModalOpen(false); setNewUserName(""); setNewUserEmail(""); setNewUserPassword(""); setNotification(null); }, 1500);
+        setTimeout(() => { setIsUserModalOpen(false); setNewUserName(""); setNewUserEmail(""); setNewUserPhone(""); setNewUserPassword(""); setNotification(null); }, 1500);
       } else setNotification({type: 'error', message: data.detail || "Failed to create user."});
     } catch (err) { setNotification({type: 'error', message: 'Network error.'}); } finally { setIsSavingUser(false); }
   };
@@ -100,14 +101,20 @@ export default function AgentManagement() {
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ 
           name: editingUser.name, role: editingUser.role, office_address: editingUser.office_address, 
-          bank_name: editingUser.bank_name, bank_branch: editingUser.bank_branch, bank_address: editingUser.bank_address, 
-          bank_account: editingUser.bank_account, swift_code: editingUser.swift_code, is_active: editingUser.is_active,
-          max_capacity: editingUser.max_capacity
+          phone: editingUser.phone, emergency_contact: editingUser.emergency_contact, 
+          commission_rate: editingUser.commission_rate,
+          bank_name: editingUser.bank_name, bank_branch: editingUser.bank_branch, 
+          bank_account: editingUser.bank_account, swift_code: editingUser.swift_code, 
+          is_active: editingUser.is_active, max_capacity: editingUser.max_capacity
         }),
       });
       if (response.ok) {
         setNotification({type: 'success', message: 'Agent configuration updated.'});
         fetchData();
+        // If the edited user is currently open in the slide-out, update that data too
+        if (selectedAgent && selectedAgent.id === editingUser.id) {
+            setSelectedAgent(editingUser);
+        }
         setTimeout(() => { setEditingUser(null); setNotification(null); }, 1500);
       } else setNotification({type: 'error', message: 'Failed to update.'});
     } catch (err) { setNotification({type: 'error', message: 'Network error.'}); }
@@ -164,7 +171,6 @@ export default function AgentManagement() {
   };
 
   const filteredUsers = systemUsers.filter(u => {
-    // 100% Type-Safe Data Checking
     const safeName = String(u.name || "").toLowerCase();
     const safeEmail = String(u.email || "").toLowerCase();
     const matchesSearch = safeName.includes(searchQuery.toLowerCase()) || safeEmail.includes(searchQuery.toLowerCase());
@@ -176,84 +182,10 @@ export default function AgentManagement() {
     return matchesSearch && matchesRole && matchesBranch && matchesTab;
   });
 
-  // --- ENTERPRISE SKELETON LOADER ---
   if (loading) return (
-    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative">
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
-        <div>
-          <div className="h-10 w-72 bg-slate-200 rounded-xl animate-pulse mb-3"></div>
-          <div className="h-4 w-96 bg-slate-100 rounded-lg animate-pulse"></div>
-        </div>
-        <div className="h-12 w-44 bg-slate-200 rounded-xl animate-pulse shrink-0"></div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col overflow-hidden">
-        <div className="flex px-2 pt-2 border-b border-slate-100 bg-slate-50/50 gap-2">
-          <div className="h-12 w-36 bg-slate-200 rounded-t-xl animate-pulse"></div>
-          <div className="h-12 w-40 bg-slate-100 rounded-t-xl animate-pulse"></div>
-        </div>
-        <div className="p-4 flex flex-col md:flex-row gap-4 items-center bg-white">
-           <div className="h-12 w-full md:w-96 bg-slate-100 rounded-xl animate-pulse"></div>
-           <div className="flex w-full md:w-auto gap-4">
-             <div className="h-12 flex-1 md:w-48 bg-slate-100 rounded-xl animate-pulse"></div>
-             <div className="h-12 flex-1 md:w-48 bg-slate-100 rounded-xl animate-pulse"></div>
-           </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse min-w-[1000px]">
-            <thead className="bg-[#f8fafc] border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-5"><div className="h-3 w-28 bg-slate-200 rounded animate-pulse"></div></th>
-                <th className="px-6 py-5"><div className="h-3 w-36 bg-slate-200 rounded animate-pulse"></div></th>
-                <th className="px-6 py-5"><div className="h-3 w-32 bg-slate-200 rounded animate-pulse"></div></th>
-                <th className="px-6 py-5"><div className="h-3 w-36 bg-slate-200 rounded animate-pulse"></div></th>
-                <th className="px-6 py-5 text-right"><div className="h-3 w-20 bg-slate-200 rounded animate-pulse ml-auto"></div></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {[...Array(6)].map((_, i) => (
-                <tr key={i}>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-4">
-                      <div className="w-3 h-3 rounded-full bg-slate-200 ring-4 ring-white animate-pulse shrink-0"></div>
-                      <div className="flex flex-col gap-2">
-                        <div className="h-4 w-40 bg-slate-200 rounded animate-pulse"></div>
-                        <div className="h-3 w-24 bg-slate-100 rounded animate-pulse"></div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="h-6 w-28 bg-slate-100 rounded-lg animate-pulse mb-2.5"></div>
-                    <div className="h-3 w-20 bg-slate-100 rounded animate-pulse"></div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="w-48">
-                      <div className="flex justify-between items-end mb-2">
-                        <div className="h-3 w-16 bg-slate-200 rounded animate-pulse"></div>
-                        <div className="h-3 w-10 bg-slate-200 rounded animate-pulse"></div>
-                      </div>
-                      <div className="h-2.5 w-full bg-slate-100 rounded-full animate-pulse"></div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-24 bg-slate-100 rounded-lg animate-pulse"></div>
-                      <div className="h-8 w-24 bg-slate-100 rounded-lg animate-pulse"></div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 flex justify-end gap-3">
-                    <div className="h-9 w-24 bg-slate-100 rounded-xl animate-pulse"></div>
-                    <div className="h-9 w-28 bg-slate-100 rounded-xl animate-pulse"></div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#BAD133] mb-4"></div>
+      <p className="font-medium tracking-wide">Syncing Agent Data...</p>
     </div>
   );
 
@@ -343,7 +275,6 @@ export default function AgentManagement() {
                           <div className={`w-3 h-3 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} shadow-sm ring-4 ring-white`}></div>
                           <div>
                             <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{safeName}</span>
-                            {/* THE FIX: Absolute Type Safety to prevent substring crash */}
                             <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {String(u.id || "N/A").substring(0, 8)}</span>
                           </div>
                         </div>
@@ -391,11 +322,11 @@ export default function AgentManagement() {
         </div>
       </div>
 
-      {/* --- SLIDE-OUT PANEL (CCTV, KPIs) --- */}
+      {/* --- SLIDE-OUT PANEL (DETAILED DOSSIER) --- */}
       {selectedAgent && (
         <>
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity" onClick={() => setSelectedAgent(null)}></div>
-          <div className="fixed inset-y-0 right-0 w-full sm:w-[650px] bg-[#f8fafc] shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300 ease-out">
+          <div className="fixed inset-y-0 right-0 w-full sm:w-[700px] bg-[#f8fafc] shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300 ease-out">
             
             <div className="p-8 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-start relative overflow-hidden">
               <div className="absolute top-0 right-0 w-64 h-64 bg-[#BAD133] rounded-full blur-[80px] opacity-10 pointer-events-none"></div>
@@ -411,19 +342,19 @@ export default function AgentManagement() {
               <button onClick={() => setSelectedAgent(null)} className="p-2 hover:bg-white/20 rounded-full transition-colors relative z-10"><X size={24}/></button>
             </div>
 
-            <div className="flex bg-white border-b border-slate-200 px-8 shadow-sm relative z-10">
-              <button onClick={() => setPanelTab('overview')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 ${panelTab === 'overview' ? 'border-b-[3px] border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
-                <Target size={18}/> Load & KPIs
+            <div className="flex bg-white border-b border-slate-200 px-8 shadow-sm relative z-10 overflow-x-auto custom-scrollbar">
+              <button onClick={() => setPanelTab('overview')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'overview' ? 'border-b-[3px] border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+                <Target size={18}/> Identity & Load
               </button>
-              <button onClick={() => setPanelTab('financials')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 ${panelTab === 'financials' ? 'border-b-[3px] border-green-600 text-green-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
-                <DollarSign size={18}/> Financials
+              <button onClick={() => setPanelTab('financials')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'financials' ? 'border-b-[3px] border-green-600 text-green-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+                <DollarSign size={18}/> Financials & Bank
               </button>
-              <button onClick={() => setPanelTab('history')} className={`px-2 py-5 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 ${panelTab === 'history' ? 'border-b-[3px] border-blue-600 text-blue-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+              <button onClick={() => setPanelTab('history')} className={`px-2 py-5 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'history' ? 'border-b-[3px] border-blue-600 text-blue-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
                 <Cctv size={18}/> System CCTV
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 lg:p-8">
               {panelTab === 'overview' && (() => {
                 const activeCount = getAgentStudents(selectedAgent.name || "").length;
                 const maxCap = selectedAgent.max_capacity || 50;
@@ -431,6 +362,37 @@ export default function AgentManagement() {
 
                 return (
                   <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                    
+                    {/* NEW: Detailed Identity & Contact Card */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                         <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Contact Information</h4>
+                         <div className="space-y-4">
+                           <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0"><Phone size={14} className="text-blue-500"/></div>
+                             <div><p className="text-[10px] font-bold text-slate-400 uppercase">Primary Phone</p><p className="text-sm font-bold text-slate-700">{selectedAgent.phone || "Not provided"}</p></div>
+                           </div>
+                           <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0"><ShieldAlert size={14} className="text-red-500"/></div>
+                             <div><p className="text-[10px] font-bold text-red-400 uppercase">Emergency Contact</p><p className="text-sm font-bold text-slate-700">{selectedAgent.emergency_contact || "Not provided"}</p></div>
+                           </div>
+                         </div>
+                      </div>
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                         <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Assignment & Office</h4>
+                         <div className="space-y-4">
+                           <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Users size={14} className="text-slate-500"/></div>
+                             <div><p className="text-[10px] font-bold text-slate-400 uppercase">System Role</p><p className="text-sm font-bold text-slate-700">{selectedAgent.role}</p></div>
+                           </div>
+                           <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Building2 size={14} className="text-slate-500"/></div>
+                             <div><p className="text-[10px] font-bold text-slate-400 uppercase">Office Location</p><p className="text-sm font-bold text-slate-700 truncate pr-2" title={selectedAgent.office_address}>{selectedAgent.office_address || "Remote / Unspecified"}</p></div>
+                           </div>
+                         </div>
+                      </div>
+                    </div>
+
                     <div className={`p-6 rounded-2xl border bg-white shadow-sm`}>
                       <div className="flex justify-between items-center mb-5">
                         <h4 className={`font-black uppercase tracking-widest text-sm flex items-center gap-2 ${status.text}`}>
@@ -465,6 +427,25 @@ export default function AgentManagement() {
                     <div className="absolute top-0 right-0 w-40 h-40 bg-[#BAD133] rounded-full blur-[60px] opacity-20 -mr-10 -mt-10"></div>
                     <p className="text-xs font-bold text-[#BAD133] uppercase tracking-widest mb-2 relative z-10">Total Commission Generated</p>
                     <p className="text-5xl font-black text-white relative z-10 tracking-tight">${getAgentClosedDeals(selectedAgent.name || "").reduce((sum, s) => sum + (parseFloat(s.agent_cut || 0)), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
+                  </div>
+
+                  {/* NEW: Banking and Commission Split Details */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="sm:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Landmark size={14}/> Banking Coordinates</h4>
+                      <div className="grid grid-cols-2 gap-y-4">
+                         <div><p className="text-[10px] font-bold text-slate-400 uppercase">Bank Name</p><p className="text-sm font-bold text-slate-700">{selectedAgent.bank_name || "Not specified"}</p></div>
+                         <div><p className="text-[10px] font-bold text-slate-400 uppercase">Branch</p><p className="text-sm font-bold text-slate-700">{selectedAgent.bank_branch || "Not specified"}</p></div>
+                         <div><p className="text-[10px] font-bold text-slate-400 uppercase">Account Number</p><p className="text-sm font-mono font-bold text-slate-700">{selectedAgent.bank_account || "Not specified"}</p></div>
+                         <div><p className="text-[10px] font-bold text-slate-400 uppercase">SWIFT Code</p><p className="text-sm font-mono font-bold text-slate-700">{selectedAgent.swift_code || "N/A"}</p></div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center items-center text-center">
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3"><Percent size={20}/></div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Base Commission Rate</p>
+                      <p className="text-3xl font-black text-[#282860] mt-1">{selectedAgent.commission_rate ? `${selectedAgent.commission_rate}%` : "Standard"}</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -522,7 +503,12 @@ export default function AgentManagement() {
             </div>
             <form onSubmit={handleCreateUser} className="p-6 space-y-5">
               <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Full Name</label><input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserName} onChange={e => setNewUserName(e.target.value)} /></div>
-              <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Email Address</label><input type="email" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Email Address</label><input type="email" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Phone Number</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} /></div>
+              </div>
+
               <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Temporary Password</label><input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -548,7 +534,7 @@ export default function AgentManagement() {
         </div>
       )}
 
-      {/* --- EDIT AGENT CONFIG MODAL --- */}
+      {/* --- EDIT AGENT CONFIG MODAL (EXPANDED DATA) --- */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
@@ -564,8 +550,10 @@ export default function AgentManagement() {
             
             <div className="p-8 overflow-y-auto custom-scrollbar flex-1 bg-white">
               <form id="edit-user-form" onSubmit={handleEditUser} className="space-y-8">
+                
+                {/* Section 1: Security & Identity */}
                 <div>
-                  <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><ShieldAlert size={14} className="text-amber-500"/> Core Security & Access</h3>
+                  <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><ShieldAlert size={14} className="text-amber-500"/> Security & Identity</h3>
                   <div className="grid grid-cols-2 gap-5">
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Account Name</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.name || ""} onChange={e => setEditingUser({...editingUser, name: e.target.value})} /></div>
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">System Role</label><select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer" value={editingUser.role || "Individual Agent"} onChange={e => setEditingUser({...editingUser, role: e.target.value})}>{ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
@@ -576,7 +564,7 @@ export default function AgentManagement() {
                     </div>
 
                     <div>
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block text-red-500 flex items-center gap-1"><ShieldAlert size={12}/> Emergency Access Control</label>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block text-red-500 flex items-center gap-1"><ShieldAlert size={12}/> Access Control</label>
                       <select className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/20 transition-all cursor-pointer" value={editingUser.is_active === false ? "false" : "true"} onChange={e => setEditingUser({...editingUser, is_active: e.target.value === "true"})}>
                         <option value="true" className="text-emerald-600 font-bold">🟢 SYSTEM ACTIVE</option>
                         <option value="false" className="text-red-600 font-bold">🔴 FREEZE ACCOUNT</option>
@@ -584,6 +572,28 @@ export default function AgentManagement() {
                     </div>
                   </div>
                 </div>
+
+                {/* Section 2: Contact & Office */}
+                <div>
+                  <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><PhoneCall size={14} className="text-blue-500"/> Contact Information</h3>
+                  <div className="grid grid-cols-2 gap-5">
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Phone Number</label><input type="text" placeholder="e.g. +62 812..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.phone || ""} onChange={e => setEditingUser({...editingUser, phone: e.target.value})} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block text-red-500">Emergency Contact</label><input type="text" placeholder="Wife/Husband Name - +62..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.emergency_contact || ""} onChange={e => setEditingUser({...editingUser, emergency_contact: e.target.value})} /></div>
+                    <div className="col-span-2"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Office Address</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.office_address || ""} onChange={e => setEditingUser({...editingUser, office_address: e.target.value})} /></div>
+                  </div>
+                </div>
+
+                {/* Section 3: Financials */}
+                <div>
+                  <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><DollarSign size={14} className="text-emerald-500"/> Commission & Banking</h3>
+                  <div className="grid grid-cols-2 gap-5">
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Bank Name</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_name || ""} onChange={e => setEditingUser({...editingUser, bank_name: e.target.value})} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Account Number</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-mono bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_account || ""} onChange={e => setEditingUser({...editingUser, bank_account: e.target.value})} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Bank Branch</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_branch || ""} onChange={e => setEditingUser({...editingUser, bank_branch: e.target.value})} /></div>
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Commission Rate (%)</label><input type="number" step="0.1" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-black text-emerald-600 bg-emerald-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.commission_rate || ""} onChange={e => setEditingUser({...editingUser, commission_rate: Number(e.target.value)})} /></div>
+                  </div>
+                </div>
+
               </form>
             </div>
             
