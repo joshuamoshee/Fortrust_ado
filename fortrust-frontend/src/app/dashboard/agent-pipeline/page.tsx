@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
-const ROLE_OPTIONS = ["Corporate Agent", "Student Counselor", "Individual Agent", "MASTER_ADMIN"];
+const ROLE_OPTIONS = ["Corporate Agent", "Individual Agent", "Master Admin"];
 
 export default function AgentManagement() {
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
