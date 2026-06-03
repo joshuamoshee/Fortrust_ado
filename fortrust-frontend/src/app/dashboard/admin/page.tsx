@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Award, Users, FileText, DollarSign, TrendingUp, TrendingDown,
   Info, Plus, Calendar, Building2, GraduationCap, ChevronDown,
-  X, Sparkles, Loader2, Activity, LogOut, Clock, Target, CheckCircle2, Cctv
+  X, Sparkles, Loader2, Activity, LogOut, Clock, Target, CheckCircle2, Megaphone, Cctv
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -26,7 +26,7 @@ export default function MasterDashboardPage() {
   
   // Dropdown States
   const [showTimeMenu, setShowTimeMenu] = useState(false);
-  const [showNewMenu, setShowNewMenu] = useState(false); // STATE BARU UNTUK DROPDOWN "+ NEW"
+  const [showNewMenu, setShowNewMenu] = useState(false);
 
   const [stats, setStats] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -34,15 +34,13 @@ export default function MasterDashboardPage() {
 
   const [openTip, setOpenTip] = useState<string | null>(null);
   const timeMenuRef = useRef<HTMLDivElement>(null);
-  const newMenuRef = useRef<HTMLDivElement>(null); // REF BARU UNTUK DROPDOWN "+ NEW"
+  const newMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handle = (e: MouseEvent) => {
-      // Tutup menu waktu jika diklik di luar
       if (timeMenuRef.current && !timeMenuRef.current.contains(e.target as Node)) {
         setShowTimeMenu(false);
       }
-      // Tutup menu "+ New" jika diklik di luar
       if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) {
         setShowNewMenu(false);
       }
@@ -96,9 +94,9 @@ export default function MasterDashboardPage() {
   const branchData = perf.branch_pipeline || [];
 
   return (
-    <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full space-y-8">
+    <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full space-y-8 animate-in fade-in">
 
-      {/* HEADER: Premium Enterprise Look */}
+      {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
         <div>
           <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
@@ -109,8 +107,6 @@ export default function MasterDashboardPage() {
         </div>
 
         <div className="flex flex-wrap gap-3 items-center">
-          
-          {/* THE FIX: DROPDOWN "+ NEW" BUTTON */}
           <div className="relative" ref={newMenuRef}>
             <button 
               onClick={() => setShowNewMenu(!showNewMenu)} 
@@ -159,8 +155,6 @@ export default function MasterDashboardPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            
-            {/* KPI 1: Active Pipeline */}
             <KpiCard id="active" icon={<Users className="text-blue-600" size={24} />} iconBg="bg-blue-50" label="Active Pipeline" value={m.in_progress ?? 0} tipOpen={openTip === "active"} onTipToggle={() => setOpenTip(openTip === "active" ? null : "active")} tipText="In progress students only. Excludes completed and dropped.">
               <div className="flex items-center gap-4 mt-4 pt-4 border-t border-slate-100">
                 <div className="flex items-center gap-1.5">
@@ -176,7 +170,6 @@ export default function MasterDashboardPage() {
               </div>
             </KpiCard>
 
-            {/* KPI 2: Qualified Leads */}
             <KpiCard id="qualified" icon={<Award className="text-yellow-600" size={24} />} iconBg="bg-yellow-50" label="Qualified Leads" value={m.qualified_leads ?? 0} tipOpen={openTip === "qualified"} onTipToggle={() => setOpenTip(openTip === "qualified" ? null : "qualified")} tipText="AI Scored Hot + Warm leads only. Excludes Cold leads.">
               <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
                 <div className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black tracking-wider ${(m.qualified_growth ?? 0) >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
@@ -187,7 +180,6 @@ export default function MasterDashboardPage() {
               </div>
             </KpiCard>
 
-            {/* KPI 3: Active Applications */}
             <KpiCard id="applications" icon={<FileText className="text-purple-600" size={24} />} iconBg="bg-purple-50" label="Active Applications" value={m.active_applications ?? 0} tipOpen={openTip === "applications"} onTipToggle={() => setOpenTip(openTip === "applications" ? null : "applications")} tipText="Submitted applications, awaiting offer from the institution.">
               <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2">
                  <Clock size={14} className="text-purple-400"/>
@@ -195,7 +187,6 @@ export default function MasterDashboardPage() {
               </div>
             </KpiCard>
 
-            {/* KPI 4: Estimation Commission */}
             <KpiCard id="commission" icon={<DollarSign className="text-emerald-600" size={24} />} iconBg="bg-emerald-50" label="Estimation Commission" value={`$${(m.estimation_commission ?? 0).toLocaleString()}`} tipOpen={openTip === "commission"} onTipToggle={() => setOpenTip(openTip === "commission" ? null : "commission")} tipText="Estimated commission from in-progress deals — projected revenue if all close successfully.">
               <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
                 <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Closed:</span>
@@ -205,9 +196,37 @@ export default function MasterDashboardPage() {
             </KpiCard>
           </div>
 
+          {/* MAMI'S ANNOUNCEMENT HUB */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8 mt-6">
+            <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
+              <div className="bg-[#282860] p-2.5 rounded-xl"><Megaphone className="text-[#BAD133]" size={20}/></div>
+              <div>
+                <h3 className="font-black text-[#282860] text-lg">Global Announcement Hub</h3>
+                <p className="text-xs text-slate-500 font-medium">Broadcast messages to all agent notification bells.</p>
+              </div>
+            </div>
+            
+            <form className="flex flex-col md:flex-row gap-4" onSubmit={(e) => { e.preventDefault(); alert("Announcement Broadcasted to all Agents!"); }}>
+              <input 
+                type="text" 
+                required
+                placeholder="Announcement Title (e.g., System Maintenance)" 
+                className="w-full md:w-1/3 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20"
+              />
+              <input 
+                type="text" 
+                required
+                placeholder="Message body..." 
+                className="w-full flex-1 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20"
+              />
+              <button type="submit" className="bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md transition-all shrink-0">
+                Push Notification
+              </button>
+            </form>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            {/* Chart: Pipeline by Branch */}
             <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8">
               <div className="mb-6">
                 <h3 className="font-black text-xl text-[#282860] flex items-center gap-2"><Building2 size={20} className="text-[#BAD133]" /> Pipeline Volume by Branch</h3>
@@ -230,7 +249,6 @@ export default function MasterDashboardPage() {
               )}
             </div>
 
-            {/* List: Top Performers */}
             <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8">
               <div className="mb-6">
                 <h3 className="font-black text-xl text-[#282860] flex items-center gap-2"><Target size={20} className="text-[#BAD133]" /> Top Performers</h3>
@@ -263,7 +281,6 @@ export default function MasterDashboardPage() {
             </div>
           </div>
 
-          {/* ===== SUPER CCTV LIVE FEED ===== */}
           <div className="bg-[#0f172a] rounded-3xl border border-slate-800 shadow-2xl p-6 lg:p-8 mt-4 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600 rounded-full blur-[120px] opacity-10 pointer-events-none"></div>
             
@@ -316,7 +333,6 @@ export default function MasterDashboardPage() {
         </>
       )}
 
-      {/* Date Range Modal */}
       {showCustomModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
@@ -347,7 +363,6 @@ export default function MasterDashboardPage() {
   );
 }
 
-// Polished KPI Card Component
 function KpiCard({ id, icon, iconBg, label, value, tipOpen, onTipToggle, tipText, children }: any) {
   return (
     <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm relative hover:shadow-md transition-shadow">
@@ -355,12 +370,9 @@ function KpiCard({ id, icon, iconBg, label, value, tipOpen, onTipToggle, tipText
         <div className={`${iconBg} p-3 rounded-2xl`}>{icon}</div>
         <button onClick={onTipToggle} className={`p-1.5 rounded-full transition-colors ${tipOpen ? "bg-[#282860] text-white shadow-md" : "text-slate-300 hover:text-[#282860] hover:bg-slate-100"}`}><Info size={16} /></button>
       </div>
-      
       <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{label}</p>
       <p className="text-4xl font-black text-[#282860] mt-1.5 tracking-tight">{value}</p>
-      
       {children}
-      
       {tipOpen && (
         <div className="absolute top-16 right-4 bg-[#1b1b42] text-white text-xs font-medium p-4 rounded-2xl shadow-xl max-w-[240px] z-20 leading-relaxed animate-in fade-in zoom-in-95">
           <div className="absolute -top-1.5 right-4 w-3 h-3 bg-[#1b1b42] rotate-45"></div>

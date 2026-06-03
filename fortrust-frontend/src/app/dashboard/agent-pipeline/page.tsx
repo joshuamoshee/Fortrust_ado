@@ -5,11 +5,11 @@ import {
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, 
   Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
-  Archive, RefreshCcw, Phone, Landmark, Percent, PhoneCall, Building2
+  Archive, RefreshCcw, Phone, Landmark, Percent, PhoneCall, Building, Building2
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
-const ROLE_OPTIONS = ["Corporate Agent", "Student Counselor", "Individual Agent", "MASTER_ADMIN"];
+const ROLE_OPTIONS = ["Individual Agent", "Corporate Agent", "Student Counselor", "MASTER_ADMIN"];
 
 export default function AgentManagement() {
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
@@ -18,13 +18,11 @@ export default function AgentManagement() {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
 
-  // Tabs & Filters
   const [viewTab, setViewTab] = useState<"active" | "archived">("active");
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
   const [branchFilter, setBranchFilter] = useState("All");
 
-  // User Modal State
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -33,9 +31,9 @@ export default function AgentManagement() {
   const [newUserRole, setNewUserRole] = useState("Individual Agent");
   const [newUserBranch, setNewUserBranch] = useState("Jakarta");
   const [newUserCapacity, setNewUserCapacity] = useState(50);
+  const [newUserCorpName, setNewUserCorpName] = useState("");
   const [isSavingUser, setIsSavingUser] = useState(false);
 
-  // Detail & Edit States
   const [selectedAgent, setSelectedAgent] = useState<any>(null); 
   const [panelTab, setPanelTab] = useState<"overview" | "financials" | "history">("overview");
   const [editingUser, setEditingUser] = useState<any>(null); 
@@ -77,8 +75,14 @@ export default function AgentManagement() {
         method: "POST", 
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ 
-          name: newUserName, email: newUserEmail, phone: newUserPhone, password: newUserPassword, 
-          role: newUserRole, branch: newUserBranch, max_capacity: newUserCapacity 
+          name: newUserName, 
+          email: newUserEmail, 
+          phone: newUserPhone, 
+          password: newUserPassword, 
+          role: newUserRole, 
+          branch: newUserBranch, 
+          max_capacity: newUserCapacity,
+          corporation_name: newUserRole === "Corporate Agent" ? newUserCorpName : null
         }),
       });
       const data = await response.json();
@@ -86,7 +90,11 @@ export default function AgentManagement() {
       if (response.ok) {
         setNotification({type: 'success', message: 'Agent account successfully deployed.'});
         fetchData(); 
-        setTimeout(() => { setIsUserModalOpen(false); setNewUserName(""); setNewUserEmail(""); setNewUserPhone(""); setNewUserPassword(""); setNotification(null); }, 1500);
+        setTimeout(() => { 
+          setIsUserModalOpen(false); 
+          setNewUserName(""); setNewUserEmail(""); setNewUserPhone(""); 
+          setNewUserPassword(""); setNewUserCorpName(""); setNotification(null); 
+        }, 1500);
       } else setNotification({type: 'error', message: data.detail || "Failed to create user."});
     } catch (err) { setNotification({type: 'error', message: 'Network error.'}); } finally { setIsSavingUser(false); }
   };
@@ -100,18 +108,24 @@ export default function AgentManagement() {
         method: "PUT", 
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ 
-          name: editingUser.name, role: editingUser.role, office_address: editingUser.office_address, 
-          phone: editingUser.phone, emergency_contact: editingUser.emergency_contact, 
+          name: editingUser.name, 
+          role: editingUser.role, 
+          office_address: editingUser.office_address, 
+          phone: editingUser.phone, 
+          emergency_contact: editingUser.emergency_contact, 
           commission_rate: editingUser.commission_rate,
-          bank_name: editingUser.bank_name, bank_branch: editingUser.bank_branch, 
-          bank_account: editingUser.bank_account, swift_code: editingUser.swift_code, 
-          is_active: editingUser.is_active, max_capacity: editingUser.max_capacity
+          bank_name: editingUser.bank_name, 
+          bank_branch: editingUser.bank_branch, 
+          bank_account: editingUser.bank_account, 
+          swift_code: editingUser.swift_code, 
+          is_active: editingUser.is_active, 
+          max_capacity: editingUser.max_capacity,
+          corporation_name: editingUser.role === "Corporate Agent" ? editingUser.corporation_name : null
         }),
       });
       if (response.ok) {
         setNotification({type: 'success', message: 'Agent configuration updated.'});
         fetchData();
-        // If the edited user is currently open in the slide-out, update that data too
         if (selectedAgent && selectedAgent.id === editingUser.id) {
             setSelectedAgent(editingUser);
         }
@@ -120,31 +134,43 @@ export default function AgentManagement() {
     } catch (err) { setNotification({type: 'error', message: 'Network error.'}); }
   };
 
-  const handleDeleteUser = async (userId: string, agentName: string, isArchived: boolean) => {
-    if (!isArchived) {
-      const activeCount = getAgentStudents(agentName).length;
-      if (activeCount > 0) {
-        alert(`ACCESS DENIED: Cannot archive ${agentName}.\nThey have ${activeCount} active students. Reassign pipeline first.`);
-        return;
-      }
-      if (!window.confirm(`Move ${agentName} to the Archive? They will lose system access.`)) return;
-    } else {
-      if (!window.confirm(`CRITICAL WARNING: Permanently delete ${agentName}? This destroys historical data.`)) return;
+  const handleArchiveUser = async (userId: string, agentName: string) => {
+    const activeCount = getAgentStudents(agentName).length;
+    if (activeCount > 0) {
+      alert(`ACCESS DENIED: Cannot archive ${agentName}.\nThey have ${activeCount} active students. Reassign pipeline first.`);
+      return;
     }
+    if (!window.confirm(`Move ${agentName} to the Archive? They will lose system access.`)) return;
 
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { 
+        method: "PUT", 
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ is_archived: true, is_active: false })
+      });
+      if (res.ok) {
+        setNotification({type: 'success', message: `${agentName} moved to Archive.`});
+        fetchData();
+      } else alert("Failed to archive user.");
+    } catch (err) { alert("Network error."); }
+  };
+
+  const handleDeletePermanently = async (userId: string, agentName: string) => {
+    if (!window.confirm(`CRITICAL WARNING: Permanently delete ${agentName}? This destroys historical data.`)) return;
     try {
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
       const data = await res.json();
       if (res.ok) {
-        setNotification({type: 'success', message: data.message});
+        setNotification({type: 'success', message: data.message || "User permanently deleted."});
         fetchData();
       } else alert(data.detail);
     } catch (err) { alert("Action failed."); }
   };
 
   const handleRestoreUser = async (userId: string, agentName: string) => {
-    if (!window.confirm(`Restore ${agentName} to Active status?`)) return;
+    if (!window.confirm(`Activate ${agentName}?`)) return;
     try {
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { 
@@ -153,7 +179,7 @@ export default function AgentManagement() {
         body: JSON.stringify({ is_archived: false, is_active: true })
       });
       if (res.ok) {
-        setNotification({type: 'success', message: `${agentName} restored successfully.`});
+        setNotification({type: 'success', message: `${agentName} activated successfully.`});
         fetchData();
       }
     } catch (err) {}
@@ -173,7 +199,8 @@ export default function AgentManagement() {
   const filteredUsers = systemUsers.filter(u => {
     const safeName = String(u.name || "").toLowerCase();
     const safeEmail = String(u.email || "").toLowerCase();
-    const matchesSearch = safeName.includes(searchQuery.toLowerCase()) || safeEmail.includes(searchQuery.toLowerCase());
+    const safeCorp = String(u.corporation_name || "").toLowerCase();
+    const matchesSearch = safeName.includes(searchQuery.toLowerCase()) || safeEmail.includes(searchQuery.toLowerCase()) || safeCorp.includes(searchQuery.toLowerCase());
     
     const matchesRole = roleFilter === "All" || u.role === roleFilter;
     const matchesBranch = branchFilter === "All" || u.branch === branchFilter;
@@ -190,7 +217,7 @@ export default function AgentManagement() {
   );
 
   return (
-    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative">
+    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative animate-in fade-in">
       
       {notification && (
         <div className={`fixed top-6 right-6 z-[100] px-6 py-4 rounded-2xl font-bold flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4
@@ -229,7 +256,7 @@ export default function AgentManagement() {
         <div className="p-4 flex flex-col md:flex-row gap-4 items-center bg-white">
           <div className="flex items-center text-slate-400 bg-slate-50 px-4 py-3 rounded-xl border border-slate-200 w-full md:w-96 focus-within:border-[#BAD133] focus-within:ring-2 focus-within:ring-[#BAD133]/20 transition-all">
             <Search size={18} className="mr-3 text-slate-400" />
-            <input type="text" placeholder="Search by name or email..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-sm text-slate-700 w-full font-medium placeholder-slate-400" />
+            <input type="text" placeholder="Search by name, email, or corp..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-transparent border-none outline-none text-sm text-slate-700 w-full font-medium placeholder-slate-400" />
           </div>
           <div className="flex w-full md:w-auto gap-4">
             <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="flex-1 md:w-48 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer">
@@ -275,7 +302,11 @@ export default function AgentManagement() {
                           <div className={`w-3 h-3 rounded-full ${u.is_archived ? 'bg-slate-300' : status.color} shadow-sm ring-4 ring-white`}></div>
                           <div>
                             <span className="font-bold text-[#282860] group-hover:text-[#BAD133] transition-colors block text-base">{safeName}</span>
-                            <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {String(u.id || "N/A").substring(0, 8)}</span>
+                            {u.role === "Corporate Agent" && u.corporation_name ? (
+                              <span className="text-[11px] text-blue-600 font-bold tracking-wider flex items-center gap-1 mt-1"><Building size={10}/> {u.corporation_name}</span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase block mt-1">ID: {String(u.id || "N/A").substring(0, 8)}</span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -304,12 +335,12 @@ export default function AgentManagement() {
                         {viewTab === "active" ? (
                           <>
                             <button onClick={() => setEditingUser(u)} className="text-slate-500 hover:text-[#282860] hover:bg-slate-100 font-bold text-[11px] uppercase tracking-wider px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 border border-transparent hover:border-slate-200"><Edit2 size={14}/> Config</button>
-                            <button onClick={() => handleDeleteUser(u.id, safeName, false)} className="text-red-400 hover:text-white hover:bg-red-500 bg-white border border-slate-200 hover:border-red-500 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm" title="Archive Agent"><Archive size={14} /> Archive</button>
+                            <button onClick={() => handleArchiveUser(u.id, safeName)} className="text-amber-500 hover:text-white hover:bg-amber-500 bg-white border border-slate-200 hover:border-amber-500 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm" title="Archive Agent"><Archive size={14} /> Archive</button>
                           </>
                         ) : (
                           <>
-                            <button onClick={() => handleRestoreUser(u.id, safeName)} className="text-blue-600 hover:text-white hover:bg-blue-600 font-bold text-[11px] uppercase tracking-wider bg-white border border-blue-200 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"><RefreshCcw size={14}/> Restore</button>
-                            <button onClick={() => handleDeleteUser(u.id, safeName, true)} className="text-red-600 hover:text-white hover:bg-red-600 bg-red-50 px-3 py-2 rounded-xl border border-red-200 transition-all flex items-center gap-1.5 shadow-sm" title="Delete Permanently"><Trash2 size={16} /></button>
+                            <button onClick={() => handleRestoreUser(u.id, safeName)} className="text-blue-600 hover:text-white hover:bg-blue-600 font-bold text-[11px] uppercase tracking-wider bg-white border border-blue-200 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"><RefreshCcw size={14}/> Activate</button>
+                            <button onClick={() => handleDeletePermanently(u.id, safeName)} className="text-red-600 hover:text-white hover:bg-red-600 bg-red-50 px-4 py-2 rounded-xl border border-red-200 transition-all flex items-center gap-1.5 shadow-sm" title="Delete Permanently"><Trash2 size={16} /> Delete</button>
                           </>
                         )}
                       </td>
@@ -337,7 +368,11 @@ export default function AgentManagement() {
                   {selectedAgent.is_archived && <span className="bg-red-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Archived</span>}
                   {selectedAgent.is_active === false && !selectedAgent.is_archived && <span className="bg-orange-500 text-white text-xs px-3 py-1 rounded-full uppercase tracking-wider">Frozen</span>}
                 </h3>
-                <p className="text-sm text-slate-300 mt-2 flex items-center gap-2"><Mail size={14} className="text-slate-400"/> {selectedAgent.email || "N/A"}</p>
+                {selectedAgent.role === "Corporate Agent" && selectedAgent.corporation_name ? (
+                  <p className="text-sm text-blue-300 mt-2 flex items-center gap-2"><Building size={14}/> {selectedAgent.corporation_name}</p>
+                ) : (
+                  <p className="text-sm text-slate-300 mt-2 flex items-center gap-2"><Mail size={14} className="text-slate-400"/> {selectedAgent.email || "N/A"}</p>
+                )}
               </div>
               <button onClick={() => setSelectedAgent(null)} className="p-2 hover:bg-white/20 rounded-full transition-colors relative z-10"><X size={24}/></button>
             </div>
@@ -362,8 +397,6 @@ export default function AgentManagement() {
 
                 return (
                   <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                    
-                    {/* NEW: Detailed Identity & Contact Card */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Contact Information</h4>
@@ -371,6 +404,10 @@ export default function AgentManagement() {
                            <div className="flex items-center gap-3">
                              <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0"><Phone size={14} className="text-blue-500"/></div>
                              <div><p className="text-[10px] font-bold text-slate-400 uppercase">Primary Phone</p><p className="text-sm font-bold text-slate-700">{selectedAgent.phone || "Not provided"}</p></div>
+                           </div>
+                           <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Mail size={14} className="text-slate-500"/></div>
+                             <div className="overflow-hidden"><p className="text-[10px] font-bold text-slate-400 uppercase">Email Address</p><p className="text-sm font-bold text-slate-700 truncate pr-2" title={selectedAgent.email}>{selectedAgent.email || "Not provided"}</p></div>
                            </div>
                            <div className="flex items-center gap-3">
                              <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0"><ShieldAlert size={14} className="text-red-500"/></div>
@@ -429,7 +466,6 @@ export default function AgentManagement() {
                     <p className="text-5xl font-black text-white relative z-10 tracking-tight">${getAgentClosedDeals(selectedAgent.name || "").reduce((sum, s) => sum + (parseFloat(s.agent_cut || 0)), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</p>
                   </div>
 
-                  {/* NEW: Banking and Commission Split Details */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="sm:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                       <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Landmark size={14}/> Banking Coordinates</h4>
@@ -502,7 +538,23 @@ export default function AgentManagement() {
               <button onClick={() => setIsUserModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <form onSubmit={handleCreateUser} className="p-6 space-y-5">
-              <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Full Name</label><input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserName} onChange={e => setNewUserName(e.target.value)} /></div>
+              
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">System Role</label>
+                <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white cursor-pointer" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
+                  {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+
+              {/* DYNAMIC CORPORATE FIELD */}
+              {newUserRole === "Corporate Agent" && (
+                <div className="animate-in fade-in slide-in-from-top-2">
+                  <label className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Building size={14}/> Corporation Name</label>
+                  <input type="text" required placeholder="e.g. EduGlobal Partners" className="w-full px-4 py-3 border border-blue-200 rounded-xl text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all bg-blue-50 focus:bg-white" value={newUserCorpName} onChange={e => setNewUserCorpName(e.target.value)} />
+                </div>
+              )}
+
+              <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">{newUserRole === "Corporate Agent" ? "PIC Full Name" : "Full Name"}</label><input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserName} onChange={e => setNewUserName(e.target.value)} /></div>
               
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Email Address</label><input type="email" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
@@ -512,18 +564,12 @@ export default function AgentManagement() {
               <div><label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Temporary Password</label><input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserPassword} onChange={e => setNewUserPassword(e.target.value)} /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">System Role</label>
-                  <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white cursor-pointer" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
-                    {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Branch</label>
                   <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white cursor-pointer" value={newUserBranch} onChange={e => setNewUserBranch(e.target.value)}>
                     {BRANCH_OPTIONS.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
-                <div className="col-span-2">
+                <div>
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Max Pipeline Capacity</label>
                   <input type="number" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserCapacity} onChange={e => setNewUserCapacity(Number(e.target.value))} />
                 </div>
@@ -534,7 +580,7 @@ export default function AgentManagement() {
         </div>
       )}
 
-      {/* --- EDIT AGENT CONFIG MODAL (EXPANDED DATA) --- */}
+      {/* --- EDIT AGENT CONFIG MODAL --- */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
@@ -551,12 +597,23 @@ export default function AgentManagement() {
             <div className="p-8 overflow-y-auto custom-scrollbar flex-1 bg-white">
               <form id="edit-user-form" onSubmit={handleEditUser} className="space-y-8">
                 
-                {/* Section 1: Security & Identity */}
                 <div>
                   <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><ShieldAlert size={14} className="text-amber-500"/> Security & Identity</h3>
                   <div className="grid grid-cols-2 gap-5">
-                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Account Name</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.name || ""} onChange={e => setEditingUser({...editingUser, name: e.target.value})} /></div>
+                    
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">System Role</label><select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer" value={editingUser.role || "Individual Agent"} onChange={e => setEditingUser({...editingUser, role: e.target.value})}>{ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}</select></div>
+
+                    {/* DYNAMIC CORPORATE FIELD */}
+                    {editingUser.role === "Corporate Agent" ? (
+                      <div className="animate-in fade-in slide-in-from-top-2">
+                        <label className="text-[11px] font-bold text-blue-500 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Building size={12}/> Corporation Name</label>
+                        <input type="text" required placeholder="Company Name" className="w-full px-4 py-3 border border-blue-200 rounded-xl text-sm bg-blue-50 focus:bg-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all" value={editingUser.corporation_name || ""} onChange={e => setEditingUser({...editingUser, corporation_name: e.target.value})} />
+                      </div>
+                    ) : (
+                      <div>{/* Empty space to keep grid alignment */}</div>
+                    )}
+
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">{editingUser.role === "Corporate Agent" ? "PIC Full Name" : "Account Name"}</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.name || ""} onChange={e => setEditingUser({...editingUser, name: e.target.value})} /></div>
                     
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Users size={12}/> Max Active Capacity</label>
@@ -573,7 +630,6 @@ export default function AgentManagement() {
                   </div>
                 </div>
 
-                {/* Section 2: Contact & Office */}
                 <div>
                   <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><PhoneCall size={14} className="text-blue-500"/> Contact Information</h3>
                   <div className="grid grid-cols-2 gap-5">
@@ -583,7 +639,6 @@ export default function AgentManagement() {
                   </div>
                 </div>
 
-                {/* Section 3: Financials */}
                 <div>
                   <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><DollarSign size={14} className="text-emerald-500"/> Commission & Banking</h3>
                   <div className="grid grid-cols-2 gap-5">

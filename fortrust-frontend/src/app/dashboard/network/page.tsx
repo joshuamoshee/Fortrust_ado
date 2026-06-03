@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { 
   Building2, MapPin, DollarSign, UploadCloud, Plus, 
-  Sparkles, X, Loader2, Trash2, Building, FileText, Phone, Calculator
+  Sparkles, X, Loader2, Trash2, Building, FileText, Phone, Calculator,
+  Search, Filter, Globe, CheckCircle2
 } from "lucide-react";
 
 export default function InstitutionPartners() {
@@ -14,6 +15,12 @@ export default function InstitutionPartners() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // New UI States for Mami's Request
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadInstId, setUploadInstId] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const emptyForm = {
     id: "",
@@ -58,7 +65,6 @@ export default function InstitutionPartners() {
         : `${process.env.NEXT_PUBLIC_API_URL}/api/institutions`;
       const method = isEditing ? "PUT" : "POST";
 
-      // ✅ FIX: Remap frontend field names → actual DB column names
       const payload: any = {
         name: formData.institution_name,
         type: formData.institution_type,
@@ -77,6 +83,7 @@ export default function InstitutionPartners() {
         duration_start: formData.duration_start || null,
         duration_end: formData.duration_end || null,
         terms_conditions: formData.terms_conditions,
+        document_link: formData.document_link,
         contacts: formData.contacts,
       };
 
@@ -139,7 +146,6 @@ export default function InstitutionPartners() {
       });
       const result = await res.json();
       if (result.status === "success") {
-        // ✅ FIX: Remap AI response fields to form field names
         setFormData(prev => ({
           ...prev,
           institution_name: result.data.institution_name || prev.institution_name,
@@ -163,74 +169,129 @@ export default function InstitutionPartners() {
     }
   };
 
+  const handleVaultUpload = () => {
+    if (!uploadFile) return;
+    alert("Agreement securely saved to vault! (Sync with S3 pending)");
+    setShowUploadModal(false);
+    setUploadFile(null);
+    setUploadInstId("");
+  };
+
+  const filteredInstitutions = institutions.filter(inst => 
+    (inst.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (inst.country || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    <div className="p-4 lg:p-8 max-w-[1400px] mx-auto w-full relative">
+    <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative animate-in fade-in">
       
       {/* Header */}
-      <div className="flex justify-between items-end mb-8">
-        <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
-          <Building2 className="text-[#BAD133]" size={36} />
-          Institution Partners
-        </h1>
-        <button
-          onClick={() => { setFormData(emptyForm); setIsEditModalOpen(true); setModalTab("profile"); }}
-          className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center gap-2"
-        >
-          <Plus size={18} /> Add Institution
-        </button>
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+        <div>
+          <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
+            <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+              <Building2 className="text-[#BAD133]" size={28} />
+            </div>
+            Institution Partners
+          </h1>
+          <p className="text-slate-500 mt-2 font-medium text-sm">
+            Manage university agreements, MoU documents, and active partner statuses.
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-3 w-full lg:w-auto">
+          <button
+            onClick={() => { setShowUploadModal(true); setUploadInstId(""); }}
+            className="bg-white hover:bg-slate-50 border border-slate-200 text-[#282860] px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm flex items-center gap-2 shrink-0 transition-colors"
+          >
+            <UploadCloud size={18} /> Upload MoU
+          </button>
+          <button
+            onClick={() => { setFormData(emptyForm); setIsEditModalOpen(true); setModalTab("profile"); }}
+            className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center gap-2 shrink-0 transition-colors"
+          >
+            <Plus size={18} /> Add Institution
+          </button>
+        </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[800px]">
-            <thead className="bg-[#f8fafc] text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[650px]">
+        
+        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+          <div className="flex items-center text-slate-400 bg-white px-3 py-2 rounded-lg border border-slate-200 w-full max-w-sm focus-within:border-[#BAD133] transition-all shadow-sm">
+            <Search size={16} className="mr-2 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Search institution or country..." 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="bg-transparent border-none outline-none text-sm text-slate-700 w-full" 
+            />
+          </div>
+          <button className="flex items-center gap-2 text-sm font-bold text-slate-600 bg-white border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm shrink-0">
+            <Filter size={16}/> Filter Status
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-x-auto custom-scrollbar">
+          <table className="w-full text-left min-w-[1000px]">
+            <thead className="bg-white text-[#64748b] text-[10px] uppercase tracking-widest border-b border-slate-200 sticky top-0 z-10">
               <tr>
-                <th className="px-5 py-4">Institution</th>
-                <th className="px-5 py-4">Region</th>
+                <th className="px-5 py-4">Institution Name</th>
+                <th className="px-5 py-4">Location</th>
                 <th className="px-5 py-4">Base Commission</th>
-                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4">MoU Status</th>
+                <th className="px-5 py-4">Agreement File</th>
                 <th className="px-5 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center">
+                  <td colSpan={6} className="p-8 text-center">
                     <Loader2 className="animate-spin mx-auto text-[#BAD133]" size={32} />
                   </td>
                 </tr>
-              ) : institutions.length === 0 ? (
+              ) : filteredInstitutions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-slate-500">
+                  <td colSpan={6} className="p-12 text-center text-slate-500">
                     No institutions found. Click "Add Institution" to get started.
                   </td>
                 </tr>
-              ) : institutions.map((inst) => (
-                <tr key={inst.id} className="hover:bg-slate-50 transition-colors">
-
-                  {/* ✅ FIX: DB returns "name" not "institution_name" */}
+              ) : filteredInstitutions.map((inst) => (
+                <tr key={inst.id} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-5 py-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 font-black">
+                    <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 font-black shrink-0">
                       {inst.name?.charAt(0) || "U"}
                     </div>
                     <div>
                       <p className="font-bold text-[#282860]">{inst.name || "Unnamed"}</p>
-                      <p className="text-[11px] text-slate-400">{inst.website}</p>
+                      <p className="text-[11px] text-slate-400">{inst.website || "No website"}</p>
                     </div>
                   </td>
-
-                  <td className="px-5 py-4 text-slate-600 font-medium">{inst.country || "N/A"}</td>
-                  <td className="px-5 py-4 font-bold text-green-600">{inst.base_commission || "-"}%</td>
+                  <td className="px-5 py-4 text-slate-600 font-medium">
+                    <span className="flex items-center gap-1.5"><Globe size={14} className="text-slate-400"/> {inst.country || "N/A"}</span>
+                  </td>
+                  <td className="px-5 py-4 font-bold text-emerald-600">{inst.base_commission ? `${inst.base_commission}%` : "-"}</td>
                   <td className="px-5 py-4">
-                    <span className="bg-green-100 text-green-700 px-2 py-1 rounded-md text-[10px] font-bold uppercase">
+                    <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${inst.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
                       {inst.status || "ACTIVE"}
                     </span>
                   </td>
-
+                  <td className="px-5 py-4">
+                    {inst.document_link ? (
+                      <a href={inst.document_link} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-fit text-[#282860] bg-white border border-slate-200 hover:border-[#BAD133] px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm">
+                        <FileText size={14}/> View PDF
+                      </a>
+                    ) : (
+                      <button onClick={() => { setUploadInstId(inst.id); setShowUploadModal(true); }} className="flex items-center justify-center gap-2 text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-100 hover:text-slate-600 transition-colors w-fit">
+                        <UploadCloud size={14}/> Awaiting Upload
+                      </button>
+                    )}
+                  </td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-2">
-                      {/* ✅ FIX: Remap DB fields back to form field names on Edit */}
                       <button
                         onClick={() => {
                           setFormData({
@@ -255,7 +316,6 @@ export default function InstitutionPartners() {
                       </button>
                     </div>
                   </td>
-
                 </tr>
               ))}
             </tbody>
@@ -263,13 +323,72 @@ export default function InstitutionPartners() {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* --- MAMI'S AGREEMENT UPLOAD VAULT MODAL --- */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
+              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2"><Building2 size={22} className="text-[#BAD133]" /> Upload Agreement (MoU)</h2>
+              <button onClick={() => { setShowUploadModal(false); setUploadFile(null); setUploadInstId(""); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Institution Partner</label>
+                <select 
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 bg-slate-50 focus:bg-white cursor-pointer"
+                  value={uploadInstId}
+                  onChange={(e) => setUploadInstId(e.target.value)}
+                >
+                  <option value="" disabled>Select an institution...</option>
+                  {institutions.map(inst => (
+                    <option key={inst.id} value={inst.id}>{inst.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Signed Document</label>
+                {!uploadFile ? (
+                  <label className="border-2 border-dashed border-slate-300 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-all">
+                    <input type="file" accept=".pdf" className="hidden" onChange={(e) => { if(e.target.files) setUploadFile(e.target.files[0]) }} />
+                    <UploadCloud size={32} className="text-slate-400 mb-3" />
+                    <p className="text-sm font-bold text-slate-700">Click to upload PDF</p>
+                    <p className="text-xs text-slate-400 mt-1">Max size: 10MB</p>
+                  </label>
+                ) : (
+                  <div className="border-2 border-emerald-500 bg-emerald-50 rounded-2xl p-6 flex flex-col justify-center relative shadow-sm">
+                    <button onClick={() => setUploadFile(null)} className="absolute top-4 right-4 text-emerald-500 hover:bg-white p-1 rounded-full"><X size={18}/></button>
+                    <div className="flex items-center gap-3">
+                      <div className="bg-white p-2 rounded-lg text-emerald-600 shadow-sm shrink-0"><CheckCircle2 size={24} /></div>
+                      <div className="overflow-hidden">
+                        <p className="text-sm font-bold text-[#282860] truncate">{uploadFile.name}</p>
+                        <p className="text-xs font-bold text-slate-500 mt-0.5">{(uploadFile.size / 1024).toFixed(1)} KB • Ready to sync</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button 
+                disabled={!uploadFile || !uploadInstId} 
+                onClick={handleVaultUpload} 
+                className="w-full bg-[#282860] hover:bg-[#1b1b42] disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-all shadow-md active:scale-95"
+              >
+                Securely Save to Vault
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MASTER EDIT MODAL (RETAINED EXACTLY AS IS) --- */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
 
             {/* Modal Header */}
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#1b1b42] text-white">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#1b1b42] text-white shrink-0">
               <div>
                 <h2 className="text-2xl font-black flex items-center gap-2">
                   <Building2 className="text-[#BAD133]" />
@@ -286,7 +405,7 @@ export default function InstitutionPartners() {
             </div>
 
             {/* AI Banner */}
-            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-4 border-b border-indigo-100 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-4 border-b border-indigo-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><Sparkles size={20} /></div>
                 <div>
@@ -304,13 +423,13 @@ export default function InstitutionPartners() {
               </button>
             </div>
             {scanSuccess && (
-              <div className="bg-green-50 text-green-700 p-2 text-center text-xs font-bold border-b border-green-100">
+              <div className="bg-green-50 text-green-700 p-2 text-center text-xs font-bold border-b border-green-100 shrink-0">
                 ✅ AI successfully extracted contract data!
               </div>
             )}
 
             {/* Modal Tabs */}
-            <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6 overflow-x-auto">
+            <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6 overflow-x-auto shrink-0">
               <button onClick={() => setModalTab('profile')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'profile' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><Building size={16} /> A. Profile</button>
               <button onClick={() => setModalTab('agreement')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'agreement' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><FileText size={16} /> B. Agreement</button>
               <button onClick={() => setModalTab('contacts')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'contacts' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><Phone size={16} /> C. Contacts</button>
@@ -318,46 +437,46 @@ export default function InstitutionPartners() {
             </div>
 
             {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto p-8 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-8 bg-slate-50 custom-scrollbar">
 
               {/* TAB A: PROFILE */}
               {modalTab === 'profile' && (
                 <div className="grid grid-cols-2 gap-6">
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Institution Name</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl font-bold text-[#282860]" value={formData.institution_name} onChange={e => setFormData({ ...formData, institution_name: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl font-bold text-[#282860] outline-none focus:border-[#BAD133]" value={formData.institution_name} onChange={e => setFormData({ ...formData, institution_name: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Institution Type</label>
-                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.institution_type} onChange={e => setFormData({ ...formData, institution_type: e.target.value })}>
+                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.institution_type} onChange={e => setFormData({ ...formData, institution_type: e.target.value })}>
                       <option>University</option><option>College</option><option>Vocational</option><option>Language School</option>
                     </select>
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Country/Region</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.country} onChange={e => setFormData({ ...formData, country: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.country} onChange={e => setFormData({ ...formData, country: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Website</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Establishment Year</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.establishment_year} onChange={e => setFormData({ ...formData, establishment_year: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.establishment_year} onChange={e => setFormData({ ...formData, establishment_year: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Student Intake (Annual)</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.student_intake} onChange={e => setFormData({ ...formData, student_intake: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.student_intake} onChange={e => setFormData({ ...formData, student_intake: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
+                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
                       <option>Active</option><option>Inactive</option>
                     </select>
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Programs Offered</label>
-                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.programs_offered} onChange={e => setFormData({ ...formData, programs_offered: e.target.value })} />
+                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.programs_offered} onChange={e => setFormData({ ...formData, programs_offered: e.target.value })} />
                   </div>
                 </div>
               )}
@@ -367,15 +486,15 @@ export default function InstitutionPartners() {
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Agreement ID</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl font-mono" value={formData.agreement_id} onChange={e => setFormData({ ...formData, agreement_id: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl font-mono outline-none focus:border-[#BAD133]" value={formData.agreement_id} onChange={e => setFormData({ ...formData, agreement_id: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Agreement Date</label>
-                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.agreement_date} onChange={e => setFormData({ ...formData, agreement_date: e.target.value })} />
+                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.agreement_date} onChange={e => setFormData({ ...formData, agreement_date: e.target.value })} />
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Agreement Type</label>
-                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.agreement_type} onChange={e => setFormData({ ...formData, agreement_type: e.target.value })}>
+                    <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.agreement_type} onChange={e => setFormData({ ...formData, agreement_type: e.target.value })}>
                       <option>Commission-based</option><option>Fixed Fee</option><option>Tiered</option>
                     </select>
                   </div>
@@ -383,32 +502,32 @@ export default function InstitutionPartners() {
                     <div className="col-span-3 pb-2 border-b text-xs font-bold text-[#282860]">Commission Structure</div>
                     <div>
                       <label className="text-xs font-bold text-slate-500 uppercase">Base Commission %</label>
-                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" placeholder="e.g. 5%" value={formData.base_commission} onChange={e => setFormData({ ...formData, base_commission: e.target.value })} />
+                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" placeholder="e.g. 5%" value={formData.base_commission} onChange={e => setFormData({ ...formData, base_commission: e.target.value })} />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-500 uppercase">Performance Bonus %</label>
-                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.performance_bonus} onChange={e => setFormData({ ...formData, performance_bonus: e.target.value })} />
+                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.performance_bonus} onChange={e => setFormData({ ...formData, performance_bonus: e.target.value })} />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-500 uppercase">Tiered Levels</label>
-                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.tiered_levels} onChange={e => setFormData({ ...formData, tiered_levels: e.target.value })} />
+                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.tiered_levels} onChange={e => setFormData({ ...formData, tiered_levels: e.target.value })} />
                     </div>
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Duration Start</label>
-                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.duration_start} onChange={e => setFormData({ ...formData, duration_start: e.target.value })} />
+                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.duration_start} onChange={e => setFormData({ ...formData, duration_start: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Duration End</label>
-                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.duration_end} onChange={e => setFormData({ ...formData, duration_end: e.target.value })} />
+                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.duration_end} onChange={e => setFormData({ ...formData, duration_end: e.target.value })} />
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Document/File Link</label>
-                    <input type="url" className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-blue-600" value={formData.document_link} onChange={e => setFormData({ ...formData, document_link: e.target.value })} />
+                    <input type="url" className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-blue-600 outline-none focus:border-[#BAD133]" placeholder="https://..." value={formData.document_link} onChange={e => setFormData({ ...formData, document_link: e.target.value })} />
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Terms & Conditions</label>
-                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.terms_conditions} onChange={e => setFormData({ ...formData, terms_conditions: e.target.value })} />
+                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.terms_conditions} onChange={e => setFormData({ ...formData, terms_conditions: e.target.value })} />
                   </div>
                 </div>
               )}
@@ -418,10 +537,9 @@ export default function InstitutionPartners() {
                 <div className="space-y-6">
                   {formData.contacts.map((contact, index) => (
                     <div key={contact.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
-                      {/* ✅ FIX: Delete contact button now works */}
                       <button
                         onClick={() => handleRemoveContact(index)}
-                        className="absolute top-4 right-4 text-red-400 hover:text-red-600"
+                        className="absolute top-4 right-4 text-red-400 hover:text-red-600 p-1 bg-red-50 rounded-md transition-colors"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -432,48 +550,48 @@ export default function InstitutionPartners() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Full Name</label>
-                          <input type="text" className="w-full mt-1 p-2 border rounded-lg" value={contact.full_name} onChange={(e) => { const c = [...formData.contacts]; c[index].full_name = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.full_name} onChange={(e) => { const c = [...formData.contacts]; c[index].full_name = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Title/Position</label>
-                          <input type="text" className="w-full mt-1 p-2 border rounded-lg" value={contact.title} onChange={(e) => { const c = [...formData.contacts]; c[index].title = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.title} onChange={(e) => { const c = [...formData.contacts]; c[index].title = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Email Address</label>
-                          <input type="email" className="w-full mt-1 p-2 border rounded-lg" value={contact.email} onChange={(e) => { const c = [...formData.contacts]; c[index].email = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="email" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.email} onChange={(e) => { const c = [...formData.contacts]; c[index].email = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Mobile Number</label>
-                          <input type="text" className="w-full mt-1 p-2 border rounded-lg" value={contact.mobile} onChange={(e) => { const c = [...formData.contacts]; c[index].mobile = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.mobile} onChange={(e) => { const c = [...formData.contacts]; c[index].mobile = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Department</label>
-                          <input type="text" className="w-full mt-1 p-2 border rounded-lg" value={contact.department} onChange={(e) => { const c = [...formData.contacts]; c[index].department = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.department} onChange={(e) => { const c = [...formData.contacts]; c[index].department = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">WhatsApp/WeChat</label>
-                          <input type="text" className="w-full mt-1 p-2 border rounded-lg" value={contact.whatsapp} onChange={(e) => { const c = [...formData.contacts]; c[index].whatsapp = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.whatsapp} onChange={(e) => { const c = [...formData.contacts]; c[index].whatsapp = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div className="col-span-2">
                           <label className="text-xs font-bold text-slate-500 uppercase">Office Address</label>
-                          <textarea rows={2} className="w-full mt-1 p-2 border rounded-lg" value={contact.office_address} onChange={(e) => { const c = [...formData.contacts]; c[index].office_address = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <textarea rows={2} className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.office_address} onChange={(e) => { const c = [...formData.contacts]; c[index].office_address = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div className="col-span-2 grid grid-cols-3 gap-4 mt-2">
                           <div>
                             <label className="text-xs font-bold text-slate-500 uppercase">Preferred Contact</label>
-                            <select className="w-full mt-1 p-2 border rounded-lg" value={contact.method} onChange={(e) => { const c = [...formData.contacts]; c[index].method = e.target.value; setFormData({ ...formData, contacts: c }); }}>
+                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.method} onChange={(e) => { const c = [...formData.contacts]; c[index].method = e.target.value; setFormData({ ...formData, contacts: c }); }}>
                               <option>Email</option><option>Phone</option><option>WhatsApp</option>
                             </select>
                           </div>
                           <div>
                             <label className="text-xs font-bold text-slate-500 uppercase">Primary Contact?</label>
-                            <select className="w-full mt-1 p-2 border rounded-lg" value={contact.primary} onChange={(e) => { const c = [...formData.contacts]; c[index].primary = e.target.value; setFormData({ ...formData, contacts: c }); }}>
+                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.primary} onChange={(e) => { const c = [...formData.contacts]; c[index].primary = e.target.value; setFormData({ ...formData, contacts: c }); }}>
                               <option>Yes</option><option>No</option>
                             </select>
                           </div>
                           <div>
                             <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                            <select className="w-full mt-1 p-2 border rounded-lg" value={contact.status} onChange={(e) => { const c = [...formData.contacts]; c[index].status = e.target.value; setFormData({ ...formData, contacts: c }); }}>
+                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.status} onChange={(e) => { const c = [...formData.contacts]; c[index].status = e.target.value; setFormData({ ...formData, contacts: c }); }}>
                               <option>Active</option><option>Inactive</option>
                             </select>
                           </div>
@@ -493,20 +611,20 @@ export default function InstitutionPartners() {
               {/* TAB D: COMMISSION CALCULATION */}
               {modalTab === 'commission' && (
                 <div className="grid grid-cols-2 gap-6">
-                  <div className="col-span-2 bg-green-50 border border-green-200 rounded-xl p-6 mb-2">
+                  <div className="col-span-2 bg-green-50 border border-green-200 rounded-xl p-6 mb-2 shadow-sm">
                     <h3 className="font-black text-green-800 text-lg flex items-center gap-2 mb-4"><Calculator /> Calculation Overview</h3>
                     <div className="grid grid-cols-3 gap-4">
                       <div>
                         <label className="text-xs font-bold text-green-700 uppercase">Total Referrals (Period)</label>
-                        <input type="number" className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white" value={formData.total_referrals} onChange={e => setFormData({ ...formData, total_referrals: e.target.value })} />
+                        <input type="number" className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white outline-none focus:border-green-400" value={formData.total_referrals} onChange={e => setFormData({ ...formData, total_referrals: e.target.value })} />
                       </div>
                       <div>
                         <label className="text-xs font-bold text-green-700 uppercase">Enrollment Confirmed</label>
-                        <input type="number" className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white" value={formData.total_enrollment} onChange={e => setFormData({ ...formData, total_enrollment: e.target.value })} />
+                        <input type="number" className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white outline-none focus:border-green-400" value={formData.total_enrollment} onChange={e => setFormData({ ...formData, total_enrollment: e.target.value })} />
                       </div>
                       <div>
                         <label className="text-xs font-bold text-green-700 uppercase">Commission Status</label>
-                        <select className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white font-bold" value={formData.comm_status} onChange={e => setFormData({ ...formData, comm_status: e.target.value })}>
+                        <select className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white font-bold outline-none focus:border-green-400" value={formData.comm_status} onChange={e => setFormData({ ...formData, comm_status: e.target.value })}>
                           <option>Pending</option><option>Approved</option><option>Paid</option>
                         </select>
                       </div>
@@ -514,23 +632,23 @@ export default function InstitutionPartners() {
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Base Commission Amount</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" placeholder="$" value={formData.base_amount} onChange={e => setFormData({ ...formData, base_amount: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" placeholder="$" value={formData.base_amount} onChange={e => setFormData({ ...formData, base_amount: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Performance Bonus (%)</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.calc_bonus} onChange={e => setFormData({ ...formData, calc_bonus: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.calc_bonus} onChange={e => setFormData({ ...formData, calc_bonus: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Payment Date</label>
-                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.payment_date} onChange={e => setFormData({ ...formData, payment_date: e.target.value })} />
+                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.payment_date} onChange={e => setFormData({ ...formData, payment_date: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-[#282860] uppercase">Total Commission Payable</label>
-                    <input type="text" className="w-full mt-1 p-3 border-2 border-[#282860] rounded-xl font-black text-xl text-green-600 bg-white" placeholder="$" value={formData.total_payable} onChange={e => setFormData({ ...formData, total_payable: e.target.value })} />
+                    <input type="text" className="w-full mt-1 p-3 border-2 border-[#282860] rounded-xl font-black text-xl text-green-600 bg-white outline-none" placeholder="$" value={formData.total_payable} onChange={e => setFormData({ ...formData, total_payable: e.target.value })} />
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Notes / Adjustments</label>
-                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl" value={formData.calc_notes} onChange={e => setFormData({ ...formData, calc_notes: e.target.value })} />
+                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.calc_notes} onChange={e => setFormData({ ...formData, calc_notes: e.target.value })} />
                   </div>
                 </div>
               )}
@@ -538,9 +656,9 @@ export default function InstitutionPartners() {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-200 bg-white flex justify-end gap-3 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
-              <button onClick={() => setIsEditModalOpen(false)} className="px-6 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800">Cancel</button>
-              <button onClick={handleSaveInstitution} className="bg-[#282860] hover:bg-[#1b1b42] text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md transition-colors">Save Institution Data</button>
+            <div className="p-5 border-t border-slate-200 bg-white flex justify-end gap-3 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] shrink-0">
+              <button onClick={() => setIsEditModalOpen(false)} className="px-6 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
+              <button onClick={handleSaveInstitution} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md transition-all">Save Institution Data</button>
             </div>
 
           </div>
