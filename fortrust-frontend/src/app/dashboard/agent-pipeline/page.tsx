@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
-const ROLE_OPTIONS = ["Individual Agent", "Corporate Agent", "Student Counselor", "MASTER_ADMIN"];
+// MERGE CONFLICT RESOLVED: Using the correct backend-compatible string "MASTER_ADMIN"
+const ROLE_OPTIONS = ["Corporate Agent", "Individual Agent", "Student Counselor", "MASTER_ADMIN"];
 
 export default function AgentManagement() {
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
