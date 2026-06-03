@@ -5,9 +5,9 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import {
-  LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen,
-  Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark,
-  Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit,
+  LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
+  Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
+  Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
   GraduationCap, Globe
 } from "lucide-react";
 
@@ -20,6 +20,7 @@ const translations = {
     adminTools: "Admin Tools",
     mainDashboard: "Main Dashboard",
     agentManagement: "Agent Management",
+    globalStudents: "Global Students", // NEW
     consultation: "Consultation",
     profilingTest: "Profiling Test",
     assessment: "Assessment",
@@ -46,6 +47,7 @@ const translations = {
     adminTools: "Alat Admin",
     mainDashboard: "Dasbor Utama",
     agentManagement: "Manajemen Agen",
+    globalStudents: "Semua Siswa", // NEW
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
     assessment: "Penilaian",
@@ -77,12 +79,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-
+  
   // Tutorial & Settings States
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [settingsTab, setSettingsTab] = useState<"preferences" | "security" | "bank">("preferences");
-
+  
   // Language State
   const [language, setLanguage] = useState<"EN" | "ID">("EN");
   const [languageMessage, setLanguageMessage] = useState<{ type: 'success', text: string } | null>(null);
@@ -90,7 +92,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [newPassword, setNewPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-
+  
   const [bankName, setBankName] = useState("");
   const [bankAccount, setBankAccount] = useState("");
   const [bankBranch, setBankBranch] = useState("");
@@ -103,7 +105,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0);
 
   const profileMenuRef = useRef<HTMLDivElement>(null);
-
+  
   // Active Translation
   const t = translations[language];
 
@@ -150,7 +152,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           setNotifications(data.data);
           setUnreadCount(data.data.length > 5 ? 5 : data.data.length);
         }
-      } catch (error) { }
+      } catch (error) {}
     };
 
     if (isLoaded && user && user.role === "MASTER_ADMIN") {
@@ -298,7 +300,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
-      {/* SIDEBAR */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#1b1b42] text-slate-300 flex flex-col h-full shadow-2xl border-r border-[#131333] transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
 
         <div className="h-16 lg:h-24 flex items-center px-6 border-b border-white/5 bg-[#171738] justify-between">
@@ -331,7 +332,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           {user.role === "MASTER_ADMIN" && (
             <>
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">{t.adminTools}</p>
-
+              
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.mainDashboard}
@@ -342,24 +343,28 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 {t.agentManagement}
               </Link>
 
-              <SidebarMenu label={t.consultation} icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[{ label: t.profilingTest, href: '/dashboard/pipeline' }, { label: t.assessment, href: '/dashboard/assessment' }, { label: t.programFinder, href: '/dashboard/programs' }]} />
+              {/* NEW GLOBAL STUDENTS LINK */}
+              <Link href="/dashboard/students" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/students' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <GraduationCap size={18} className={pathname === '/dashboard/students' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.globalStudents}
+              </Link>
 
-              {/* THE FIX: Updated Marketing Hub Links */}
-              <SidebarMenu label={t.marketing} icon={<Megaphone size={18} />} activePath={pathname} menuItems={[
+              <SidebarMenu label={t.consultation} icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: t.profilingTest, href: '/dashboard/profiling' }, { label: t.assessment, href: '/dashboard/assessment' }, { label: t.programFinder, href: '/dashboard/programs' } ]} />
+              
+              <SidebarMenu label={t.marketing} icon={<Megaphone size={18} />} activePath={pathname} menuItems={[ 
                 { label: t.leads, href: '/dashboard/marketing' },
                 { label: t.budgetRoi, href: '/dashboard/marketing/budget' },
                 { label: t.aiStrategist, href: '/dashboard/marketing/strategist' }
               ]} />
-
-              <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[{ label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' }]} />
-              <SidebarMenu label={t.commissions} icon={<DollarSign size={18} />} activePath={pathname} menuItems={[{ label: t.reports, href: '/dashboard/claimed' }]} />
+              
+              <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
+              <SidebarMenu label={t.commissions} icon={<DollarSign size={18} />} activePath={pathname} menuItems={[ { label: t.reports, href: '/dashboard/claimed' } ]} />
             </>
           )}
 
         </div>
       </aside>
 
-      {/* MAIN CONTENT WRAPPER */}
       <div className="flex-1 flex flex-col lg:ml-[260px] min-w-0 w-full transition-all duration-300">
 
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
@@ -407,9 +412,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
             <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
 
-            {/* ZOHO-STYLE PROFILE MENU */}
             <div className="relative" ref={profileMenuRef}>
-              <button
+              <button 
                 onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifications(false); }}
                 className="flex items-center gap-3 p-1 pr-3 rounded-full border border-slate-200 hover:bg-slate-50 transition-all focus:ring-2 focus:ring-[#BAD133]/20 outline-none"
               >
@@ -417,7 +421,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   {user.name.charAt(0)}
                 </div>
                 <span className="text-sm font-bold text-slate-700 hidden sm:block">{user.name.split(" ")[0]}</span>
-                <ChevronDown size={14} className="text-slate-400 hidden sm:block" />
+                <ChevronDown size={14} className="text-slate-400 hidden sm:block"/>
               </button>
 
               {showProfileMenu && (
@@ -439,8 +443,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       <p className="text-sm font-bold text-slate-700 mt-0.5">{user.role} • {user.branch}</p>
                     </div>
                   </div>
-
-                  {/* TUTORIAL & SETTINGS BUTTONS */}
+                  
                   <div className="p-2 border-t border-slate-100 space-y-1">
                     <button onClick={() => { setShowTutorial(true); setTutorialStep(0); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-[#282860] hover:bg-slate-50 rounded-xl transition-colors">
                       <HelpCircle size={18} className="text-[#BAD133]" /> {t.platformTutorial}
@@ -471,7 +474,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {showTutorial && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-
+            
             <div className="p-6 flex justify-between items-center bg-white">
               <h2 className="text-lg font-black text-[#282860] flex items-center gap-2">
                 <HelpCircle size={20} className="text-[#BAD133]" /> Fortrust OS Guide
@@ -482,36 +485,36 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             </div>
 
             <div className="p-8 flex-1 bg-slate-50 border-y border-slate-100 min-h-[350px] flex flex-col justify-center">
-              <div className="flex flex-col md:flex-row gap-6 items-center md:items-start animate-in fade-in slide-in-from-right-4 duration-300" key={tutorialStep}>
-                <div className={`w-24 h-24 rounded-3xl flex items-center justify-center shrink-0 shadow-sm border ${TUTORIAL_STEPS[tutorialStep].bg} ${TUTORIAL_STEPS[tutorialStep].border}`}>
-                  {TUTORIAL_STEPS[tutorialStep].icon}
-                </div>
-                <div>
-                  <h3 className="font-black text-[#282860] text-2xl tracking-tight">{TUTORIAL_STEPS[tutorialStep].title}</h3>
-                  <p className="text-slate-500 text-sm mt-2 leading-relaxed font-medium">
-                    {TUTORIAL_STEPS[tutorialStep].description}
-                  </p>
-                  <ul className="mt-5 space-y-3">
-                    {TUTORIAL_STEPS[tutorialStep].points.map((point, idx) => (
-                      <li key={idx} className="flex items-start gap-3 text-sm text-slate-700">
-                        <div className="mt-1 w-1.5 h-1.5 rounded-full bg-[#BAD133] shrink-0"></div>
-                        <span className="leading-relaxed">{point}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
+               <div className="flex flex-col md:flex-row gap-6 items-center md:items-start animate-in fade-in slide-in-from-right-4 duration-300" key={tutorialStep}>
+                 <div className={`w-24 h-24 rounded-3xl flex items-center justify-center shrink-0 shadow-sm border ${TUTORIAL_STEPS[tutorialStep].bg} ${TUTORIAL_STEPS[tutorialStep].border}`}>
+                    {TUTORIAL_STEPS[tutorialStep].icon}
+                 </div>
+                 <div>
+                   <h3 className="font-black text-[#282860] text-2xl tracking-tight">{TUTORIAL_STEPS[tutorialStep].title}</h3>
+                   <p className="text-slate-500 text-sm mt-2 leading-relaxed font-medium">
+                     {TUTORIAL_STEPS[tutorialStep].description}
+                   </p>
+                   <ul className="mt-5 space-y-3">
+                     {TUTORIAL_STEPS[tutorialStep].points.map((point, idx) => (
+                       <li key={idx} className="flex items-start gap-3 text-sm text-slate-700">
+                         <div className="mt-1 w-1.5 h-1.5 rounded-full bg-[#BAD133] shrink-0"></div>
+                         <span className="leading-relaxed">{point}</span>
+                       </li>
+                     ))}
+                   </ul>
+                 </div>
+               </div>
             </div>
 
             <div className="p-5 bg-white flex items-center justify-between">
-              <button
+              <button 
                 onClick={() => setTutorialStep(prev => Math.max(0, prev - 1))}
                 disabled={tutorialStep === 0}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
               >
-                <ChevronLeft size={18} /> Previous
+                <ChevronLeft size={18}/> Previous
               </button>
-
+              
               <div className="flex items-center gap-2">
                 {TUTORIAL_STEPS.map((_, idx) => (
                   <div key={idx} className={`h-2 rounded-full transition-all duration-300 ${tutorialStep === idx ? "w-6 bg-[#BAD133]" : "w-2 bg-slate-200"}`}></div>
@@ -519,18 +522,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               </div>
 
               {tutorialStep === TUTORIAL_STEPS.length - 1 ? (
-                <button
+                <button 
                   onClick={() => setShowTutorial(false)}
                   className="flex items-center gap-2 bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-all shadow-md active:scale-95"
                 >
-                  Get Started <CheckCircle size={18} />
+                  Get Started <CheckCircle size={18}/>
                 </button>
               ) : (
-                <button
+                <button 
                   onClick={() => setTutorialStep(prev => Math.min(TUTORIAL_STEPS.length - 1, prev + 1))}
                   className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-[#282860] px-6 py-2.5 rounded-xl font-bold text-sm transition-all active:scale-95"
                 >
-                  Next <ChevronRight size={18} />
+                  Next <ChevronRight size={18}/>
                 </button>
               )}
             </div>
@@ -542,7 +545,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
-
+            
             <div className="p-5 lg:p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
               <h2 className="text-lg lg:text-xl font-bold text-[#282860] flex items-center gap-2">
                 <Settings size={20} className="text-[#BAD133]" />
@@ -555,20 +558,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
             <div className="flex bg-slate-50 border-b border-slate-200">
               <button onClick={() => setSettingsTab('preferences')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'preferences' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
-                <Globe size={16} /> Preferences
+                <Globe size={16}/> Preferences
               </button>
               <button onClick={() => setSettingsTab('security')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'security' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
-                <Lock size={16} /> Security
+                <Lock size={16}/> Security
               </button>
               {user.role !== "MASTER_ADMIN" && (
                 <button onClick={() => setSettingsTab('bank')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'bank' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
-                  <Landmark size={16} /> Bank & Commissions
+                  <Landmark size={16}/> Bank & Commissions
                 </button>
               )}
             </div>
 
             <div className="p-5 lg:p-6 overflow-y-auto flex-1">
-
+              
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
                 <div className="w-12 h-12 rounded-full bg-[#282860] flex items-center justify-center text-white font-black text-xl">
                   {user.name.charAt(0)}
@@ -585,7 +588,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
                     <Globe size={16} className="text-slate-400" /> Language & Interface
                   </h3>
-
+                  
                   {languageMessage && (
                     <div className="p-3 rounded-lg text-xs font-bold flex items-center gap-2 bg-green-50 text-green-700 border border-green-200">
                       <CheckCircle size={14} /> {languageMessage.text}
@@ -595,9 +598,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <div>
                     <label className="text-xs font-bold text-slate-500">System Language</label>
                     <div className="relative mt-1">
-                      <select
-                        value={language}
-                        onChange={handleLanguageChange}
+                      <select 
+                        value={language} 
+                        onChange={handleLanguageChange} 
                         className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-[#282860] focus:outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 appearance-none cursor-pointer"
                       >
                         <option value="EN">🇺🇸 English (US)</option>
@@ -615,7 +618,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
                     <Lock size={16} className="text-slate-400" /> Change Password
                   </h3>
-
+                  
                   {passwordMessage && (
                     <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2
                       ${passwordMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
@@ -628,7 +631,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                     <label className="text-xs font-bold text-slate-500">New Password</label>
                     <input type="password" required minLength={6} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
                   </div>
-
+                  
                   <div className="pt-2 flex justify-end">
                     <button type="submit" disabled={isChangingPassword || !newPassword} className="w-full lg:w-auto bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
                       {isChangingPassword ? "Saving..." : "Update Password"}
@@ -643,7 +646,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
                     <DollarSign size={16} className="text-slate-400" /> Commission Transfer Details
                   </h3>
-
+                  
                   {bankMessage && (
                     <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2
                       ${bankMessage.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
@@ -662,10 +665,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       <input type="text" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-[#282860]" />
                     </div>
                   </div>
-
+                  
                   <div className="pt-2 flex justify-end">
                     <button type="submit" disabled={isUpdatingBank} className="w-full lg:w-auto bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                      {isUpdatingBank ? "Saving..." : <><CheckCircle size={16} /> Save Bank Details</>}
+                      {isUpdatingBank ? "Saving..." : <><CheckCircle size={16}/> Save Bank Details</>}
                     </button>
                   </div>
                 </form>
@@ -728,19 +731,20 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
       }
     };
     document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [submenuOpen]);
 
   const isActive = menuItems.some(item => item.href === activePath);
-
+  
   return (
     <>
       <div
         ref={btnRef}
-        className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 cursor-pointer ${isActive
+        className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 cursor-pointer ${
+          isActive
             ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5'
             : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'
-          }`}
+        }`}
         onMouseEnter={() => setSubmenuOpen(true)}
         onMouseLeave={() => !submenuHover.current && setTimeout(() => setSubmenuOpen(false), 200)}
         onClick={() => setSubmenuOpen((v) => !v)}
@@ -748,10 +752,10 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
       >
         {icon && React.isValidElement(icon)
           ? React.cloneElement(icon as React.ReactElement<any>, {
-            className: isActive
-              ? 'text-[#BAD133]'
-              : 'text-slate-500 group-hover:text-white transition-colors',
-          })
+              className: isActive
+                ? 'text-[#BAD133]'
+                : 'text-slate-500 group-hover:text-white transition-colors',
+            })
           : icon}
         {label}
       </div>
@@ -791,13 +795,13 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
               >
                 {item.icon && React.isValidElement(item.icon)
                   ? React.cloneElement(item.icon as React.ReactElement<any>, {
-                    className:
-                      typeof item.iconClassName === 'function'
-                        ? item.iconClassName(active)
-                        : item.iconClassName || (active
-                          ? 'text-[#BAD133]'
-                          : 'text-slate-500 group-hover:text-white transition-colors'),
-                  })
+                      className:
+                        typeof item.iconClassName === 'function'
+                          ? item.iconClassName(active)
+                          : item.iconClassName || (active
+                              ? 'text-[#BAD133]'
+                              : 'text-slate-500 group-hover:text-white transition-colors'),
+                    })
                   : item.icon}
                 {item.label}
               </Link>
@@ -808,4 +812,18 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
       )}
     </>
   );
+}
+
+function handleOutsideClick(this: Document, ev: MouseEvent) {
+  const submenu = document.getElementById('sidebarmenu-submenu');
+  const sidebarBtn = document.querySelector('[style*="position: relative"]');
+  
+  if (
+    submenu &&
+    !submenu.contains(ev.target as Node) &&
+    sidebarBtn &&
+    !sidebarBtn.contains(ev.target as Node)
+  ) {
+    submenu.style.display = 'none';
+  }
 }
