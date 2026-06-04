@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { 
   Search, Filter, GraduationCap, Building, MapPin, 
   FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
-  X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, Thermometer
+  X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
+  Thermometer, BrainCircuit, UploadCloud, ChevronRight, Activity
 } from "lucide-react";
 
 export default function GlobalStudentDatabase() {
@@ -23,7 +24,12 @@ export default function GlobalStudentDatabase() {
 
   // Edit Student Dossier State
   const [editingStudent, setEditingStudent] = useState<any>(null);
+  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai">("profile");
   const [isSavingStudent, setIsSavingStudent] = useState(false);
+  
+  // AI Report State
+  const [aiReport, setAiReport] = useState("");
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
   // Notification State
   const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
@@ -110,8 +116,9 @@ export default function GlobalStudentDatabase() {
       
       if (res.ok) {
         setNotification({type: 'success', message: `Student profile updated.`});
-        setEditingStudent(null);
         fetchData(); 
+        // Update local state to reflect changes immediately
+        setAllStudents(prev => prev.map(s => s.id === editingStudent.id ? editingStudent : s));
       } else {
         setNotification({type: 'error', message: "Failed to update student."});
       }
@@ -120,6 +127,30 @@ export default function GlobalStudentDatabase() {
     } finally {
       setIsSavingStudent(false);
       setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const generateAIReport = async () => {
+    if (!editingStudent) return;
+    setIsGeneratingAI(true);
+    setAiReport("");
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ai-strategy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ case_id: editingStudent.id })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setAiReport(data.report);
+      } else {
+        setAiReport("AI Analysis failed. Please ensure the student has valid PDF documents or notes attached.");
+      }
+    } catch (error) {
+      setAiReport("Network Error. Could not connect to Gemini API.");
+    } finally {
+      setIsGeneratingAI(false);
     }
   };
 
@@ -150,6 +181,14 @@ export default function GlobalStudentDatabase() {
   const unassignedCount = allStudents.filter(s => !s.assignee || s.assignee === "Unassigned").length;
   const inProgressCount = allStudents.filter(s => s.status !== "COMPLETED" && s.status !== "REJECTED").length;
   const completedCount = allStudents.filter(s => s.status === "COMPLETED").length;
+
+  // Safely parse documents JSON
+  let studentDocs = [];
+  if (editingStudent && editingStudent.documents) {
+    try {
+      studentDocs = typeof editingStudent.documents === 'string' ? JSON.parse(editingStudent.documents) : editingStudent.documents;
+    } catch (e) { studentDocs = []; }
+  }
 
   return (
     <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full relative animate-in fade-in">
@@ -258,7 +297,7 @@ export default function GlobalStudentDatabase() {
                 <tr><td colSpan={5} className="p-16 text-center text-slate-400 font-medium">No students match your criteria.</td></tr>
               ) : (
                 filteredStudents.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => setEditingStudent(student)}>
+                  <tr key={student.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => { setEditingStudent(student); setDossierTab("profile"); }}>
                     
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
@@ -306,7 +345,7 @@ export default function GlobalStudentDatabase() {
 
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => setEditingStudent(student)} className="p-2 bg-white text-slate-400 hover:text-[#282860] hover:bg-slate-100 border border-slate-200 rounded-lg shadow-sm transition-colors" title="View Student Dossier">
+                        <button onClick={() => { setEditingStudent(student); setDossierTab("profile"); }} className="p-2 bg-white text-slate-400 hover:text-[#282860] hover:bg-slate-100 border border-slate-200 rounded-lg shadow-sm transition-colors" title="View Student Dossier">
                           <FileText size={16} />
                         </button>
                         <button 
@@ -371,86 +410,197 @@ export default function GlobalStudentDatabase() {
         </div>
       )}
 
-      {/* --- EDIT STUDENT DOSSIER SLIDE-OUT PANEL --- */}
+      {/* --- ENTERPRISE STUDENT DOSSIER SLIDE-OUT PANEL --- */}
       {editingStudent && (
         <>
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity" onClick={() => setEditingStudent(null)}></div>
-          <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300 ease-out">
+          <div className="fixed inset-y-0 right-0 w-full sm:w-[750px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300 ease-out">
             
-            <div className="p-6 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-start relative overflow-hidden shrink-0">
-              <div className="absolute top-0 right-0 w-48 h-48 bg-[#BAD133] rounded-full blur-[60px] opacity-10 pointer-events-none"></div>
-              <div className="relative z-10">
-                <span className="text-[10px] font-black uppercase tracking-widest text-[#BAD133] mb-1.5 block">Student Dossier Configuration</span>
-                <h3 className="text-2xl font-black flex items-center gap-3">
-                  <Edit2 size={20} className="text-[#BAD133]" /> Edit Profile
-                </h3>
+            <div className="p-8 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-start relative overflow-hidden shrink-0">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#BAD133] rounded-full blur-[80px] opacity-10 pointer-events-none"></div>
+              <div className="relative z-10 flex items-center gap-5">
+                <div className="w-16 h-16 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-white font-black text-2xl shadow-inner">
+                  {editingStudent.name ? editingStudent.name.charAt(0).toUpperCase() : "S"}
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#BAD133] mb-1.5 block">Student Dossier</span>
+                  <h3 className="text-3xl font-black">{editingStudent.name}</h3>
+                  <p className="text-sm text-slate-300 mt-1 flex items-center gap-2"><Mail size={14}/> {editingStudent.email || "No Email"}</p>
+                </div>
               </div>
               <button onClick={() => setEditingStudent(null)} className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-colors relative z-10"><X size={20}/></button>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-50">
-              <form id="edit-student-form" onSubmit={handleEditStudent} className="space-y-6">
-                
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                  <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2"><FileText size={14} className="text-blue-500"/> Personal Identity</h4>
-                  
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Full Name</label>
-                    <input type="text" required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.name || ""} onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} />
-                  </div>
-                  
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block flex items-center gap-1"><Mail size={12}/> Email Address</label>
-                    <input type="email" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.email || ""} onChange={e => setEditingStudent({...editingStudent, email: e.target.value})} />
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block flex items-center gap-1"><Phone size={12}/> Phone / WA</label>
-                    <input type="text" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.phone || ""} onChange={e => setEditingStudent({...editingStudent, phone: e.target.value})} />
-                  </div>
-                </div>
-
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                  <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2"><BookOpen size={14} className="text-emerald-500"/> Academic & Pipeline Profile</h4>
-                  
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Program Interest</label>
-                    <input type="text" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.program_interest || ""} onChange={e => setEditingStudent({...editingStudent, program_interest: e.target.value})} />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block flex items-center gap-1"><Thermometer size={12}/> Lead Temp</label>
-                      <select className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.lead_temperature || "Cold Leads"} onChange={e => setEditingStudent({...editingStudent, lead_temperature: e.target.value})}>
-                        <option value="Hot Leads">Hot Leads</option>
-                        <option value="Warm Leads">Warm Leads</option>
-                        <option value="Cold Leads">Cold Leads</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Pipeline Status</label>
-                      <select className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.status || "NEW LEAD"} onChange={e => setEditingStudent({...editingStudent, status: e.target.value})}>
-                        <option value="NEW LEAD">NEW LEAD</option>
-                        <option value="QUALIFIED">QUALIFIED</option>
-                        <option value="CONSULTING">CONSULTING</option>
-                        <option value="APPLICATION">APPLICATION</option>
-                        <option value="VISA">VISA</option>
-                        <option value="COMPLETED">COMPLETED</option>
-                        <option value="REJECTED">REJECTED</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-              </form>
-            </div>
-            
-            <div className="p-5 border-t border-slate-100 bg-white flex justify-end gap-3 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
-              <button onClick={() => setEditingStudent(null)} type="button" className="px-5 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
-              <button form="edit-student-form" type="submit" disabled={isSavingStudent} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 disabled:opacity-50">
-                {isSavingStudent ? <><Loader2 size={16} className="animate-spin"/> Saving...</> : <><Save size={16}/> Save Changes</>}
+            {/* DOSSIER TABS */}
+            <div className="flex bg-slate-50 border-b border-slate-200 px-6 shrink-0">
+              <button onClick={() => setDossierTab('profile')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'profile' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
+                <Edit2 size={16} /> Profile Settings
+              </button>
+              <button onClick={() => setDossierTab('documents')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'documents' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
+                <UploadCloud size={16} /> Document Vault
+              </button>
+              <button onClick={() => setDossierTab('ai')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'ai' ? 'border-b-2 border-[#BAD133] text-[#1b1b42] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
+                <BrainCircuit size={16} /> AI Intelligence
               </button>
             </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
+              
+              {/* TAB 1: PROFILE EDIT */}
+              {dossierTab === 'profile' && (
+                <div className="p-6">
+                  <form id="edit-student-form" onSubmit={handleEditStudent} className="space-y-6 animate-in fade-in">
+                    
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                      <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3"><FileText size={16} className="text-blue-500"/> Personal Identity</h4>
+                      
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Full Name</label>
+                        <input type="text" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.name || ""} onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} />
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Mail size={12}/> Email Address</label>
+                          <input type="email" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.email || ""} onChange={e => setEditingStudent({...editingStudent, email: e.target.value})} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Phone size={12}/> Phone / WA</label>
+                          <input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.phone || ""} onChange={e => setEditingStudent({...editingStudent, phone: e.target.value})} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                      <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3"><BookOpen size={16} className="text-emerald-500"/> Academic & Pipeline Profile</h4>
+                      
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Program Interest</label>
+                        <input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.program_interest || ""} onChange={e => setEditingStudent({...editingStudent, program_interest: e.target.value})} />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Thermometer size={12}/> Lead Temp</label>
+                          <select className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.lead_temperature || "Cold Leads"} onChange={e => setEditingStudent({...editingStudent, lead_temperature: e.target.value})}>
+                            <option value="Hot Leads">Hot Leads</option>
+                            <option value="Warm Leads">Warm Leads</option>
+                            <option value="Cold Leads">Cold Leads</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Pipeline Status</label>
+                          <select className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.status || "NEW LEAD"} onChange={e => setEditingStudent({...editingStudent, status: e.target.value})}>
+                            <option value="NEW LEAD">NEW LEAD</option>
+                            <option value="QUALIFIED">QUALIFIED</option>
+                            <option value="CONSULTING">CONSULTING</option>
+                            <option value="APPLICATION">APPLICATION</option>
+                            <option value="VISA">VISA</option>
+                            <option value="COMPLETED">COMPLETED</option>
+                            <option value="REJECTED">REJECTED</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                  </form>
+                </div>
+              )}
+
+              {/* TAB 2: DOCUMENT VAULT */}
+              {dossierTab === 'documents' && (
+                <div className="p-6 space-y-4 animate-in fade-in">
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 flex items-center justify-between shadow-sm">
+                    <div>
+                      <h3 className="font-black text-[#282860] flex items-center gap-2"><UploadCloud size={20} className="text-blue-500"/> Cloud Vault</h3>
+                      <p className="text-xs text-slate-500 mt-1">All verified academic and psychological reports tied to this student.</p>
+                    </div>
+                    <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-black">{studentDocs.length} Files</span>
+                  </div>
+
+                  {studentDocs.length === 0 ? (
+                    <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 flex flex-col items-center justify-center text-center">
+                      <FileText size={48} className="text-slate-300 mb-3" />
+                      <p className="font-bold text-slate-600">No documents uploaded</p>
+                      <p className="text-sm text-slate-400 mt-1">The agent has not attached any HCC tests or report cards yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {studentDocs.map((doc: any, i: number) => (
+                        <div key={i} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex items-center justify-between hover:border-[#BAD133] transition-colors group">
+                          <div className="flex items-center gap-4">
+                            <div className="bg-red-50 text-red-500 p-3 rounded-lg"><FileText size={20}/></div>
+                            <div>
+                              <p className="text-sm font-bold text-[#282860]">{doc.title || "Untitled Document"}</p>
+                              <p className="text-xs text-slate-400 font-mono mt-0.5">{doc.filename || "unknown_file.pdf"}</p>
+                            </div>
+                          </div>
+                          <button className="text-blue-600 font-bold text-xs bg-blue-50 px-4 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">View PDF</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: AI INTELLIGENCE */}
+              {dossierTab === 'ai' && (
+                <div className="p-6 h-full flex flex-col animate-in fade-in">
+                  
+                  {!aiReport && !isGeneratingAI && (
+                    <div className="bg-[#1b1b42] rounded-3xl p-8 shadow-xl text-center flex flex-col items-center justify-center relative overflow-hidden border border-[#282860] mt-10">
+                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#BAD133] to-[#282860]"></div>
+                      <BrainCircuit size={64} className="text-[#BAD133] mb-6 drop-shadow-[0_0_15px_rgba(186,209,51,0.3)]" />
+                      <h3 className="text-2xl font-black text-white mb-2">Generate Strategic Profile</h3>
+                      <p className="text-slate-300 text-sm mb-8 max-w-md mx-auto leading-relaxed">
+                        Fortrust AI will scan {editingStudent.name}'s uploaded HCC Psychological test and Academic Report Cards to generate a comprehensive placement strategy.
+                      </p>
+                      <button onClick={generateAIReport} className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] font-black px-8 py-4 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3">
+                        <Activity size={20} /> Run AI Analysis
+                      </button>
+                    </div>
+                  )}
+
+                  {isGeneratingAI && (
+                    <div className="flex flex-col items-center justify-center py-20 flex-1">
+                      <div className="relative mb-6">
+                        <div className="absolute inset-0 bg-[#BAD133] rounded-full blur-xl opacity-20 animate-pulse"></div>
+                        <Loader2 size={48} className="animate-spin text-[#BAD133] relative z-10" />
+                      </div>
+                      <h3 className="text-xl font-black text-[#282860] mb-2">Analyzing Dossier...</h3>
+                      <p className="text-sm text-slate-500 font-medium">Extracting psychological traits and calculating academic metrics.</p>
+                    </div>
+                  )}
+
+                  {aiReport && !isGeneratingAI && (
+                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
+                      <div className="bg-slate-50 border-b border-slate-100 p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 size={18} className="text-emerald-500"/>
+                          <span className="font-bold text-[#282860]">AI Strategic Report</span>
+                        </div>
+                        <button onClick={generateAIReport} className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"><RefreshCcw size={12}/> Regenerate</button>
+                      </div>
+                      <div className="p-6 overflow-y-auto custom-scrollbar flex-1 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                        {aiReport}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+            </div>
+            
+            {/* DOSSIER FOOTER (Only show Save if on Profile Tab) */}
+            {dossierTab === 'profile' && (
+              <div className="p-5 border-t border-slate-200 bg-white flex justify-end gap-3 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                <button onClick={() => setEditingStudent(null)} type="button" className="px-5 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
+                <button form="edit-student-form" type="submit" disabled={isSavingStudent} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 disabled:opacity-50">
+                  {isSavingStudent ? <><Loader2 size={16} className="animate-spin"/> Saving...</> : <><Save size={16}/> Save Changes</>}
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
