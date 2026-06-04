@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
   Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe
+  GraduationCap, Globe, BellRing
 } from "lucide-react";
 
 // --- TRANSLATION DICTIONARY ---
@@ -20,7 +20,8 @@ const translations = {
     adminTools: "Admin Tools",
     mainDashboard: "Main Dashboard",
     agentManagement: "Agent Management",
-    globalStudents: "Global Students", // NEW
+    globalStudents: "Global Students",
+    broadcasts: "Broadcast Hub", // NEW
     consultation: "Consultation",
     profilingTest: "Profiling Test",
     assessment: "Assessment",
@@ -47,7 +48,8 @@ const translations = {
     adminTools: "Alat Admin",
     mainDashboard: "Dasbor Utama",
     agentManagement: "Manajemen Agen",
-    globalStudents: "Semua Siswa", // NEW
+    globalStudents: "Semua Siswa",
+    broadcasts: "Pusat Siaran", // NEW
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
     assessment: "Penilaian",
@@ -106,7 +108,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const profileMenuRef = useRef<HTMLDivElement>(null);
   
-  // Active Translation
   const t = translations[language];
 
   useEffect(() => {
@@ -343,10 +344,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 {t.agentManagement}
               </Link>
 
-              {/* NEW GLOBAL STUDENTS LINK */}
               <Link href="/dashboard/students" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/students' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <GraduationCap size={18} className={pathname === '/dashboard/students' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.globalStudents}
+              </Link>
+
+              {/* NEW BROADCAST HUB LINK */}
+              <Link href="/dashboard/broadcasts" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/broadcasts' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <BellRing size={18} className={pathname === '/dashboard/broadcasts' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.broadcasts}
               </Link>
 
               <SidebarMenu label={t.consultation} icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: t.profilingTest, href: '/dashboard/profiling' }, { label: t.assessment, href: '/dashboard/assessment' }, { label: t.programFinder, href: '/dashboard/programs' } ]} />
@@ -731,7 +737,7 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
       }
     };
     document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handle);
   }, [submenuOpen]);
 
   const isActive = menuItems.some(item => item.href === activePath);
@@ -812,18 +818,4 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
       )}
     </>
   );
-}
-
-function handleOutsideClick(this: Document, ev: MouseEvent) {
-  const submenu = document.getElementById('sidebarmenu-submenu');
-  const sidebarBtn = document.querySelector('[style*="position: relative"]');
-  
-  if (
-    submenu &&
-    !submenu.contains(ev.target as Node) &&
-    sidebarBtn &&
-    !sidebarBtn.contains(ev.target as Node)
-  ) {
-    submenu.style.display = 'none';
-  }
 }

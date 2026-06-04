@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { 
   Search, Filter, GraduationCap, Building, MapPin, 
-  MoreVertical, FileText, UserMinus, RefreshCcw, Loader2,
-  X, CheckCircle2, ShieldAlert
+  FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
+  X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, Thermometer
 } from "lucide-react";
 
 export default function GlobalStudentDatabase() {
@@ -20,6 +20,10 @@ export default function GlobalStudentDatabase() {
   const [studentToReassign, setStudentToReassign] = useState<any>(null);
   const [selectedNewAgent, setSelectedNewAgent] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
+
+  // Edit Student Dossier State
+  const [editingStudent, setEditingStudent] = useState<any>(null);
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
 
   // Notification State
   const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
@@ -78,6 +82,43 @@ export default function GlobalStudentDatabase() {
       setNotification({type: 'error', message: "Network error."});
     } finally {
       setIsAssigning(false);
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const handleEditStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    setIsSavingStudent(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${editingStudent.id}`, {
+        method: "PUT",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: editingStudent.name,
+          email: editingStudent.email,
+          phone: editingStudent.phone,
+          program_interest: editingStudent.program_interest,
+          status: editingStudent.status,
+          lead_temperature: editingStudent.lead_temperature
+        })
+      });
+      
+      if (res.ok) {
+        setNotification({type: 'success', message: `Student profile updated.`});
+        setEditingStudent(null);
+        fetchData(); 
+      } else {
+        setNotification({type: 'error', message: "Failed to update student."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error."});
+    } finally {
+      setIsSavingStudent(false);
       setTimeout(() => setNotification(null), 3000);
     }
   };
@@ -217,15 +258,15 @@ export default function GlobalStudentDatabase() {
                 <tr><td colSpan={5} className="p-16 text-center text-slate-400 font-medium">No students match your criteria.</td></tr>
               ) : (
                 filteredStudents.map((student) => (
-                  <tr key={student.id} className="hover:bg-slate-50 transition-colors group">
+                  <tr key={student.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => setEditingStudent(student)}>
                     
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-black shrink-0 border-2 border-white shadow-sm">
-                          {student.name ? student.name.charAt(0) : "S"}
+                          {student.name ? student.name.charAt(0).toUpperCase() : "S"}
                         </div>
                         <div>
-                          <p className="font-bold text-[#282860] text-base">{student.name || "Unknown Student"}</p>
+                          <p className="font-bold text-[#282860] text-base group-hover:text-[#BAD133] transition-colors">{student.name || "Unknown Student"}</p>
                           <p className="text-xs text-slate-500">{student.email || "No email"}</p>
                           {student.phone && <p className="text-[10px] text-slate-400 font-bold tracking-wider mt-0.5">{student.phone}</p>}
                         </div>
@@ -256,7 +297,7 @@ export default function GlobalStudentDatabase() {
                       ) : (
                         <div className="flex items-center gap-2">
                           <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-[10px]">
-                            {student.assignee.charAt(0)}
+                            {student.assignee.charAt(0).toUpperCase()}
                           </div>
                           <span className="font-bold text-slate-700 text-sm">{student.assignee}</span>
                         </div>
@@ -264,8 +305,8 @@ export default function GlobalStudentDatabase() {
                     </td>
 
                     <td className="px-6 py-4">
-                      <div className="flex justify-end gap-2">
-                        <button className="p-2 bg-white text-slate-400 hover:text-[#282860] border border-slate-200 rounded-lg shadow-sm transition-colors" title="View Student Dossier">
+                      <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => setEditingStudent(student)} className="p-2 bg-white text-slate-400 hover:text-[#282860] hover:bg-slate-100 border border-slate-200 rounded-lg shadow-sm transition-colors" title="View Student Dossier">
                           <FileText size={16} />
                         </button>
                         <button 
@@ -328,6 +369,90 @@ export default function GlobalStudentDatabase() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* --- EDIT STUDENT DOSSIER SLIDE-OUT PANEL --- */}
+      {editingStudent && (
+        <>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity" onClick={() => setEditingStudent(null)}></div>
+          <div className="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300 ease-out">
+            
+            <div className="p-6 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-start relative overflow-hidden shrink-0">
+              <div className="absolute top-0 right-0 w-48 h-48 bg-[#BAD133] rounded-full blur-[60px] opacity-10 pointer-events-none"></div>
+              <div className="relative z-10">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#BAD133] mb-1.5 block">Student Dossier Configuration</span>
+                <h3 className="text-2xl font-black flex items-center gap-3">
+                  <Edit2 size={20} className="text-[#BAD133]" /> Edit Profile
+                </h3>
+              </div>
+              <button onClick={() => setEditingStudent(null)} className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-colors relative z-10"><X size={20}/></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-slate-50">
+              <form id="edit-student-form" onSubmit={handleEditStudent} className="space-y-6">
+                
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                  <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2"><FileText size={14} className="text-blue-500"/> Personal Identity</h4>
+                  
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Full Name</label>
+                    <input type="text" required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.name || ""} onChange={e => setEditingStudent({...editingStudent, name: e.target.value})} />
+                  </div>
+                  
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block flex items-center gap-1"><Mail size={12}/> Email Address</label>
+                    <input type="email" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.email || ""} onChange={e => setEditingStudent({...editingStudent, email: e.target.value})} />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block flex items-center gap-1"><Phone size={12}/> Phone / WA</label>
+                    <input type="text" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.phone || ""} onChange={e => setEditingStudent({...editingStudent, phone: e.target.value})} />
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                  <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-2"><BookOpen size={14} className="text-emerald-500"/> Academic & Pipeline Profile</h4>
+                  
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Program Interest</label>
+                    <input type="text" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.program_interest || ""} onChange={e => setEditingStudent({...editingStudent, program_interest: e.target.value})} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block flex items-center gap-1"><Thermometer size={12}/> Lead Temp</label>
+                      <select className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.lead_temperature || "Cold Leads"} onChange={e => setEditingStudent({...editingStudent, lead_temperature: e.target.value})}>
+                        <option value="Hot Leads">Hot Leads</option>
+                        <option value="Warm Leads">Warm Leads</option>
+                        <option value="Cold Leads">Cold Leads</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Pipeline Status</label>
+                      <select className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.status || "NEW LEAD"} onChange={e => setEditingStudent({...editingStudent, status: e.target.value})}>
+                        <option value="NEW LEAD">NEW LEAD</option>
+                        <option value="QUALIFIED">QUALIFIED</option>
+                        <option value="CONSULTING">CONSULTING</option>
+                        <option value="APPLICATION">APPLICATION</option>
+                        <option value="VISA">VISA</option>
+                        <option value="COMPLETED">COMPLETED</option>
+                        <option value="REJECTED">REJECTED</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+              </form>
+            </div>
+            
+            <div className="p-5 border-t border-slate-100 bg-white flex justify-end gap-3 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+              <button onClick={() => setEditingStudent(null)} type="button" className="px-5 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
+              <button form="edit-student-form" type="submit" disabled={isSavingStudent} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 disabled:opacity-50">
+                {isSavingStudent ? <><Loader2 size={16} className="animate-spin"/> Saving...</> : <><Save size={16}/> Save Changes</>}
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
     </div>

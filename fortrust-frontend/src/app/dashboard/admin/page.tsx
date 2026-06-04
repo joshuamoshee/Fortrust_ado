@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Award, Users, FileText, DollarSign, TrendingUp, TrendingDown,
   Info, Plus, Calendar, Building2, GraduationCap, ChevronDown,
-  X, Sparkles, Loader2, Activity, LogOut, Clock, Target, CheckCircle2, Megaphone, Cctv
+  X, Sparkles, Loader2, Activity, LogOut, Clock, Target, CheckCircle2, Cctv
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -196,36 +196,7 @@ export default function MasterDashboardPage() {
             </KpiCard>
           </div>
 
-          {/* MAMI'S ANNOUNCEMENT HUB */}
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8 mt-6">
-            <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
-              <div className="bg-[#282860] p-2.5 rounded-xl"><Megaphone className="text-[#BAD133]" size={20}/></div>
-              <div>
-                <h3 className="font-black text-[#282860] text-lg">Global Announcement Hub</h3>
-                <p className="text-xs text-slate-500 font-medium">Broadcast messages to all agent notification bells.</p>
-              </div>
-            </div>
-            
-            <form className="flex flex-col md:flex-row gap-4" onSubmit={(e) => { e.preventDefault(); alert("Announcement Broadcasted to all Agents!"); }}>
-              <input 
-                type="text" 
-                required
-                placeholder="Announcement Title (e.g., System Maintenance)" 
-                className="w-full md:w-1/3 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20"
-              />
-              <input 
-                type="text" 
-                required
-                placeholder="Message body..." 
-                className="w-full flex-1 bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-sm outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20"
-              />
-              <button type="submit" className="bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md transition-all shrink-0">
-                Push Notification
-              </button>
-            </form>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
             
             <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8">
               <div className="mb-6">
@@ -281,7 +252,7 @@ export default function MasterDashboardPage() {
             </div>
           </div>
 
-          <div className="bg-[#0f172a] rounded-3xl border border-slate-800 shadow-2xl p-6 lg:p-8 mt-4 relative overflow-hidden">
+          <div className="bg-[#0f172a] rounded-3xl border border-slate-800 shadow-2xl p-6 lg:p-8 mt-6 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600 rounded-full blur-[120px] opacity-10 pointer-events-none"></div>
             
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-8 border-b border-slate-800/60 pb-6 relative z-10">

@@ -131,6 +131,20 @@ def verify_schema():
                 );
             """)
 
+            # Broadcasts table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS broadcasts (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    target_role TEXT DEFAULT 'ALL',
+                    target_branch TEXT DEFAULT 'ALL',
+                    send_email BOOLEAN DEFAULT FALSE,
+                    created_by TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+            """)
+
             conn.commit()
     except Exception as e:
         print(f"Schema upgrade error: {e}")
@@ -209,6 +223,12 @@ class LoginRequest(BaseModel):
     password: str
     remember_me: Optional[bool] = False
 
+class BroadcastCreate(BaseModel):
+    title: str
+    message: str
+    target_role: str = "ALL"
+    target_branch: str = "ALL"
+    send_email: bool = False
 
 class NewUserRequest(BaseModel):
     name: str
@@ -1573,3 +1593,56 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
         return {"status": "success", "data": json.loads(clean_json)}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to parse University Contract.")
+    
+
+# =====================================================================
+# --- 11. GLOBAL BROADCAST HUB ---
+# =====================================================================
+@app.post("/api/admin/broadcasts", dependencies=[Depends(get_current_master_admin)])
+def create_broadcast(req: BroadcastCreate, user_data: dict = Depends(verify_token)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO broadcasts (title, message, target_role, target_branch, send_email, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+            """, (
+                req.title, 
+                req.message, 
+                req.target_role, 
+                req.target_branch, 
+                req.send_email, 
+                user_data.get("name", "Master Admin")
+            ))
+            new_id = cur.fetchone()[0]
+            conn.commit()
+            
+            # FUTURE TODO: If req.send_email is True, hook up your SendGrid logic here to loop through 
+            # the users table matching the target_role/target_branch and blast the emails.
+            
+            return {"status": "success", "message": "Broadcast sent successfully", "id": new_id}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        conn.close()
+
+
+@app.get("/api/admin/broadcasts", dependencies=[Depends(get_current_master_admin)])
+def get_broadcasts():
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, title, message, target_role, target_branch, send_email, created_by, created_at 
+                FROM broadcasts ORDER BY created_at DESC LIMIT 50
+            """)
+            logs = cur.fetchall()
+            for log in logs:
+                if log.get('created_at'):
+                    log['created_at'] = log['created_at'].isoformat()
+            return {"status": "success", "data": logs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
