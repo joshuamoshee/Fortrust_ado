@@ -5,7 +5,7 @@ import {
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, 
   Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
-  Archive, RefreshCcw, Phone, Landmark, Percent, PhoneCall, Building
+  Archive, RefreshCcw, Phone, Landmark, Percent, Building, FileText, LogIn, Network, PhoneCall, User, Loader
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
@@ -30,8 +30,9 @@ export default function AgentManagement() {
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState("Individual Agent");
   const [newUserBranch, setNewUserBranch] = useState("Jakarta");
-  const [newUserCapacity, setNewUserCapacity] = useState(50);
+  const [newUserCapacity, setNewUserCapacity] = useState<number | string>(50);
   const [newUserCorpName, setNewUserCorpName] = useState("");
+  const [newUserParentId, setNewUserParentId] = useState(""); // NEW: Team Manager Assignment
   const [isSavingUser, setIsSavingUser] = useState(false);
 
   const [selectedAgent, setSelectedAgent] = useState<any>(null); 
@@ -65,6 +66,8 @@ export default function AgentManagement() {
 
   useEffect(() => { fetchData(); }, []);
 
+  const managerOptions = systemUsers.filter(u => u.role === "Corporate Agent" || u.role === "MASTER_ADMIN" || u.role === "Team Manager");
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingUser(true);
@@ -81,8 +84,9 @@ export default function AgentManagement() {
           password: newUserPassword, 
           role: newUserRole, 
           branch: newUserBranch, 
-          max_capacity: newUserCapacity,
-          corporation_name: newUserRole === "Corporate Agent" ? newUserCorpName : "" // FIX: Cannot be null
+          max_capacity: newUserCapacity === "" ? 50 : Number(newUserCapacity),
+          corporation_name: newUserRole === "Corporate Agent" ? newUserCorpName : "",
+          parent_corporate_id: newUserParentId ? Number(newUserParentId) : null
         }),
       });
       const data = await response.json();
@@ -93,10 +97,10 @@ export default function AgentManagement() {
         setTimeout(() => { 
           setIsUserModalOpen(false); 
           setNewUserName(""); setNewUserEmail(""); setNewUserPhone(""); 
-          setNewUserPassword(""); setNewUserCorpName(""); setNotification(null); 
+          setNewUserPassword(""); setNewUserCorpName(""); setNewUserParentId("");
+          setNotification(null); 
         }, 1500);
       } else {
-        // FIX: Extract string safely from FastAPI 422 Array responses so React doesn't crash
         const errorMsg = Array.isArray(data.detail) ? data.detail[0].msg : (data.detail || "Failed to create user.");
         setNotification({type: 'error', message: errorMsg});
       }
@@ -112,6 +116,12 @@ export default function AgentManagement() {
     setNotification(null);
     try {
       const token = localStorage.getItem("fortrust_token");
+      
+      // FIX: Clean numeric fields to prevent FastAPI 422 "Field Required" crashes
+      const safeCapacity = editingUser.max_capacity === "" ? 50 : Number(editingUser.max_capacity);
+      const safeCommission = editingUser.commission_rate === "" ? 0 : Number(editingUser.commission_rate);
+      const safeParentId = editingUser.parent_corporate_id ? Number(editingUser.parent_corporate_id) : null;
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${editingUser.id}`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
@@ -120,15 +130,14 @@ export default function AgentManagement() {
           role: editingUser.role, 
           office_address: editingUser.office_address, 
           phone: editingUser.phone, 
-          emergency_contact: editingUser.emergency_contact, 
-          commission_rate: editingUser.commission_rate,
+          commission_rate: safeCommission,
           bank_name: editingUser.bank_name, 
           bank_branch: editingUser.bank_branch, 
           bank_account: editingUser.bank_account, 
           swift_code: editingUser.swift_code, 
           is_active: editingUser.is_active, 
-          max_capacity: editingUser.max_capacity,
-          corporation_name: editingUser.role === "Corporate Agent" ? (editingUser.corporation_name || "") : "" // FIX: Cannot be null
+          max_capacity: safeCapacity,
+          parent_corporate_id: safeParentId
         }),
       });
       const data = await response.json();
@@ -136,7 +145,7 @@ export default function AgentManagement() {
         setNotification({type: 'success', message: 'Agent configuration updated.'});
         fetchData();
         if (selectedAgent && selectedAgent.id === editingUser.id) {
-            setSelectedAgent(editingUser);
+            setSelectedAgent({...editingUser, max_capacity: safeCapacity, commission_rate: safeCommission, parent_corporate_id: safeParentId});
         }
         setTimeout(() => { setEditingUser(null); setNotification(null); }, 1500);
       } else {
@@ -199,12 +208,28 @@ export default function AgentManagement() {
     } catch (err) {}
   };
 
+  const formatLogDetails = (log: any) => {
+    if (log.action === 'LOGIN') return "Agent authenticated and entered the workspace.";
+    let details: any = {};
+    try { details = typeof log.details === 'string' ? JSON.parse(log.details) : (log.details || {}); } catch (e) { return "Executed system action."; }
+    if (log.action === 'CREATE' && log.entity === 'Student') return `Added a new student lead to the pipeline.`;
+    if (log.action === 'UPDATE' && log.entity === 'Student') {
+      let changes = [];
+      if (details.new_status) changes.push(`Status ➔ ${details.new_status}`);
+      if (details.new_assignee) changes.push(`Reassigned ➔ ${details.new_assignee}`);
+      if (details.commission_logged) changes.push(`Logged $${details.commission_logged} Commission`);
+      return changes.length > 0 ? `Edited student file: ${changes.join(', ')}` : "Updated student record data.";
+    }
+    if (log.action === 'UPLOAD_DOC') return `Uploaded documents to vault: ${details.documents_added ? details.documents_added.join(', ') : "files"}`;
+    return `Modified ${log.entity} data.`;
+  };
+
   const getAgentStudents = (agentName: string) => allStudents.filter(s => s.assignee === agentName && s.status !== 'COMPLETED' && s.status !== 'REJECTED');
   const getAgentClosedDeals = (agentName: string) => allStudents.filter(s => s.assignee === agentName && s.status === 'COMPLETED');
   const getAgentLogs = (agentName: string) => auditLogs.filter(log => log.changed_by === agentName);
 
   const getLoadStatus = (active: number, max: number) => {
-    const pct = (active / max) * 100;
+    const pct = max > 0 ? (active / max) * 100 : 0;
     if (pct >= 100) return { color: "bg-red-500", text: "text-red-600", bgLight: "bg-red-50", border: "border-red-200", label: "OVERLOADED" };
     if (pct >= 80) return { color: "bg-amber-500", text: "text-amber-600", bgLight: "bg-amber-50", border: "border-amber-200", label: "HIGH LOAD" };
     return { color: "bg-emerald-500", text: "text-emerald-600", bgLight: "bg-emerald-50", border: "border-emerald-200", label: "OPTIMAL" };
@@ -309,6 +334,9 @@ export default function AgentManagement() {
                   const maxCap = u.max_capacity || 50;
                   const status = getLoadStatus(activeCount, maxCap);
 
+                  // Find parent manager name
+                  const parentManager = u.parent_corporate_id ? systemUsers.find(su => su.id === u.parent_corporate_id) : null;
+
                   return (
                     <tr key={u.id} className={`hover:bg-slate-50/80 transition-colors cursor-pointer group ${u.is_archived ? 'opacity-60 grayscale' : ''}`} onClick={() => { setSelectedAgent(u); setPanelTab("overview"); }}>
                       <td className="px-6 py-5">
@@ -326,6 +354,11 @@ export default function AgentManagement() {
                       </td>
                       <td className="px-6 py-5">
                         <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold block w-fit mb-2 uppercase tracking-wider">{u.role || "N/A"}</span>
+                        {parentManager && (
+                          <span className="text-[10px] text-blue-600 font-bold tracking-wider flex items-center gap-1 mb-2">
+                            <Network size={12}/> Team: {parentManager.name}
+                          </span>
+                        )}
                         <span className="font-bold text-slate-500 text-xs flex items-center gap-1.5"><MapPin size={14}/> {u.branch || "N/A"}</span>
                       </td>
                       <td className="px-6 py-5">
@@ -423,10 +456,6 @@ export default function AgentManagement() {
                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Mail size={14} className="text-slate-500"/></div>
                              <div className="overflow-hidden"><p className="text-[10px] font-bold text-slate-400 uppercase">Email Address</p><p className="text-sm font-bold text-slate-700 truncate pr-2" title={selectedAgent.email}>{selectedAgent.email || "Not provided"}</p></div>
                            </div>
-                           <div className="flex items-center gap-3">
-                             <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0"><ShieldAlert size={14} className="text-red-500"/></div>
-                             <div><p className="text-[10px] font-bold text-red-400 uppercase">Emergency Contact</p><p className="text-sm font-bold text-slate-700">{selectedAgent.emergency_contact || "Not provided"}</p></div>
-                           </div>
                          </div>
                       </div>
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -436,6 +465,12 @@ export default function AgentManagement() {
                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Users size={14} className="text-slate-500"/></div>
                              <div><p className="text-[10px] font-bold text-slate-400 uppercase">System Role</p><p className="text-sm font-bold text-slate-700">{selectedAgent.role}</p></div>
                            </div>
+                           {selectedAgent.parent_corporate_id && (
+                             <div className="flex items-center gap-3">
+                               <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0"><Network size={14} className="text-blue-500"/></div>
+                               <div><p className="text-[10px] font-bold text-slate-400 uppercase">Team Manager / Reports To</p><p className="text-sm font-bold text-blue-700">{systemUsers.find(su => su.id === selectedAgent.parent_corporate_id)?.name || "Unknown"}</p></div>
+                             </div>
+                           )}
                            <div className="flex items-center gap-3">
                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Building size={14} className="text-slate-500"/></div>
                              <div><p className="text-[10px] font-bold text-slate-400 uppercase">Office Location</p><p className="text-sm font-bold text-slate-700 truncate pr-2" title={selectedAgent.office_address}>{selectedAgent.office_address || "Remote / Unspecified"}</p></div>
@@ -520,17 +555,29 @@ export default function AgentManagement() {
                     <div className="space-y-3 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-200 before:to-transparent">
                       {getAgentLogs(selectedAgent.name || "").map(log => (
                         <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                          
                           <div className={`flex items-center justify-center w-10 h-10 rounded-full border-4 border-[#f8fafc] shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 shadow-sm relative z-10
-                            ${log.action === 'CREATE' ? 'bg-emerald-500' : log.action === 'UPDATE' ? 'bg-blue-500' : 'bg-amber-500'}`}>
-                              <Activity size={14} className="text-white"/>
+                            ${log.action === 'CREATE' ? 'bg-emerald-500' : log.action === 'UPDATE' ? 'bg-blue-500' : log.action === 'LOGIN' ? 'bg-indigo-500' : log.action === 'UPLOAD_DOC' ? 'bg-amber-500' : 'bg-slate-500'}`}>
+                              {log.action === 'LOGIN' ? <LogIn size={14} className="text-white"/> : 
+                               log.action === 'UPLOAD_DOC' ? <FileText size={14} className="text-white"/> : 
+                               <Activity size={14} className="text-white"/>}
                           </div>
+                          
                           <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="font-bold text-slate-900 text-sm">{log.action === 'UPDATE' ? 'Updated' : log.action === 'CREATE' ? 'Created' : 'Action on'} <span className="text-[#282860]">{log.entity}</span></div>
+                            <div className="flex items-center justify-between mb-2 border-b border-slate-50 pb-2">
+                              <div className="font-black text-[#282860] text-sm">
+                                {log.action === 'LOGIN' ? 'System Access' : `${log.action} • ${log.entity}`}
+                              </div>
                               <time className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-md">{new Date(log.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</time>
                             </div>
-                            <div className="text-xs text-slate-500 font-medium">{new Date(log.created_at).toLocaleDateString()}</div>
+                            
+                            <div className="text-xs text-slate-600 font-medium bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                              {formatLogDetails(log)}
+                            </div>
+                            
+                            <div className="text-[10px] text-slate-400 font-medium mt-2">{new Date(log.created_at).toLocaleDateString()}</div>
                           </div>
+
                         </div>
                       ))}
                     </div>
@@ -560,11 +607,21 @@ export default function AgentManagement() {
                 </select>
               </div>
 
-              {/* DYNAMIC CORPORATE FIELD */}
+              {/* DYNAMIC CORPORATE / MANAGER FIELDS */}
               {newUserRole === "Corporate Agent" && (
                 <div className="animate-in fade-in slide-in-from-top-2">
                   <label className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Building size={14}/> Corporation Name</label>
                   <input type="text" required placeholder="e.g. EduGlobal Partners" className="w-full px-4 py-3 border border-blue-200 rounded-xl text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all bg-blue-50 focus:bg-white" value={newUserCorpName} onChange={e => setNewUserCorpName(e.target.value)} />
+                </div>
+              )}
+
+              {(newUserRole === "Individual Agent" || newUserRole === "Student Counselor") && (
+                <div className="animate-in fade-in slide-in-from-top-2">
+                  <label className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Network size={14}/> Reports To / Team Manager</label>
+                  <select className="w-full px-4 py-3 border border-blue-200 rounded-xl text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all bg-blue-50 focus:bg-white cursor-pointer" value={newUserParentId} onChange={e => setNewUserParentId(e.target.value)}>
+                    <option value="">None (Independent Agent)</option>
+                    {managerOptions.map(m => <option key={m.id} value={m.id}>{m.name} {m.corporation_name ? `(${m.corporation_name})` : `(${m.role})`}</option>)}
+                  </select>
                 </div>
               )}
 
@@ -585,7 +642,7 @@ export default function AgentManagement() {
                 </div>
                 <div>
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Max Pipeline Capacity</label>
-                  <input type="number" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserCapacity} onChange={e => setNewUserCapacity(Number(e.target.value))} />
+                  <input type="number" required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all bg-slate-50 focus:bg-white" value={newUserCapacity} onChange={e => setNewUserCapacity(e.target.value)} />
                 </div>
               </div>
               <div className="pt-4 flex justify-end gap-3"><button type="button" onClick={() => setIsUserModalOpen(false)} className="px-5 py-3 text-slate-500 hover:text-slate-700 font-bold text-sm transition-colors">Cancel</button><button type="submit" disabled={isSavingUser} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-8 py-3 rounded-xl text-sm font-bold disabled:opacity-50 transition-all shadow-md">{isSavingUser ? "Deploying..." : "Create Account"}</button></div>
@@ -624,14 +681,23 @@ export default function AgentManagement() {
                         <input type="text" required placeholder="Company Name" className="w-full px-4 py-3 border border-blue-200 rounded-xl text-sm bg-blue-50 focus:bg-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all" value={editingUser.corporation_name || ""} onChange={e => setEditingUser({...editingUser, corporation_name: e.target.value})} />
                       </div>
                     ) : (
-                      <div>{/* Empty space to keep grid alignment */}</div>
+                      <div className="animate-in fade-in slide-in-from-top-2">
+                        <label className="text-[11px] font-bold text-blue-500 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Network size={12}/> Reports To / Manager</label>
+                        <select className="w-full px-4 py-3 border border-blue-200 rounded-xl text-sm bg-blue-50 focus:bg-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all cursor-pointer" value={editingUser.parent_corporate_id || ""} onChange={e => setEditingUser({...editingUser, parent_corporate_id: e.target.value})}>
+                          <option value="">None (Independent)</option>
+                          {managerOptions.map(m => {
+                            if (m.id === editingUser.id) return null; // Can't report to self
+                            return <option key={m.id} value={m.id}>{m.name} {m.corporation_name ? `(${m.corporation_name})` : `(${m.role})`}</option>;
+                          })}
+                        </select>
+                      </div>
                     )}
 
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">{editingUser.role === "Corporate Agent" ? "PIC Full Name" : "Account Name"}</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.name || ""} onChange={e => setEditingUser({...editingUser, name: e.target.value})} /></div>
                     
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Users size={12}/> Max Active Capacity</label>
-                      <input type="number" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-black text-[#282860] bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.max_capacity || 50} onChange={e => setEditingUser({...editingUser, max_capacity: Number(e.target.value)})} />
+                      <input type="number" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-black text-[#282860] bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.max_capacity || ""} onChange={e => setEditingUser({...editingUser, max_capacity: e.target.value})} />
                     </div>
 
                     <div>
@@ -648,7 +714,10 @@ export default function AgentManagement() {
                   <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest mb-4 flex items-center gap-2 border-b border-slate-100 pb-2"><PhoneCall size={14} className="text-blue-500"/> Contact Information</h3>
                   <div className="grid grid-cols-2 gap-5">
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Phone Number</label><input type="text" placeholder="e.g. +62 812..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.phone || ""} onChange={e => setEditingUser({...editingUser, phone: e.target.value})} /></div>
-                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block text-red-500">Emergency Contact</label><input type="text" placeholder="Wife/Husband Name - +62..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.emergency_contact || ""} onChange={e => setEditingUser({...editingUser, emergency_contact: e.target.value})} /></div>
+                    
+                    {/* FIXED: Removed Wife/Husband placeholder */}
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block text-red-500">Emergency Contact</label><input type="text" placeholder="e.g. +62 812..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.emergency_contact || ""} onChange={e => setEditingUser({...editingUser, emergency_contact: e.target.value})} /></div>
+                    
                     <div className="col-span-2"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Office Address</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.office_address || ""} onChange={e => setEditingUser({...editingUser, office_address: e.target.value})} /></div>
                   </div>
                 </div>
@@ -659,7 +728,9 @@ export default function AgentManagement() {
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Bank Name</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_name || ""} onChange={e => setEditingUser({...editingUser, bank_name: e.target.value})} /></div>
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Account Number</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-mono bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_account || ""} onChange={e => setEditingUser({...editingUser, bank_account: e.target.value})} /></div>
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Bank Branch</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_branch || ""} onChange={e => setEditingUser({...editingUser, bank_branch: e.target.value})} /></div>
-                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Commission Rate (%)</label><input type="number" step="0.1" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-black text-emerald-600 bg-emerald-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.commission_rate || ""} onChange={e => setEditingUser({...editingUser, commission_rate: Number(e.target.value)})} /></div>
+                    
+                    {/* Fixed to safely handle empty string conversion */}
+                    <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Commission Rate (%)</label><input type="number" step="0.1" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-black text-emerald-600 bg-emerald-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.commission_rate || ""} onChange={e => setEditingUser({...editingUser, commission_rate: e.target.value})} /></div>
                   </div>
                 </div>
 

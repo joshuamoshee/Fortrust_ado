@@ -5,7 +5,7 @@ import {
   Search, Filter, GraduationCap, Building, MapPin, 
   FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
   X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
-  Thermometer, BrainCircuit, UploadCloud, ChevronRight, Activity
+  Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, Eye, Trash2, Plus
 } from "lucide-react";
 
 export default function GlobalStudentDatabase() {
@@ -30,6 +30,16 @@ export default function GlobalStudentDatabase() {
   // AI Report State
   const [aiReport, setAiReport] = useState("");
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+
+  // Upload State
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+
+  // Add New Student State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newStudent, setNewStudent] = useState({
+    name: "", email: "", phone: "", assignee: "", program_interest: "", lead_source: "", lead_temperature: "Cold Leads", status: "NEW LEAD"
+  });
+  const [isCreatingStudent, setIsCreatingStudent] = useState(false);
 
   // Notification State
   const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
@@ -58,6 +68,40 @@ export default function GlobalStudentDatabase() {
       console.error("Failed to fetch data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCreatingStudent(true);
+    setNotification(null);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students`, {
+        method: "POST",
+        headers: { 
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          ...newStudent,
+          assignee: newStudent.assignee || "Unassigned"
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification({type: 'success', message: 'Student successfully added to the global pipeline.'});
+        setIsAddModalOpen(false);
+        setNewStudent({ name: "", email: "", phone: "", assignee: "", program_interest: "", lead_source: "", lead_temperature: "Cold Leads", status: "NEW LEAD" });
+        fetchData();
+      } else {
+        setNotification({type: 'error', message: data.detail || "Failed to create student."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error."});
+    } finally {
+      setIsCreatingStudent(false);
+      setTimeout(() => setNotification(null), 3000);
     }
   };
 
@@ -117,7 +161,6 @@ export default function GlobalStudentDatabase() {
       if (res.ok) {
         setNotification({type: 'success', message: `Student profile updated.`});
         fetchData(); 
-        // Update local state to reflect changes immediately
         setAllStudents(prev => prev.map(s => s.id === editingStudent.id ? editingStudent : s));
       } else {
         setNotification({type: 'error', message: "Failed to update student."});
@@ -154,6 +197,39 @@ export default function GlobalStudentDatabase() {
     }
   };
 
+  const handleDocumentUpload = async (file: File, docType: string) => {
+    if (!editingStudent) return;
+    setIsUploadingDoc(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const formData = new FormData();
+      if (docType === "Report Card") formData.append("report_card", file);
+      else if (docType === "Psychology Test") formData.append("psych_test", file);
+      else formData.append("report_card", file);
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/document`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: formData
+      });
+
+      if (res.ok) {
+        setNotification({type: 'success', message: `${docType} uploaded securely to vault.`});
+        fetchData();
+        const newDoc = { title: `${docType} - ${file.name}`, filename: file.name };
+        const currentDocs = typeof editingStudent.documents === 'string' ? JSON.parse(editingStudent.documents || "[]") : (editingStudent.documents || []);
+        setEditingStudent({ ...editingStudent, documents: [...currentDocs, newDoc] });
+      } else {
+        setNotification({type: 'error', message: "Failed to upload document."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error during upload."});
+    } finally {
+      setIsUploadingDoc(false);
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     const s = (status || "").toUpperCase();
     if (s === "NEW LEAD") return "bg-blue-50 text-blue-700 border-blue-200";
@@ -182,13 +258,25 @@ export default function GlobalStudentDatabase() {
   const inProgressCount = allStudents.filter(s => s.status !== "COMPLETED" && s.status !== "REJECTED").length;
   const completedCount = allStudents.filter(s => s.status === "COMPLETED").length;
 
-  // Safely parse documents JSON
   let studentDocs = [];
   if (editingStudent && editingStudent.documents) {
     try {
       studentDocs = typeof editingStudent.documents === 'string' ? JSON.parse(editingStudent.documents) : editingStudent.documents;
     } catch (e) { studentDocs = []; }
   }
+
+  const standardRequirements = [
+    { type: "Passport", name: "Valid International Passport (Bio Page)", required: true },
+    { type: "Report Card", name: "Academic Transcript (Last 1 Year)", required: true },
+    { type: "English Test", name: "IELTS / PTE / TOEFL Certificate", required: true },
+    { type: "SOP", name: "Statement of Purpose (SOP)", required: false },
+    { type: "Psychology Test", name: "HCC Profiling Test Results", required: false }
+  ];
+
+  const getDocStatus = (reqType: string) => {
+    const found = studentDocs.find((d: any) => (d.title || "").toUpperCase().includes(reqType.toUpperCase()));
+    return found ? { uploaded: true, file: found } : { uploaded: false, file: null };
+  };
 
   return (
     <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full relative animate-in fade-in">
@@ -205,16 +293,25 @@ export default function GlobalStudentDatabase() {
       )}
 
       {/* HEADER */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
-          <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-            <GraduationCap className="text-[#BAD133]" size={28} />
-          </div>
-          Global Student Database
-        </h1>
-        <p className="text-slate-500 mt-2 font-medium text-sm">
-          View, search, and manage all student applications across the entire network.
-        </p>
+      <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
+            <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+              <GraduationCap className="text-[#BAD133]" size={28} />
+            </div>
+            Global Student Database
+          </h1>
+          <p className="text-slate-500 mt-2 font-medium text-sm">
+            View, search, and manage all student applications across the entire network.
+          </p>
+        </div>
+        
+        <button 
+          onClick={() => setIsAddModalOpen(true)}
+          className="bg-[#282860] hover:bg-[#1b1b42] text-white px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 active:scale-95 shrink-0"
+        >
+          <Plus size={18} /> Register New Student
+        </button>
       </div>
 
       {/* KPIs */}
@@ -365,6 +462,83 @@ export default function GlobalStudentDatabase() {
         </div>
       </div>
 
+      {/* --- ADD NEW STUDENT MODAL --- */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
+              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2">
+                <GraduationCap size={22} className="text-[#BAD133]" /> Register New Student
+              </h2>
+              <button onClick={() => setIsAddModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+            
+            <div className="p-8 max-h-[70vh] overflow-y-auto custom-scrollbar bg-slate-50">
+              <form id="add-student-form" onSubmit={handleCreateStudent} className="space-y-6">
+                
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-2"><FileText size={14} className="text-blue-500"/> Student Identity</h3>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Full Name</label>
+                    <input type="text" required placeholder="e.g. Sarah Jenkins" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.name} onChange={e => setNewStudent({...newStudent, name: e.target.value})} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Email Address</label>
+                      <input type="email" placeholder="sarah@example.com" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.email} onChange={e => setNewStudent({...newStudent, email: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Phone Number</label>
+                      <input type="text" placeholder="+62 812..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.phone} onChange={e => setNewStudent({...newStudent, phone: e.target.value})} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 pt-2">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-2"><MapPin size={14} className="text-emerald-500"/> Pipeline Routing</h3>
+                  
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Assign To Agent</label>
+                    <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer font-bold text-[#282860]" value={newStudent.assignee} onChange={e => setNewStudent({...newStudent, assignee: e.target.value})}>
+                      <option value="">Unassigned (Open Pool)</option>
+                      {agents.map(a => <option key={a.id} value={a.name}>{a.name} ({a.branch})</option>)}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Lead Temperature</label>
+                      <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={newStudent.lead_temperature} onChange={e => setNewStudent({...newStudent, lead_temperature: e.target.value})}>
+                        <option value="Hot Leads">🔥 Hot Lead</option>
+                        <option value="Warm Leads">☀️ Warm Lead</option>
+                        <option value="Cold Leads">❄️ Cold Lead</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Program Interest</label>
+                      <input type="text" placeholder="e.g. Master of Data Science" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.program_interest} onChange={e => setNewStudent({...newStudent, program_interest: e.target.value})} />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Lead Source</label>
+                    <input type="text" placeholder="e.g. Instagram Ads, Education Fair" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.lead_source} onChange={e => setNewStudent({...newStudent, lead_source: e.target.value})} />
+                  </div>
+                </div>
+
+              </form>
+            </div>
+            
+            <div className="p-5 border-t border-slate-100 bg-white flex justify-end gap-3 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+              <button onClick={() => setIsAddModalOpen(false)} type="button" className="px-6 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
+              <button form="add-student-form" type="submit" disabled={isCreatingStudent} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-8 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 disabled:opacity-50">
+                {isCreatingStudent ? <><Loader2 size={16} className="animate-spin" /> Saving...</> : "Register Student"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- REASSIGN MODAL --- */}
       {isReassignModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -432,12 +606,12 @@ export default function GlobalStudentDatabase() {
             </div>
 
             {/* DOSSIER TABS */}
-            <div className="flex bg-slate-50 border-b border-slate-200 px-6 shrink-0">
+            <div className="flex bg-slate-50 border-b border-slate-200 px-6 shrink-0 overflow-x-auto custom-scrollbar">
               <button onClick={() => setDossierTab('profile')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'profile' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
                 <Edit2 size={16} /> Profile Settings
               </button>
               <button onClick={() => setDossierTab('documents')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'documents' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
-                <UploadCloud size={16} /> Document Vault
+                <UploadCloud size={16} /> Application Vault
               </button>
               <button onClick={() => setDossierTab('ai')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'ai' ? 'border-b-2 border-[#BAD133] text-[#1b1b42] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
                 <BrainCircuit size={16} /> AI Intelligence
@@ -507,37 +681,98 @@ export default function GlobalStudentDatabase() {
                 </div>
               )}
 
-              {/* TAB 2: DOCUMENT VAULT */}
+              {/* TAB 2: APPLICATION VAULT (CHECKLIST) */}
               {dossierTab === 'documents' && (
-                <div className="p-6 space-y-4 animate-in fade-in">
-                  <div className="bg-white rounded-2xl border border-slate-200 p-6 flex items-center justify-between shadow-sm">
+                <div className="p-6 space-y-6 animate-in fade-in">
+                  
+                  {/* Summary Block */}
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between shadow-sm gap-4">
                     <div>
-                      <h3 className="font-black text-[#282860] flex items-center gap-2"><UploadCloud size={20} className="text-blue-500"/> Cloud Vault</h3>
-                      <p className="text-xs text-slate-500 mt-1">All verified academic and psychological reports tied to this student.</p>
+                      <h3 className="font-black text-[#282860] flex items-center gap-2"><UploadCloud size={20} className="text-blue-500"/> Application Document Matrix</h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-md">Verify required admission documents before pushing the student's pipeline stage to <strong>Application</strong>.</p>
                     </div>
-                    <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-black">{studentDocs.length} Files</span>
+                    {standardRequirements.filter(req => req.required && !getDocStatus(req.type).uploaded).length > 0 ? (
+                      <div className="bg-red-50 text-red-600 px-4 py-2.5 rounded-xl text-xs font-bold border border-red-200 flex items-center gap-2">
+                        <AlertCircle size={16}/> Missing Required Files
+                      </div>
+                    ) : (
+                      <div className="bg-emerald-50 text-emerald-700 px-4 py-2.5 rounded-xl text-xs font-bold border border-emerald-200 flex items-center gap-2">
+                        <CheckCircle2 size={16}/> Ready for Submission
+                      </div>
+                    )}
                   </div>
 
-                  {studentDocs.length === 0 ? (
-                    <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 flex flex-col items-center justify-center text-center">
-                      <FileText size={48} className="text-slate-300 mb-3" />
-                      <p className="font-bold text-slate-600">No documents uploaded</p>
-                      <p className="text-sm text-slate-400 mt-1">The agent has not attached any HCC tests or report cards yet.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {studentDocs.map((doc: any, i: number) => (
-                        <div key={i} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex items-center justify-between hover:border-[#BAD133] transition-colors group">
+                  {/* Document Checklist Array */}
+                  <div className="space-y-3">
+                    {standardRequirements.map((req, i) => {
+                      const docStatus = getDocStatus(req.type);
+                      return (
+                        <div key={i} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                           <div className="flex items-center gap-4">
-                            <div className="bg-red-50 text-red-500 p-3 rounded-lg"><FileText size={20}/></div>
+                            <div className={`p-3 rounded-xl border shrink-0 ${docStatus.uploaded ? "bg-emerald-50 border-emerald-100 text-emerald-600" : "bg-slate-50 border-slate-200 text-slate-400"}`}>
+                              <FileText size={20}/>
+                            </div>
                             <div>
-                              <p className="text-sm font-bold text-[#282860]">{doc.title || "Untitled Document"}</p>
-                              <p className="text-xs text-slate-400 font-mono mt-0.5">{doc.filename || "unknown_file.pdf"}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-bold text-[#282860]">{req.name}</p>
+                                {req.required && !docStatus.uploaded && <span className="bg-red-100 text-red-700 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded">Required</span>}
+                              </div>
+                              {docStatus.uploaded ? (
+                                <p className="text-xs text-slate-400 font-mono mt-0.5">{docStatus.file.filename}</p>
+                              ) : (
+                                <p className="text-xs text-slate-400 mt-0.5 italic">Not uploaded yet.</p>
+                              )}
                             </div>
                           </div>
-                          <button className="text-blue-600 font-bold text-xs bg-blue-50 px-4 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">View PDF</button>
+                          
+                          <div className="shrink-0 flex items-center gap-2">
+                            {docStatus.uploaded ? (
+                              <>
+                                <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider">Uploaded</span>
+                                <button className="p-2 bg-slate-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg shadow-sm transition-colors" title="View Document">
+                                  <Eye size={16} />
+                                </button>
+                              </>
+                            ) : (
+                              <label className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-2 shadow-sm">
+                                {isUploadingDoc ? <Loader2 size={14} className="animate-spin"/> : <UploadCloud size={14}/>}
+                                <span>Upload</span>
+                                <input 
+                                  type="file" 
+                                  accept=".pdf,.jpg,.jpeg,.png" 
+                                  className="hidden" 
+                                  onChange={(e) => {
+                                    if(e.target.files && e.target.files[0]) handleDocumentUpload(e.target.files[0], req.type);
+                                  }} 
+                                />
+                              </label>
+                            )}
+                          </div>
                         </div>
-                      ))}
+                      );
+                    })}
+                  </div>
+
+                  {/* Catch-all for extra unclassified documents */}
+                  {studentDocs.filter((d: any) => !standardRequirements.some(req => (d.title || "").toUpperCase().includes(req.type.toUpperCase()))).length > 0 && (
+                    <div className="mt-8">
+                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 pl-2">Additional Files</h4>
+                      <div className="space-y-3">
+                        {studentDocs.filter((d: any) => !standardRequirements.some(req => (d.title || "").toUpperCase().includes(req.type.toUpperCase()))).map((doc: any, i: number) => (
+                          <div key={i} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="bg-slate-50 text-slate-500 border border-slate-200 p-2.5 rounded-lg"><FileText size={18}/></div>
+                              <div>
+                                <p className="text-sm font-bold text-[#282860]">{doc.title || "Untitled Document"}</p>
+                                <p className="text-xs text-slate-400 font-mono mt-0.5">{doc.filename || "unknown_file.pdf"}</p>
+                              </div>
+                            </div>
+                            <button className="text-blue-600 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg transition-colors border border-blue-100 flex items-center gap-1.5">
+                              <Eye size={14}/> View
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
