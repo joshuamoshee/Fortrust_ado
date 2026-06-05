@@ -5,11 +5,10 @@ import {
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, 
   Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
-  Archive, RefreshCcw, Phone, Landmark, Percent, PhoneCall, Building, Building2
+  Archive, RefreshCcw, Phone, Landmark, Percent, PhoneCall, Building
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
-// MERGE CONFLICT RESOLVED: Using the correct backend-compatible string "MASTER_ADMIN"
 const ROLE_OPTIONS = ["Corporate Agent", "Individual Agent", "Student Counselor", "MASTER_ADMIN"];
 
 export default function AgentManagement() {
@@ -83,7 +82,7 @@ export default function AgentManagement() {
           role: newUserRole, 
           branch: newUserBranch, 
           max_capacity: newUserCapacity,
-          corporation_name: newUserRole === "Corporate Agent" ? newUserCorpName : null
+          corporation_name: newUserRole === "Corporate Agent" ? newUserCorpName : "" // FIX: Cannot be null
         }),
       });
       const data = await response.json();
@@ -96,8 +95,16 @@ export default function AgentManagement() {
           setNewUserName(""); setNewUserEmail(""); setNewUserPhone(""); 
           setNewUserPassword(""); setNewUserCorpName(""); setNotification(null); 
         }, 1500);
-      } else setNotification({type: 'error', message: data.detail || "Failed to create user."});
-    } catch (err) { setNotification({type: 'error', message: 'Network error.'}); } finally { setIsSavingUser(false); }
+      } else {
+        // FIX: Extract string safely from FastAPI 422 Array responses so React doesn't crash
+        const errorMsg = Array.isArray(data.detail) ? data.detail[0].msg : (data.detail || "Failed to create user.");
+        setNotification({type: 'error', message: errorMsg});
+      }
+    } catch (err) { 
+      setNotification({type: 'error', message: 'Network error.'}); 
+    } finally { 
+      setIsSavingUser(false); 
+    }
   };
 
   const handleEditUser = async (e: React.FormEvent) => {
@@ -121,9 +128,10 @@ export default function AgentManagement() {
           swift_code: editingUser.swift_code, 
           is_active: editingUser.is_active, 
           max_capacity: editingUser.max_capacity,
-          corporation_name: editingUser.role === "Corporate Agent" ? editingUser.corporation_name : null
+          corporation_name: editingUser.role === "Corporate Agent" ? (editingUser.corporation_name || "") : "" // FIX: Cannot be null
         }),
       });
+      const data = await response.json();
       if (response.ok) {
         setNotification({type: 'success', message: 'Agent configuration updated.'});
         fetchData();
@@ -131,8 +139,13 @@ export default function AgentManagement() {
             setSelectedAgent(editingUser);
         }
         setTimeout(() => { setEditingUser(null); setNotification(null); }, 1500);
-      } else setNotification({type: 'error', message: 'Failed to update.'});
-    } catch (err) { setNotification({type: 'error', message: 'Network error.'}); }
+      } else {
+        const errorMsg = Array.isArray(data.detail) ? data.detail[0].msg : (data.detail || "Failed to update.");
+        setNotification({type: 'error', message: errorMsg});
+      }
+    } catch (err) { 
+      setNotification({type: 'error', message: 'Network error.'}); 
+    }
   };
 
   const handleArchiveUser = async (userId: string, agentName: string) => {
@@ -424,7 +437,7 @@ export default function AgentManagement() {
                              <div><p className="text-[10px] font-bold text-slate-400 uppercase">System Role</p><p className="text-sm font-bold text-slate-700">{selectedAgent.role}</p></div>
                            </div>
                            <div className="flex items-center gap-3">
-                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Building2 size={14} className="text-slate-500"/></div>
+                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Building size={14} className="text-slate-500"/></div>
                              <div><p className="text-[10px] font-bold text-slate-400 uppercase">Office Location</p><p className="text-sm font-bold text-slate-700 truncate pr-2" title={selectedAgent.office_address}>{selectedAgent.office_address || "Remote / Unspecified"}</p></div>
                            </div>
                          </div>

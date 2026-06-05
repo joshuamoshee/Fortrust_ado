@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   BrainCircuit, Search, CheckCircle2, AlertCircle, 
-  Send, FileText, Loader2, X, Activity, User, ChevronRight, RefreshCcw
+  Send, FileText, Loader2, X, Activity, User, RefreshCcw
 } from "lucide-react";
 
 export default function ProfilingTestHub() {
@@ -41,8 +41,6 @@ export default function ProfilingTestHub() {
   };
 
   const handleSendTestLink = (studentName: string) => {
-    // In a real app, this might trigger a backend WhatsApp API. 
-    // Here, we simulate copying the link to clipboard.
     navigator.clipboard.writeText(`Hi ${studentName}, please complete your Fortrust HCC Profiling Test here: https://fortrust.com/hcc-test`);
     setNotification({type: 'success', text: `Test link copied to clipboard for ${studentName}!`});
     setTimeout(() => setNotification(null), 3000);
@@ -62,7 +60,7 @@ export default function ProfilingTestHub() {
       if (res.ok && data.status === "success") {
         setAiReport(data.report);
       } else {
-        setAiReport("Analysis failed. The AI could not find readable text in the attached PDF.");
+        setAiReport("Analysis failed. The AI could not find readable text in the attached documents.");
       }
     } catch (error) {
       setAiReport("Network Error. Could not connect to Gemini AI.");
@@ -71,7 +69,7 @@ export default function ProfilingTestHub() {
     }
   };
 
-  // Helper to check if student has the HCC/Psychology test uploaded
+  // Helper to check if student has the HCC/Psychology test uploaded in their vault
   const checkTestStatus = (docsString: string) => {
     if (!docsString) return false;
     try {

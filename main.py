@@ -83,6 +83,8 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_capacity INTEGER DEFAULT 50;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS parent_corporate_id INTEGER REFERENCES users(id) ON DELETE SET NULL;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS office_address TEXT DEFAULT '';")
 
             # Institutions table
             cur.execute("""
@@ -248,24 +250,26 @@ class NewUserRequest(BaseModel):
     bank_branch: str = ""
     bank_account: str = ""
     swift_code: str = ""
+    parent_corporate_id: Optional[int] = None
 
 
 class UpdateSystemUser(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    role: Optional[str] = None
-    branch: Optional[str] = None
-    office_address: Optional[str] = None
-    bank_name: Optional[str] = None
-    bank_branch: Optional[str] = None
-    bank_address: Optional[str] = None
-    bank_account: Optional[str] = None
-    swift_code: Optional[str] = None
-    is_active: Optional[bool] = None
-    max_capacity: Optional[int] = None
-    commission_rate: Optional[float] = None
-    password: Optional[str] = None
+    name: str
+    email: str
+    password: str
+    role: str
+    branch: str
+    phone: str = ""
+    agent_type: str = "Individual Agent"
+    corporation_name: str = ""
+    office_address: str = ""
+    max_capacity: int = 50
+    commission_rate: float = 0
+    bank_name: str = ""
+    bank_branch: str = ""
+    bank_account: str = ""
+    swift_code: str = ""
+    parent_corporate_id: Optional[int] = None
 
 
 class UserCreate(BaseModel):
@@ -466,14 +470,15 @@ def create_user_legacy(req: NewUserRequest):
                 INSERT INTO users (
                     name, email, password, role, branch, phone, agent_type,
                     corporation_name, office_address, max_capacity, commission_rate,
-                    bank_name, bank_branch, bank_account, swift_code
+                    bank_name, bank_branch, bank_account, swift_code, parent_corporate_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 req.name, req.email, hashed_password, req.role, req.branch,
                 req.phone, req.agent_type, req.corporation_name, req.office_address,
                 req.max_capacity, req.commission_rate,
-                req.bank_name, req.bank_branch, req.bank_account, req.swift_code
+                req.bank_name, req.bank_branch, req.bank_account, req.swift_code,
+                req.parent_corporate_id
             ))
             conn.commit()
             return {"status": "success", "message": "User account created securely!"}
@@ -495,7 +500,7 @@ def get_all_users_legacy():
             cur.execute("""
                 SELECT id, name, email, role, branch, phone, agent_type, corporation_name,
                        office_address, bank_name, bank_branch, bank_address, bank_account,
-                       swift_code, max_capacity, commission_rate,
+                       swift_code, max_capacity, commission_rate, parent_corporate_id,
                        COALESCE(is_active, true) as is_active
                 FROM users ORDER BY id DESC
             """)
