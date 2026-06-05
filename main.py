@@ -145,6 +145,8 @@ def verify_schema():
                 );
             """)
 
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS payout_status TEXT DEFAULT 'PENDING_CENSUS';")
+
             conn.commit()
     except Exception as e:
         print(f"Schema upgrade error: {e}")
@@ -1643,6 +1645,87 @@ def get_broadcasts():
                     log['created_at'] = log['created_at'].isoformat()
             return {"status": "success", "data": logs}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# =====================================================================
+# --- 12. COMMISSIONS & PAYOUTS LEDGER ---
+# =====================================================================
+@app.get("/api/commissions")
+def get_commissions(user_data: dict = Depends(verify_token)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # If MASTER_ADMIN, see company-wide ledger. If Agent, see only their own.
+            if user_data.get("role") == "MASTER_ADMIN":
+                cur.execute("""
+                    SELECT id, name as student, program_interest as program, 
+                           commission_earned as amount, payout_status as status, 
+                           created_at as date, assignee
+                    FROM students 
+                    WHERE commission_earned > 0 OR status IN ('VISA', 'COMPLETED')
+                    ORDER BY created_at DESC
+                """)
+            else:
+                cur.execute("""
+                    SELECT id, name as student, program_interest as program, 
+                           commission_earned as amount, payout_status as status, 
+                           created_at as date, assignee
+                    FROM students 
+                    WHERE assignee = %s AND (commission_earned > 0 OR status IN ('VISA', 'COMPLETED'))
+                    ORDER BY created_at DESC
+                """, (user_data.get("name"),))
+            
+            records = cur.fetchall()
+            
+            # Map DB records to the Frontend Ledger UI
+            processed = []
+            for r in records:
+                # Fallbacks for status
+                status = r['status'] or "PENDING_CENSUS"
+                amount = float(r['amount'] or 0)
+                
+                # If they are marked COMPLETED in pipeline but not claimed, they are CLEARED for payout
+                if status == "PENDING_CENSUS" and amount > 0:
+                    status = "CLEARED"
+                
+                processed.append({
+                    "id": f"INV-{str(r['id']).zfill(4)}",
+                    "student": r['student'],
+                    "university": "Assigned Institution", # Usually extracted from applications JSON
+                    "program": r['program'] or "General Program",
+                    "tuition": amount * 10 if amount > 0 else 0, # Reverse math for UI display
+                    "rate": 10,
+                    "amount": amount,
+                    "status": status,
+                    "date": r['date'].strftime("%Y-%m-%d") if r['date'] else "TBD",
+                    "notes": "Ready for withdrawal." if status == "CLEARED" else "Awaiting university clearance." if status == "PENDING_CENSUS" else "Payout transferred via SWIFT."
+                })
+            return {"status": "success", "data": processed}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/commissions/claim")
+def claim_commissions(user_data: dict = Depends(verify_token)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Move all CLEARED funds to CLAIMED for the requesting agent
+            if user_data.get("role") == "MASTER_ADMIN":
+                cur.execute("UPDATE students SET payout_status = 'CLAIMED' WHERE payout_status = 'CLEARED' OR commission_earned > 0")
+            else:
+                cur.execute("UPDATE students SET payout_status = 'CLAIMED' WHERE assignee = %s AND (payout_status = 'CLEARED' OR commission_earned > 0)", (user_data.get("name"),))
+            
+            if cur.rowcount == 0:
+                return {"status": "error", "message": "No cleared funds available to claim."}
+                
+            conn.commit()
+            return {"status": "success", "message": "Funds claimed and invoice generated to Finance!"}
+    except Exception as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
