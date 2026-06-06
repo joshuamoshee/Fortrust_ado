@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { 
   Search, Filter, GraduationCap, Building, MapPin, 
   FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
   X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
-  Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, Eye, Trash2, Plus
+  Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
+  Eye, Trash2, Plus, MessageSquare, Send, Clock, User
 } from "lucide-react";
 
 export default function GlobalStudentDatabase() {
@@ -24,7 +25,7 @@ export default function GlobalStudentDatabase() {
 
   // Edit Student Dossier State
   const [editingStudent, setEditingStudent] = useState<any>(null);
-  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai">("profile");
+  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai" | "notes">("profile");
   const [isSavingStudent, setIsSavingStudent] = useState(false);
   
   // AI Report State
@@ -33,6 +34,11 @@ export default function GlobalStudentDatabase() {
 
   // Upload State
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+
+  // Notes & Team Collaboration State
+  const [newNote, setNewNote] = useState("");
+  const [isSendingNote, setIsSendingNote] = useState(false);
+  const notesEndRef = useRef<HTMLDivElement>(null);
 
   // Add New Student State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -47,6 +53,13 @@ export default function GlobalStudentDatabase() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Auto-scroll to bottom of notes when opened or updated
+  useEffect(() => {
+    if (dossierTab === 'notes') {
+      notesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [dossierTab, editingStudent?.timeline]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -79,14 +92,8 @@ export default function GlobalStudentDatabase() {
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students`, {
         method: "POST",
-        headers: { 
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          ...newStudent,
-          assignee: newStudent.assignee || "Unassigned"
-        })
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newStudent, assignee: newStudent.assignee || "Unassigned" })
       });
       const data = await res.json();
       if (res.ok) {
@@ -112,13 +119,9 @@ export default function GlobalStudentDatabase() {
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToReassign.id}`, {
         method: "PUT",
-        headers: { 
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ assignee: selectedNewAgent }) 
       });
-      
       if (res.ok) {
         setNotification({type: 'success', message: `${studentToReassign.name} reassigned to ${selectedNewAgent}.`});
         setIsReassignModalOpen(false);
@@ -144,10 +147,7 @@ export default function GlobalStudentDatabase() {
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${editingStudent.id}`, {
         method: "PUT",
-        headers: { 
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           name: editingStudent.name,
           email: editingStudent.email,
@@ -157,7 +157,6 @@ export default function GlobalStudentDatabase() {
           lead_temperature: editingStudent.lead_temperature
         })
       });
-      
       if (res.ok) {
         setNotification({type: 'success', message: `Student profile updated.`});
         fetchData(); 
@@ -188,7 +187,7 @@ export default function GlobalStudentDatabase() {
       if (res.ok && data.status === "success") {
         setAiReport(data.report);
       } else {
-        setAiReport("AI Analysis failed. Please ensure the student has valid PDF documents or notes attached.");
+        setAiReport("AI Analysis failed. Please ensure the student has valid PDF documents attached.");
       }
     } catch (error) {
       setAiReport("Network Error. Could not connect to Gemini API.");
@@ -230,6 +229,54 @@ export default function GlobalStudentDatabase() {
     }
   };
 
+  // --- TEAM COLLABORATION ENGINE ---
+  const handleSendNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNote.trim() || !editingStudent) return;
+    
+    setIsSendingNote(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      
+      // We safely try to extract the user's name, fallback to "Admin"
+      let authorName = "Master Admin";
+      try {
+        if (token) {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          authorName = payload.name || "Master Admin";
+        }
+      } catch (e) {}
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/notes`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          note: newNote,
+          author: authorName
+        })
+      });
+
+      if (res.ok) {
+        // Optimistically update the UI
+        const newEntry = {
+          date: new Date().toISOString().replace('T', ' ').substring(0, 16),
+          author: authorName,
+          note: newNote
+        };
+        const currentTimeline = typeof editingStudent.timeline === 'string' ? JSON.parse(editingStudent.timeline || "[]") : (editingStudent.timeline || []);
+        setEditingStudent({ ...editingStudent, timeline: [...currentTimeline, newEntry] });
+        setNewNote("");
+        fetchData(); // Sync backend quietly
+      } else {
+        setNotification({type: 'error', message: "Failed to save note."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error."});
+    } finally {
+      setIsSendingNote(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     const s = (status || "").toUpperCase();
     if (s === "NEW LEAD") return "bg-blue-50 text-blue-700 border-blue-200";
@@ -259,10 +306,10 @@ export default function GlobalStudentDatabase() {
   const completedCount = allStudents.filter(s => s.status === "COMPLETED").length;
 
   let studentDocs = [];
-  if (editingStudent && editingStudent.documents) {
-    try {
-      studentDocs = typeof editingStudent.documents === 'string' ? JSON.parse(editingStudent.documents) : editingStudent.documents;
-    } catch (e) { studentDocs = []; }
+  let studentTimeline = [];
+  if (editingStudent) {
+    try { studentDocs = typeof editingStudent.documents === 'string' ? JSON.parse(editingStudent.documents) : (editingStudent.documents || []); } catch (e) { studentDocs = []; }
+    try { studentTimeline = typeof editingStudent.timeline === 'string' ? JSON.parse(editingStudent.timeline) : (editingStudent.timeline || []); } catch (e) { studentTimeline = []; }
   }
 
   const standardRequirements = [
@@ -616,6 +663,9 @@ export default function GlobalStudentDatabase() {
               <button onClick={() => setDossierTab('ai')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'ai' ? 'border-b-2 border-[#BAD133] text-[#1b1b42] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
                 <BrainCircuit size={16} /> AI Intelligence
               </button>
+              <button onClick={() => setDossierTab('notes')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'notes' ? 'border-b-2 border-blue-600 text-blue-700 bg-white' : 'text-slate-400 hover:text-blue-600'}`}>
+                <MessageSquare size={16} /> Team Collab
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
@@ -681,22 +731,46 @@ export default function GlobalStudentDatabase() {
                 </div>
               )}
 
-              {/* TAB 2: APPLICATION VAULT (CHECKLIST) */}
+              {/* TAB 2: APPLICATION VAULT (CHECKLIST & UPLOADS) */}
               {dossierTab === 'documents' && (
                 <div className="p-6 space-y-6 animate-in fade-in">
                   
+                  {/* MASSIVE GENERAL UPLOAD DROPZONE */}
+                  <div className="bg-white rounded-2xl border-2 border-dashed border-blue-200 p-8 flex flex-col items-center justify-center text-center hover:bg-blue-50/50 hover:border-blue-400 transition-all group">
+                    <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                      {isUploadingDoc ? <Loader2 size={28} className="animate-spin" /> : <UploadCloud size={28} />}
+                    </div>
+                    <h3 className="text-lg font-black text-[#282860] mb-1">Upload Student Document</h3>
+                    <p className="text-sm text-slate-500 mb-4 max-w-sm">Drop PDF Report Cards, Passports, or HCC Tests here to securely attach them to the student's cloud vault.</p>
+                    
+                    <label className="bg-[#282860] hover:bg-[#1b1b42] text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md cursor-pointer transition-all active:scale-95 flex items-center gap-2">
+                      {isUploadingDoc ? "Uploading to Cloud..." : "Browse Files"}
+                      <input 
+                        type="file" 
+                        accept=".pdf,.jpg,.jpeg,.png" 
+                        className="hidden" 
+                        disabled={isUploadingDoc}
+                        onChange={(e) => {
+                          if(e.target.files && e.target.files[0]) {
+                            handleDocumentUpload(e.target.files[0], "Report Card");
+                          }
+                        }} 
+                      />
+                    </label>
+                  </div>
+
                   {/* Summary Block */}
                   <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between shadow-sm gap-4">
                     <div>
-                      <h3 className="font-black text-[#282860] flex items-center gap-2"><UploadCloud size={20} className="text-blue-500"/> Application Document Matrix</h3>
+                      <h3 className="font-black text-[#282860] flex items-center gap-2"><CheckCircle2 size={20} className="text-emerald-500"/> Application Document Matrix</h3>
                       <p className="text-xs text-slate-500 mt-1 max-w-md">Verify required admission documents before pushing the student's pipeline stage to <strong>Application</strong>.</p>
                     </div>
                     {standardRequirements.filter(req => req.required && !getDocStatus(req.type).uploaded).length > 0 ? (
-                      <div className="bg-red-50 text-red-600 px-4 py-2.5 rounded-xl text-xs font-bold border border-red-200 flex items-center gap-2">
+                      <div className="bg-red-50 text-red-600 px-4 py-2.5 rounded-xl text-xs font-bold border border-red-200 flex items-center gap-2 shrink-0">
                         <AlertCircle size={16}/> Missing Required Files
                       </div>
                     ) : (
-                      <div className="bg-emerald-50 text-emerald-700 px-4 py-2.5 rounded-xl text-xs font-bold border border-emerald-200 flex items-center gap-2">
+                      <div className="bg-emerald-50 text-emerald-700 px-4 py-2.5 rounded-xl text-xs font-bold border border-emerald-200 flex items-center gap-2 shrink-0">
                         <CheckCircle2 size={16}/> Ready for Submission
                       </div>
                     )}
@@ -728,7 +802,7 @@ export default function GlobalStudentDatabase() {
                           <div className="shrink-0 flex items-center gap-2">
                             {docStatus.uploaded ? (
                               <>
-                                <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider">Uploaded</span>
+                                <span className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider">Uploaded</span>
                                 <button className="p-2 bg-slate-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg shadow-sm transition-colors" title="View Document">
                                   <Eye size={16} />
                                 </button>
@@ -822,6 +896,65 @@ export default function GlobalStudentDatabase() {
                     </div>
                   )}
 
+                </div>
+              )}
+
+              {/* TAB 4: TEAM COLLABORATION */}
+              {dossierTab === 'notes' && (
+                <div className="flex flex-col h-full animate-in fade-in">
+                  <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6">
+                    {studentTimeline.length === 0 ? (
+                      <div className="text-center py-16 text-slate-400 flex flex-col items-center">
+                        <MessageSquare size={40} className="mb-3 text-slate-200" />
+                        <p className="font-medium">No notes on this student yet.</p>
+                        <p className="text-xs mt-1">Start the conversation below.</p>
+                      </div>
+                    ) : (
+                      studentTimeline.map((note: any, i: number) => (
+                        <div key={i} className="flex gap-4">
+                          <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 font-bold border-2 border-white shadow-sm">
+                            {(note.author || "U").charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-baseline justify-between mb-1">
+                              <span className="font-bold text-slate-800 text-sm">{note.author || "Team Member"}</span>
+                              <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><Clock size={10}/> {note.date}</span>
+                            </div>
+                            <div className="bg-white p-4 rounded-2xl rounded-tl-none shadow-sm border border-slate-200 text-sm text-slate-700 whitespace-pre-wrap">
+                              {note.note}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={notesEndRef} />
+                  </div>
+
+                  <div className="p-5 bg-white border-t border-slate-200 shrink-0">
+                    <form onSubmit={handleSendNote} className="relative">
+                      <textarea
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        placeholder="Add an internal note or mention an agent..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 pr-16 text-sm outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-400/10 transition-all resize-none"
+                        rows={2}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendNote(e);
+                          }
+                        }}
+                      />
+                      <button 
+                        type="submit" 
+                        disabled={!newNote.trim() || isSendingNote}
+                        className="absolute right-3 bottom-3 w-10 h-10 rounded-xl bg-[#282860] hover:bg-[#1b1b42] text-white flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                      >
+                        {isSendingNote ? <Loader2 size={16} className="animate-spin"/> : <Send size={16} className="-ml-0.5 mt-0.5" />}
+                      </button>
+                    </form>
+                    <p className="text-[10px] text-slate-400 mt-2 font-medium text-center">Press Enter to send, Shift + Enter for new line.</p>
+                  </div>
                 </div>
               )}
 

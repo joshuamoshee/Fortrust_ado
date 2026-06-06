@@ -5,7 +5,7 @@ import {
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, 
   Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
-  Archive, RefreshCcw, Phone, Landmark, Percent, Building, FileText, LogIn, Network, PhoneCall, User, Loader
+  Archive, RefreshCcw, Phone, PhoneCall, Landmark, Percent, Building, FileText, LogIn, Network, Loader2, ArrowRight
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
@@ -32,12 +32,18 @@ export default function AgentManagement() {
   const [newUserBranch, setNewUserBranch] = useState("Jakarta");
   const [newUserCapacity, setNewUserCapacity] = useState<number | string>(50);
   const [newUserCorpName, setNewUserCorpName] = useState("");
-  const [newUserParentId, setNewUserParentId] = useState(""); // NEW: Team Manager Assignment
+  const [newUserParentId, setNewUserParentId] = useState("");
   const [isSavingUser, setIsSavingUser] = useState(false);
 
   const [selectedAgent, setSelectedAgent] = useState<any>(null); 
   const [panelTab, setPanelTab] = useState<"overview" | "financials" | "history">("overview");
   const [editingUser, setEditingUser] = useState<any>(null); 
+
+  // NEW: Advanced Deletion States
+  const [deleteFlowState, setDeleteFlowState] = useState<{agent: any, step: 'check' | 'reassign' | 'confirm' | null}>({agent: null, step: null});
+  const [reassignTarget, setReassignTarget] = useState("");
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+  const [isProcessingDelete, setIsProcessingDelete] = useState(false);
 
   const fetchData = async () => {
     const token = localStorage.getItem("fortrust_token");
@@ -117,7 +123,6 @@ export default function AgentManagement() {
     try {
       const token = localStorage.getItem("fortrust_token");
       
-      // FIX: Clean numeric fields to prevent FastAPI 422 "Field Required" crashes
       const safeCapacity = editingUser.max_capacity === "" ? 50 : Number(editingUser.max_capacity);
       const safeCommission = editingUser.commission_rate === "" ? 0 : Number(editingUser.commission_rate);
       const safeParentId = editingUser.parent_corporate_id ? Number(editingUser.parent_corporate_id) : null;
@@ -158,13 +163,7 @@ export default function AgentManagement() {
   };
 
   const handleArchiveUser = async (userId: string, agentName: string) => {
-    const activeCount = getAgentStudents(agentName).length;
-    if (activeCount > 0) {
-      alert(`ACCESS DENIED: Cannot archive ${agentName}.\nThey have ${activeCount} active students. Reassign pipeline first.`);
-      return;
-    }
     if (!window.confirm(`Move ${agentName} to the Archive? They will lose system access.`)) return;
-
     try {
       const token = localStorage.getItem("fortrust_token");
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { 
@@ -177,19 +176,6 @@ export default function AgentManagement() {
         fetchData();
       } else alert("Failed to archive user.");
     } catch (err) { alert("Network error."); }
-  };
-
-  const handleDeletePermanently = async (userId: string, agentName: string) => {
-    if (!window.confirm(`CRITICAL WARNING: Permanently delete ${agentName}? This destroys historical data.`)) return;
-    try {
-      const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
-      const data = await res.json();
-      if (res.ok) {
-        setNotification({type: 'success', message: data.message || "User permanently deleted."});
-        fetchData();
-      } else alert(data.detail);
-    } catch (err) { alert("Action failed."); }
   };
 
   const handleRestoreUser = async (userId: string, agentName: string) => {
@@ -206,6 +192,66 @@ export default function AgentManagement() {
         fetchData();
       }
     } catch (err) {}
+  };
+
+  // --- ADVANCED DELETION WORKFLOW ---
+  const initiateDeletion = (agent: any) => {
+    const activeStudents = getAgentStudents(agent.name || "");
+    if (activeStudents.length > 0) {
+      setDeleteFlowState({ agent, step: 'reassign' });
+    } else {
+      setDeleteFlowState({ agent, step: 'confirm' });
+    }
+  };
+
+  const executeBulkReassign = async () => {
+    if (!reassignTarget || !deleteFlowState.agent) return;
+    setIsProcessingDelete(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const activeStudents = getAgentStudents(deleteFlowState.agent.name);
+      
+      for (const student of activeStudents) {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${student.id}`, {
+          method: "PUT",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ assignee: reassignTarget }) 
+        });
+      }
+      
+      setNotification({type: 'success', message: `Pipeline successfully handed over to ${reassignTarget}.`});
+      setDeleteFlowState({ agent: deleteFlowState.agent, step: 'confirm' }); 
+      fetchData(); 
+    } catch (e) {
+      setNotification({type: 'error', message: "Reassignment failed. Deletion aborted."});
+    } finally {
+      setIsProcessingDelete(false);
+    }
+  };
+
+  const executeFinalDelete = async () => {
+    if (!deleteFlowState.agent || deleteConfirmationText !== deleteFlowState.agent.name) return;
+    setIsProcessingDelete(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${deleteFlowState.agent.id}`, { 
+        method: "DELETE", 
+        headers: { "Authorization": `Bearer ${token}` } 
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification({type: 'success', message: data.message || "Agent permanently deleted."});
+        setDeleteFlowState({ agent: null, step: null });
+        setDeleteConfirmationText("");
+        fetchData();
+      } else {
+        setNotification({type: 'error', message: data.detail});
+      }
+    } catch (err) { 
+      setNotification({type: 'error', message: "Deletion failed."});
+    } finally {
+      setIsProcessingDelete(false);
+    }
   };
 
   const formatLogDetails = (log: any) => {
@@ -269,6 +315,7 @@ export default function AgentManagement() {
         </div>
       )}
 
+      {/* HEADER */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
@@ -282,6 +329,7 @@ export default function AgentManagement() {
         </button>
       </div>
 
+      {/* FILTER TABS */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col overflow-hidden">
         <div className="flex px-2 pt-2 border-b border-slate-100 bg-slate-50/50">
           <button onClick={() => setViewTab('active')} className={`px-6 py-3.5 text-sm font-bold tracking-wide transition-all rounded-t-xl ${viewTab === 'active' ? 'bg-white text-[#282860] border-t border-x border-slate-200 shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.02)]' : 'text-slate-400 hover:text-slate-600'}`}>
@@ -310,6 +358,7 @@ export default function AgentManagement() {
         </div>
       </div>
 
+      {/* TABLE */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse min-w-[1000px]">
@@ -334,7 +383,6 @@ export default function AgentManagement() {
                   const maxCap = u.max_capacity || 50;
                   const status = getLoadStatus(activeCount, maxCap);
 
-                  // Find parent manager name
                   const parentManager = u.parent_corporate_id ? systemUsers.find(su => su.id === u.parent_corporate_id) : null;
 
                   return (
@@ -386,8 +434,8 @@ export default function AgentManagement() {
                           </>
                         ) : (
                           <>
-                            <button onClick={() => handleRestoreUser(u.id, safeName)} className="text-blue-600 hover:text-white hover:bg-blue-600 font-bold text-[11px] uppercase tracking-wider bg-white border border-blue-200 px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"><RefreshCcw size={14}/> Activate</button>
-                            <button onClick={() => handleDeletePermanently(u.id, safeName)} className="text-red-600 hover:text-white hover:bg-red-600 bg-red-50 px-4 py-2 rounded-xl border border-red-200 transition-all flex items-center gap-1.5 shadow-sm" title="Delete Permanently"><Trash2 size={16} /> Delete</button>
+                            <button onClick={() => handleRestoreUser(u.id, safeName)} className="bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white border border-emerald-200 px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm"><RefreshCcw size={14}/> Reactive</button>
+                            <button onClick={() => initiateDeletion(u)} className="text-red-600 hover:text-white hover:bg-red-600 bg-red-50 px-4 py-2 rounded-xl border border-red-200 transition-all flex items-center gap-1.5 shadow-sm"><Trash2 size={16} /> Delete</button>
                           </>
                         )}
                       </td>
@@ -399,6 +447,111 @@ export default function AgentManagement() {
           </table>
         </div>
       </div>
+
+      {/* --- ADVANCED DELETION MODALS --- */}
+      {deleteFlowState.step === 'reassign' && deleteFlowState.agent && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-amber-50 p-6 border-b border-amber-100 flex items-center gap-4">
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center shrink-0">
+                <AlertTriangle size={24}/>
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-amber-800">Action Blocked: Active Pipeline</h2>
+                <p className="text-sm text-amber-700 mt-1 font-medium">You cannot delete this agent until their students are reassigned.</p>
+              </div>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <div className="flex items-center justify-between p-4 border border-slate-200 rounded-2xl bg-slate-50">
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Agent to Delete</p>
+                  <p className="font-black text-[#282860] text-lg">{deleteFlowState.agent.name}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Active Students</p>
+                  <p className="font-black text-red-600 text-lg">{getAgentStudents(deleteFlowState.agent.name).length}</p>
+                </div>
+              </div>
+
+              <div className="flex justify-center">
+                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center shadow-inner border border-slate-200"><ArrowRight size={20} className="text-slate-400 rotate-90"/></div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Transfer Pipeline To</label>
+                <select 
+                  value={reassignTarget} 
+                  onChange={(e) => setReassignTarget(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 bg-slate-50 focus:bg-white cursor-pointer transition-all"
+                >
+                  <option value="" disabled>-- Select New Agent --</option>
+                  {systemUsers.filter(a => a.name !== deleteFlowState.agent.name && a.is_active).map(agent => (
+                    <option key={agent.id} value={agent.name}>{agent.name} ({agent.branch})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-3">
+                <button onClick={() => {setDeleteFlowState({agent: null, step: null}); setReassignTarget("");}} className="px-5 py-3 text-slate-500 hover:text-slate-800 font-bold text-sm transition-colors">Cancel</button>
+                <button 
+                  disabled={!reassignTarget || isProcessingDelete} 
+                  onClick={executeBulkReassign} 
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-xl transition-all disabled:opacity-50 shadow-md flex items-center justify-center gap-2"
+                >
+                  {isProcessingDelete ? <><Loader2 size={16} className="animate-spin"/> Transferring...</> : "Transfer & Continue"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteFlowState.step === 'confirm' && deleteFlowState.agent && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-red-50 p-6 border-b border-red-100 flex items-center gap-4">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                <Trash2 size={24}/>
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-red-800">Permanent Deletion</h2>
+                <p className="text-sm text-red-700 mt-1 font-medium">This action cannot be undone.</p>
+              </div>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <p className="text-slate-600 text-sm leading-relaxed">
+                You are about to permanently destroy the system profile for <strong className="text-red-600">{deleteFlowState.agent.name}</strong>. Their past actions will remain in the system logs, but they will never be able to access Fortrust OS again.
+              </p>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                  Please type <span className="font-mono bg-slate-100 text-slate-800 px-1 py-0.5 rounded select-all">{deleteFlowState.agent.name}</span> to confirm.
+                </label>
+                <input 
+                  type="text" 
+                  value={deleteConfirmationText}
+                  onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                  className="w-full px-4 py-3 border border-red-200 rounded-xl text-sm font-bold text-red-800 outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 bg-red-50/50 focus:bg-white transition-all"
+                  placeholder="Type agent name here..."
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-3">
+                <button onClick={() => {setDeleteFlowState({agent: null, step: null}); setDeleteConfirmationText("");}} className="px-5 py-3 text-slate-500 hover:text-slate-800 font-bold text-sm transition-colors">Cancel</button>
+                <button 
+                  disabled={deleteConfirmationText !== deleteFlowState.agent.name || isProcessingDelete} 
+                  onClick={executeFinalDelete} 
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold px-8 py-3 rounded-xl transition-all disabled:opacity-50 shadow-md flex items-center justify-center gap-2"
+                >
+                  {isProcessingDelete ? <><Loader2 size={16} className="animate-spin"/> Deleting...</> : "I understand, delete this agent"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- SLIDE-OUT PANEL (DETAILED DOSSIER) --- */}
       {selectedAgent && (
@@ -455,6 +608,10 @@ export default function AgentManagement() {
                            <div className="flex items-center gap-3">
                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0"><Mail size={14} className="text-slate-500"/></div>
                              <div className="overflow-hidden"><p className="text-[10px] font-bold text-slate-400 uppercase">Email Address</p><p className="text-sm font-bold text-slate-700 truncate pr-2" title={selectedAgent.email}>{selectedAgent.email || "Not provided"}</p></div>
+                           </div>
+                           <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 rounded-full bg-red-50 flex items-center justify-center shrink-0"><ShieldAlert size={14} className="text-red-500"/></div>
+                             <div><p className="text-[10px] font-bold text-red-400 uppercase">Emergency Contact</p><p className="text-sm font-bold text-slate-700">{selectedAgent.emergency_contact || "Not provided"}</p></div>
                            </div>
                          </div>
                       </div>
@@ -715,7 +872,6 @@ export default function AgentManagement() {
                   <div className="grid grid-cols-2 gap-5">
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Phone Number</label><input type="text" placeholder="e.g. +62 812..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.phone || ""} onChange={e => setEditingUser({...editingUser, phone: e.target.value})} /></div>
                     
-                    {/* FIXED: Removed Wife/Husband placeholder */}
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block text-red-500">Emergency Contact</label><input type="text" placeholder="e.g. +62 812..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.emergency_contact || ""} onChange={e => setEditingUser({...editingUser, emergency_contact: e.target.value})} /></div>
                     
                     <div className="col-span-2"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Office Address</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.office_address || ""} onChange={e => setEditingUser({...editingUser, office_address: e.target.value})} /></div>
@@ -729,7 +885,6 @@ export default function AgentManagement() {
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Account Number</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-mono bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_account || ""} onChange={e => setEditingUser({...editingUser, bank_account: e.target.value})} /></div>
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Bank Branch</label><input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.bank_branch || ""} onChange={e => setEditingUser({...editingUser, bank_branch: e.target.value})} /></div>
                     
-                    {/* Fixed to safely handle empty string conversion */}
                     <div><label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Commission Rate (%)</label><input type="number" step="0.1" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-black text-emerald-600 bg-emerald-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingUser.commission_rate || ""} onChange={e => setEditingUser({...editingUser, commission_rate: e.target.value})} /></div>
                   </div>
                 </div>
