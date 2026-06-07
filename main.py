@@ -596,9 +596,12 @@ def get_dashboard_stats(
             cur.execute("""
                 SELECT lead_temperature, status FROM students
                 WHERE created_at >= NOW() - INTERVAL '60 days'
-                  AND created_at < NOW() - INTERVAL '30 days'
+                AND created_at < NOW() - INTERVAL '30 days'
             """)
             prev_30_days = cur.fetchall()
+    except Exception as e:
+        print(f"Database Query Error in Stats: {e}")
+        raise HTTPException(status_code=500, detail="Database query failed.")
     finally:
         conn.close()
 
@@ -621,10 +624,24 @@ def get_dashboard_stats(
         temperature = (s.get("lead_temperature") or "").lower()
         assignee = s.get("assignee") or "Unassigned"
         info = users_info.get(assignee, {'role': 'Agent', 'branch': 'Unassigned'})
-        role = info['role']
+        role = info['role'] or "Agent"
         branch = info['branch'] or "Unassigned"
-        commission = float(s.get("commission_earned") or 0.0)
-        apps = s.get("applications") or []
+        
+        # FIX: Safe float conversion for commission
+        try:
+            commission = float(s.get("commission_earned") or 0.0)
+        except (ValueError, TypeError):
+            commission = 0.0
+
+        # FIX: Safe JSON parsing for applications
+        apps = s.get("applications")
+        if isinstance(apps, str):
+            try:
+                apps = json.loads(apps)
+            except Exception:
+                apps = []
+        if not isinstance(apps, list):
+            apps = []
 
         if status == "COMPLETED":
             completed += 1
@@ -654,6 +671,7 @@ def get_dashboard_stats(
 
         branch_pipeline[branch] = branch_pipeline.get(branch, 0) + 1
 
+    # Safe calculation for qualified growth
     current_qualified = sum(1 for s in last_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
     prev_qualified = sum(1 for s in prev_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
 
@@ -666,6 +684,9 @@ def get_dashboard_stats(
 
     def top5(d):
         return [{"name": k, "value": v} for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True)[:5]]
+
+    # Dummy placeholder for average velocity until proper timestamps are heavily used
+    avg_days_to_close = 24
 
     return {
         "status": "success",
@@ -680,7 +701,8 @@ def get_dashboard_stats(
                 "active_applications": active_applications,
                 "estimation_commission": estimation_commission,
                 "logged_commission": logged_commission,
-                "total_business": logged_commission
+                "total_business": logged_commission,
+                "avg_days_to_close": avg_days_to_close
             },
             "performance": {
                 "top_agents_volume": top5(agent_volume),
