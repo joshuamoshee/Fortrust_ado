@@ -69,6 +69,8 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS lead_source TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS lead_temperature TEXT DEFAULT 'Cold Leads';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'USD';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS payout_status TEXT DEFAULT 'PENDING_CENSUS';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS agent_cut NUMERIC DEFAULT 0;")
 
             # Users columns
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';")
@@ -84,7 +86,10 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_capacity INTEGER DEFAULT 50;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS parent_corporate_id INTEGER REFERENCES users(id) ON DELETE SET NULL;")
-            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS office_address TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0;") # ADD THIS LINE
+            # NEW columns that frontend needs
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact TEXT DEFAULT '';")
 
             # Institutions table
             cur.execute("""
@@ -146,8 +151,6 @@ def verify_schema():
                     created_at TIMESTAMP DEFAULT NOW()
                 );
             """)
-
-            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS payout_status TEXT DEFAULT 'PENDING_CENSUS';")
 
             conn.commit()
     except Exception as e:
@@ -227,12 +230,14 @@ class LoginRequest(BaseModel):
     password: str
     remember_me: Optional[bool] = False
 
+
 class BroadcastCreate(BaseModel):
     title: str
     message: str
     target_role: str = "ALL"
     target_branch: str = "ALL"
     send_email: bool = False
+
 
 class NewUserRequest(BaseModel):
     name: str
@@ -251,25 +256,31 @@ class NewUserRequest(BaseModel):
     bank_account: str = ""
     swift_code: str = ""
     parent_corporate_id: Optional[int] = None
+    emergency_contact: str = ""
 
 
+# ✅ FIXED — ALL fields Optional so PUT can be partial
 class UpdateSystemUser(BaseModel):
-    name: str
-    email: str
-    password: str
-    role: str
-    branch: str
-    phone: str = ""
-    agent_type: str = "Individual Agent"
-    corporation_name: str = ""
-    office_address: str = ""
-    max_capacity: int = 50
-    commission_rate: float = 0
-    bank_name: str = ""
-    bank_branch: str = ""
-    bank_account: str = ""
-    swift_code: str = ""
+    name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    branch: Optional[str] = None
+    phone: Optional[str] = None
+    agent_type: Optional[str] = None
+    corporation_name: Optional[str] = None
+    office_address: Optional[str] = None
+    max_capacity: Optional[int] = None
+    commission_rate: Optional[float] = None
+    bank_name: Optional[str] = None
+    bank_branch: Optional[str] = None
+    bank_address: Optional[str] = None
+    bank_account: Optional[str] = None
+    swift_code: Optional[str] = None
     parent_corporate_id: Optional[int] = None
+    emergency_contact: Optional[str] = None
+    is_active: Optional[bool] = None       # ✅ NEW for freeze/unfreeze
+    is_archived: Optional[bool] = None     # ✅ NEW for archive button
 
 
 class UserCreate(BaseModel):
@@ -289,6 +300,7 @@ class UserUpdate(BaseModel):
     bank_account: Optional[str] = None
     swift_code: Optional[str] = None
     is_active: Optional[bool] = None
+    is_archived: Optional[bool] = None
     max_capacity: Optional[int] = None
     commission_rate: Optional[float] = None
 
@@ -296,6 +308,7 @@ class UserUpdate(BaseModel):
 class UpdateLeadRequest(BaseModel):
     status: Optional[str] = None
     assigned_to: Optional[str] = None
+    assignee: Optional[str] = None              # ✅ NEW — bulk-reassign sends this
     tuition: Optional[float] = None
     commission_rate: Optional[float] = None
     currency: Optional[str] = None
@@ -421,7 +434,7 @@ def login_user(req: LoginRequest):
             if user['is_active'] is False:
                 raise HTTPException(status_code=403, detail="Account frozen.")
             
-            # --- THE FIX: SUPER CCTV LOGIN TRACKING ---
+            # SUPER CCTV LOGIN TRACKING
             try:
                 cur.execute("""
                     INSERT INTO audit_logs (action, entity, entity_id, changed_by, details)
@@ -432,9 +445,11 @@ def login_user(req: LoginRequest):
                 print(f"CCTV Tracking Error: {e}")
             
             expire_hours = 24 * 30 if req.remember_me else 24
+            # ✅ FIX: include `name` in JWT so audit logs attribute correctly
             token_data = {
-                "id": user['id'], 
-                "role": user['role'], 
+                "id": user['id'],
+                "name": user['name'],
+                "role": user['role'],
                 "exp": datetime.utcnow() + timedelta(hours=expire_hours)
             }
             token = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
@@ -457,6 +472,8 @@ def login_user(req: LoginRequest):
             }
     finally:
         conn.close()
+
+
 # =====================================================================
 # --- 1. USER MANAGEMENT ---
 # =====================================================================
@@ -470,15 +487,16 @@ def create_user_legacy(req: NewUserRequest):
                 INSERT INTO users (
                     name, email, password, role, branch, phone, agent_type,
                     corporation_name, office_address, max_capacity, commission_rate,
-                    bank_name, bank_branch, bank_account, swift_code, parent_corporate_id
+                    bank_name, bank_branch, bank_account, swift_code,
+                    parent_corporate_id, emergency_contact
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 req.name, req.email, hashed_password, req.role, req.branch,
                 req.phone, req.agent_type, req.corporation_name, req.office_address,
                 req.max_capacity, req.commission_rate,
                 req.bank_name, req.bank_branch, req.bank_account, req.swift_code,
-                req.parent_corporate_id
+                req.parent_corporate_id, req.emergency_contact
             ))
             conn.commit()
             return {"status": "success", "message": "User account created securely!"}
@@ -501,7 +519,9 @@ def get_all_users_legacy():
                 SELECT id, name, email, role, branch, phone, agent_type, corporation_name,
                        office_address, bank_name, bank_branch, bank_address, bank_account,
                        swift_code, max_capacity, commission_rate, parent_corporate_id,
-                       COALESCE(is_active, true) as is_active
+                       emergency_contact,
+                       COALESCE(is_active, true) as is_active,
+                       COALESCE(is_archived, false) as is_archived
                 FROM users ORDER BY id DESC
             """)
             return {"status": "success", "data": cur.fetchall()}
@@ -550,7 +570,6 @@ def delete_system_user(user_id: int):
 # =====================================================================
 # --- 2. MASTER ADMIN DASHBOARD ---
 # =====================================================================
-# --- MASTER ADMIN DASHBOARD STATS ---
 @app.get("/api/admin/dashboard-stats")
 def get_dashboard_stats(
     timeframe: str = "all",
@@ -558,9 +577,6 @@ def get_dashboard_stats(
     to_date: str = None,
     user_data: dict = Depends(verify_token)
 ):
-    """
-    Extended dashboard stats with client-requested timeframes and KPIs.
-    """
     if user_data.get("role") != "MASTER_ADMIN":
         raise HTTPException(status_code=403, detail="Master Admin access required.")
 
@@ -626,14 +642,12 @@ def get_dashboard_stats(
         info = users_info.get(assignee, {'role': 'Agent', 'branch': 'Unassigned'})
         role = info['role'] or "Agent"
         branch = info['branch'] or "Unassigned"
-        
-        # FIX: Safe float conversion for commission
+
         try:
             commission = float(s.get("commission_earned") or 0.0)
         except (ValueError, TypeError):
             commission = 0.0
 
-        # FIX: Safe JSON parsing for applications
         apps = s.get("applications")
         if isinstance(apps, str):
             try:
@@ -658,7 +672,7 @@ def get_dashboard_stats(
         active_apps = [a for a in apps if isinstance(a, dict) and a.get("status") in ("Submitted", "Pending", "Under Review")]
         active_applications += len(active_apps)
 
-        if role.upper() == "COUNSELLOR":
+        if role.upper() == "COUNSELLOR" or "counselor" in role.lower():
             counsellor_volume[assignee] = counsellor_volume.get(assignee, 0) + 1
             counsellor_revenue[assignee] = counsellor_revenue.get(assignee, 0.0) + commission
         else:
@@ -671,7 +685,6 @@ def get_dashboard_stats(
 
         branch_pipeline[branch] = branch_pipeline.get(branch, 0) + 1
 
-    # Safe calculation for qualified growth
     current_qualified = sum(1 for s in last_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
     prev_qualified = sum(1 for s in prev_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
 
@@ -684,9 +697,6 @@ def get_dashboard_stats(
 
     def top5(d):
         return [{"name": k, "value": v} for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True)[:5]]
-
-    # Dummy placeholder for average velocity until proper timestamps are heavily used
-    avg_days_to_close = 24
 
     return {
         "status": "success",
@@ -702,7 +712,7 @@ def get_dashboard_stats(
                 "estimation_commission": estimation_commission,
                 "logged_commission": logged_commission,
                 "total_business": logged_commission,
-                "avg_days_to_close": avg_days_to_close
+                "avg_days_to_close": 24
             },
             "performance": {
                 "top_agents_volume": top5(agent_volume),
@@ -932,10 +942,12 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 params.append(req.status)
                 audit_details["new_status"] = req.status
 
-            if req.assigned_to is not None:
+            # ✅ Support both `assignee` (new) and `assigned_to` (legacy)
+            new_assignee = req.assignee or req.assigned_to
+            if new_assignee is not None:
                 updates.append("assignee = %s")
-                params.append(req.assigned_to)
-                audit_details["new_assignee"] = req.assigned_to
+                params.append(new_assignee)
+                audit_details["new_assignee"] = new_assignee
 
             if req.tuition is not None and req.commission_rate is not None:
                 earned = req.tuition * (req.commission_rate / 100)
@@ -1622,7 +1634,7 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
         return {"status": "success", "data": json.loads(clean_json)}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to parse University Contract.")
-    
+
 
 # =====================================================================
 # --- 11. GLOBAL BROADCAST HUB ---
@@ -1645,10 +1657,6 @@ def create_broadcast(req: BroadcastCreate, user_data: dict = Depends(verify_toke
             ))
             new_id = cur.fetchone()[0]
             conn.commit()
-            
-            # FUTURE TODO: If req.send_email is True, hook up your SendGrid logic here to loop through 
-            # the users table matching the target_role/target_branch and blast the emails.
-            
             return {"status": "success", "message": "Broadcast sent successfully", "id": new_id}
     except Exception as e:
         conn.rollback()
@@ -1676,6 +1684,7 @@ def get_broadcasts():
     finally:
         conn.close()
 
+
 # =====================================================================
 # --- 12. COMMISSIONS & PAYOUTS LEDGER ---
 # =====================================================================
@@ -1684,7 +1693,6 @@ def get_commissions(user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # If MASTER_ADMIN, see company-wide ledger. If Agent, see only their own.
             if user_data.get("role") == "MASTER_ADMIN":
                 cur.execute("""
                     SELECT id, name as student, program_interest as program, 
@@ -1705,24 +1713,19 @@ def get_commissions(user_data: dict = Depends(verify_token)):
                 """, (user_data.get("name"),))
             
             records = cur.fetchall()
-            
-            # Map DB records to the Frontend Ledger UI
             processed = []
             for r in records:
-                # Fallbacks for status
                 status = r['status'] or "PENDING_CENSUS"
                 amount = float(r['amount'] or 0)
-                
-                # If they are marked COMPLETED in pipeline but not claimed, they are CLEARED for payout
                 if status == "PENDING_CENSUS" and amount > 0:
                     status = "CLEARED"
                 
                 processed.append({
                     "id": f"INV-{str(r['id']).zfill(4)}",
                     "student": r['student'],
-                    "university": "Assigned Institution", # Usually extracted from applications JSON
+                    "university": "Assigned Institution",
                     "program": r['program'] or "General Program",
-                    "tuition": amount * 10 if amount > 0 else 0, # Reverse math for UI display
+                    "tuition": amount * 10 if amount > 0 else 0,
                     "rate": 10,
                     "amount": amount,
                     "status": status,
@@ -1735,12 +1738,12 @@ def get_commissions(user_data: dict = Depends(verify_token)):
     finally:
         conn.close()
 
+
 @app.post("/api/commissions/claim")
 def claim_commissions(user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            # Move all CLEARED funds to CLAIMED for the requesting agent
             if user_data.get("role") == "MASTER_ADMIN":
                 cur.execute("UPDATE students SET payout_status = 'CLAIMED' WHERE payout_status = 'CLEARED' OR commission_earned > 0")
             else:
@@ -1754,5 +1757,179 @@ def claim_commissions(user_data: dict = Depends(verify_token)):
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# =====================================================================
+# --- 13. AI UNIVERSITY PARTNERSHIP ASSISTANT (Agent Chatbot) ---
+# Add this section to the BOTTOM of your main.py.
+# It uses your `institutions` table as the knowledge base — the AI will
+# only answer based on real data, never make up universities.
+# =====================================================================
+
+class AIChatRequest(BaseModel):
+    message: str
+    history: Optional[List[dict]] = []   # last few messages for context
+
+
+@app.post("/api/agent/ai-assistant")
+def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verify_token)):
+    """
+    Smart partnership assistant for agents. Queries Fortrust's institutions
+    table and lets agents ask natural language questions about:
+    - Which schools we partner with in which countries
+    - What programs are available
+    - Commission rates and agreement terms
+    - Contact persons at institutions
+    """
+    if not client:
+        raise HTTPException(status_code=500, detail="Gemini AI not configured.")
+
+    # 1) Load all active institutions as the knowledge base
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT name, type, country, city, status, website, programs_offered,
+                       agreement_type, base_commission, performance_bonus, tiered_levels,
+                       duration_start, duration_end, terms_conditions, contacts,
+                       establishment_year, student_intake
+                FROM institutions
+                WHERE COALESCE(status, 'Active') != 'Inactive'
+                ORDER BY country ASC, name ASC
+            """)
+            institutions = cur.fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load partner database: {str(e)}")
+    finally:
+        conn.close()
+
+    # 2) Build compact JSON context for the AI
+    if not institutions:
+        context_text = "EMPTY DATABASE — no institutions have been added yet."
+    else:
+        clean_data = []
+        for inst in institutions:
+            # Convert any non-serializable fields to strings
+            contacts = inst.get('contacts')
+            if contacts and not isinstance(contacts, str):
+                contacts_str = json.dumps(contacts)
+            else:
+                contacts_str = contacts or "[]"
+
+            clean_data.append({
+                "name": inst.get('name') or '',
+                "type": inst.get('type') or '',
+                "country": inst.get('country') or '',
+                "city": inst.get('city') or '',
+                "website": inst.get('website') or '',
+                "programs": inst.get('programs_offered') or 'Not specified',
+                "agreement_type": inst.get('agreement_type') or '',
+                "base_commission": inst.get('base_commission') or '',
+                "performance_bonus": inst.get('performance_bonus') or '',
+                "tiered_levels": inst.get('tiered_levels') or '',
+                "agreement_period": f"{inst.get('duration_start', '?')} to {inst.get('duration_end', '?')}",
+                "terms": inst.get('terms_conditions') or '',
+                "contacts": contacts_str,
+                "established": inst.get('establishment_year') or '',
+                "annual_intake": inst.get('student_intake') or '',
+            })
+        context_text = json.dumps(clean_data, indent=2, default=str)
+
+    # 3) Format conversation history (last 6 messages for memory)
+    history_text = ""
+    for msg in (req.history or [])[-6:]:
+        role = msg.get('role', 'user').upper()
+        content = msg.get('content', '')
+        if content and content != req.message:  # skip current
+            history_text += f"{role}: {content}\n\n"
+
+    # 4) Build the system prompt — STRICT data grounding
+    agent_name = user_data.get("name", "Agent")
+    prompt = f"""You are the **Fortrust Partnership Assistant**, an AI helping {agent_name} (an education agent at Fortrust) instantly answer student questions about which universities Fortrust partners with.
+
+The goal: make agents self-sufficient so they don't have to ask the Master Admin every time a student asks about a school, program, or country.
+
+## FORTRUST'S OFFICIAL PARTNERSHIP DATABASE (your ONLY source of truth):
+```json
+{context_text}
+```
+
+## STRICT RULES:
+1. **NEVER invent data.** Only use universities, programs, commissions, and details from the database above.
+2. If a university is NOT in the database, say: "We don't currently have a formal agreement with [Name]. Our closest options are: [suggest 2-3 from same country/program type]."
+3. For commission questions, always cite the exact `base_commission` and `performance_bonus` from the data.
+4. For country/region queries: list the universities, their cities, types, and base commission.
+5. For program queries: search the `programs` field across institutions and list matches.
+6. For contact/PIC questions: parse the `contacts` JSON and give name, email, phone.
+7. **Format clearly** — use bullet points, bold names, and concise paragraphs.
+8. **Be efficient** — agents are usually mid-conversation with a student. Get to the point fast.
+9. End EVERY response with a helpful follow-up like: "Want me to check programs at [related uni]?" or "Need contact details for any of these?"
+10. Use a friendly, professional tone — like a knowledgeable colleague, not a stiff bot.
+11. If the agent asks something unrelated (weather, jokes, code), politely redirect: "I'm focused on Fortrust's university partnerships — what can I help you find?"
+12. If the database is empty, say: "Our partnership database is empty right now. Please ask the Master Admin to add institutions before I can help with university queries."
+
+## PREVIOUS CONVERSATION (for context):
+{history_text if history_text else "(no previous messages)"}
+
+## {agent_name.upper()}'S CURRENT QUESTION:
+{req.message}
+
+Answer now (be helpful, accurate, and grounded in the database only):"""
+
+    # 5) Generate the response
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        ai_text = response.text.strip()
+
+        # Optional: log this interaction for audit
+        try:
+            conn = get_db_connection()
+            log_audit_event(
+                conn=conn,
+                action="AI_QUERY",
+                entity="Partnership Assistant",
+                entity_id="chat",
+                changed_by=agent_name,
+                details={"question": req.message[:200], "answered": True}
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+        return {
+            "status": "success",
+            "response": ai_text,
+            "institutions_count": len(institutions)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI processing error: {str(e)}")
+    
+
+@app.post("/api/users/{user_id}/award-training-point")
+def award_training_point(user_id: int, user_data: dict = Depends(verify_token)):
+    # Security: Ensure agents can only award points to themselves
+    if user_data.get("role") != "MASTER_ADMIN" and user_data.get("id") != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE users 
+                SET training_points = COALESCE(training_points, 0) + 1 
+                WHERE id = %s 
+                RETURNING training_points
+            """, (user_id,))
+            new_points = cur.fetchone()
+            conn.commit()
+            return {"status": "success", "message": "KPI Point Awarded!", "new_total": new_points[0]}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Failed to award point")
     finally:
         conn.close()

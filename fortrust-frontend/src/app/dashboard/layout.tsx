@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
   Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe, BellRing
+  GraduationCap, Globe, BellRing, Bot
 } from "lucide-react";
 
 // --- TRANSLATION DICTIONARY ---
@@ -21,7 +21,8 @@ const translations = {
     mainDashboard: "Main Dashboard",
     agentManagement: "Agent Management",
     globalStudents: "Global Students",
-    broadcasts: "Broadcast Hub", // NEW
+    broadcasts: "Broadcast Hub",
+    aiAssistant: "AI Assistant", // NEW
     consultation: "Consultation",
     profilingTest: "Profiling Test",
     assessment: "Assessment",
@@ -49,7 +50,8 @@ const translations = {
     mainDashboard: "Dasbor Utama",
     agentManagement: "Manajemen Agen",
     globalStudents: "Semua Siswa",
-    broadcasts: "Pusat Siaran", // NEW
+    broadcasts: "Pusat Siaran",
+    aiAssistant: "Asisten AI", // NEW
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
     assessment: "Penilaian",
@@ -349,10 +351,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 {t.globalStudents}
               </Link>
 
-              {/* NEW BROADCAST HUB LINK */}
               <Link href="/dashboard/broadcasts" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/broadcasts' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <BellRing size={18} className={pathname === '/dashboard/broadcasts' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.broadcasts}
+              </Link>
+
+              {/* NEW AI ASSISTANT LINK */}
+              <Link href="/dashboard/ai-assistant" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/ai-assistant' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Bot size={18} className={pathname === '/dashboard/ai-assistant' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.aiAssistant}
               </Link>
 
               <SidebarMenu label={t.consultation} icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: t.profilingTest, href: '/dashboard/profiling' }, { label: t.assessment, href: '/dashboard/assessment' }, { label: t.programFinder, href: '/dashboard/programs' } ]} />
