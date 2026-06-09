@@ -76,6 +76,7 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'USD';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS payout_status TEXT DEFAULT 'PENDING_CENSUS';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS agent_cut NUMERIC DEFAULT 0;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS loss_reason TEXT DEFAULT '';")
 
             # Users columns
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';")
@@ -987,6 +988,12 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 params.append(req.currency or "USD")
                 audit_details["commission_logged"] = earned
 
+            # ✅ THIS WAS MISSING: Catch the loss reason and save it!
+            if req.loss_reason is not None:
+                updates.append("loss_reason = %s")
+                params.append(req.loss_reason)
+                audit_details["loss_reason"] = req.loss_reason
+
             if not updates:
                 return {"status": "success", "message": "Nothing to update."}
 
@@ -1005,7 +1012,6 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
-
 
 @app.delete("/api/pipeline/{case_id}")
 def delete_lead(case_id: str):
@@ -1845,7 +1851,7 @@ def claim_commissions(user_data: dict = Depends(verify_token)):
 # =====================================================================
 # --- 13. AI UNIVERSITY PARTNERSHIP ASSISTANT (Agent Chatbot) ---
 # =====================================================================
-@app.post("/api/agent/ai-assistant")
+@app.post("/api/agent/ai-chat")
 def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verify_token)):
     if not client:
         raise HTTPException(status_code=500, detail="Gemini AI not configured.")
