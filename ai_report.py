@@ -1,7 +1,8 @@
 import os
+import json
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types # <-- NEW: We need this to turn on Google Search
+from google.genai import types
 
 # 1. Force Python to open the .env vault right now
 load_dotenv()
@@ -15,84 +16,54 @@ if not API_KEY:
 # 3. Initialize the NEW Gemini Client
 client = genai.Client(api_key=API_KEY)
 
-# 🚨 UPGRADE: Added 'pdf_data' so the AI can read the extracted text!
 def generate_strategic_report(student_name: str, destination: str, budget: float, notes: str, pdf_data: str = "") -> str:
     """
     Generates a highly structured, premium Fortrust Assessment Report.
-    Now reads BOTH Counselor Notes AND raw PDF text, AND searches the live internet!
+    Forces strict JSON output so the React frontend can render it beautifully.
     """
     
     system_prompt = """
-    you are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
+    You are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
     Your job is to generate a comprehensive, premium student assessment report. 
-    You must output the report in strict Markdown format, using bold headers, bullet points, and Markdown tables where requested. Do NOT use raw JSON.
     
-    CRITICAL INSTRUCTION 1 (SEARCH): You have access to Google Search. You MUST search the live internet to find 3 REAL, up-to-date university programs that perfectly match the student's profile, destination, and budget. Do NOT invent or hallucinate tuition fees. Find the actual current estimated tuition and use it in your tables.
+    CRITICAL INSTRUCTION 1 (SEARCH): You have access to Google Search. You MUST search the live internet to find 3 REAL, up-to-date university programs that perfectly match the student's profile, destination, and budget. Find the actual current estimated tuition.
         
-    CRITICAL INSTRUCTION 2 (FAIL-SAFE): First, scan the provided documents and notes. If you cannot find anything regarding the provided student's name, or if the document is clearly not an academic or profiling record, YOU MUST STOP IMMEDIATELY. Do not generate the report. Instead, output ONLY this exact sentence:
-    "Sorry, we can't find anything regarding the student name or academic profile in this document. Please ensure you uploaded the correct file."
+    CRITICAL INSTRUCTION 2 (FAIL-SAFE): First, scan the provided documents and notes. If you cannot find anything regarding the provided student's name, or if the document is clearly not an academic or profiling record, YOU MUST STOP IMMEDIATELY. Output this exact JSON:
+    {"error": "Sorry, we can't find anything regarding the student name or academic profile in this document. Please ensure you uploaded the correct file."}
         
-    You will be provided with Counselor Notes AND raw text extracted from the student's PDFs (Psychometric Reports and Report Cards).
-    You MUST analyze both data sources to find their "Superpower", academic reality, and highest risk factors.
-        
-    Read the provided student data and generate a report using EXACTLY this structure and these headings:
-
-     # FORTRUST ASSESSMENT REPORT for [Student Name]
-        
-
-    ## 1. EXECUTIVE SUMMARY
-    [Provide a 3-4 sentence psychological and academic profile based on the notes AND the PDF data. Define their "superpower" (e.g., "The Visual-Systematic Profile").]
-
-    ## 2. STRATEGIC DIRECTION
-    [Provide a 2-sentence strategy on the ideal career path that leverages their natural aptitude.]
-
-    ## 3. TOP 3 RECOMMENDED UNIVERSITY MAJORS & CAREER PATHS
-    [For EACH of the 3 options, provide the following structure:]
-    ### OPTION [1/2/3]: [MAJOR NAME] at [LIVE UNIVERSITY NAME FOUND ONLINE]
-    **BEST FIT:** [1 sentence explaining why, e.g., "The Sweet Spot" or "The Safety Backup"]
+    CRITICAL INSTRUCTION 3 (FORMAT): You MUST output ONLY raw, valid JSON. Do not use Markdown formatting. Do not wrap in ```json. 
     
-    | CRITERIA | ANALYSIS | SCORE (1-10) |
-    | :--- | :--- | :--- |
-    | Cognitive Fit | [Your rigorous analysis based on the PDF] | [X/10] |
-    | Interest Alignment | [Your rigorous analysis] | [X/10] |
-    | Personality Fit | [Your rigorous analysis] | [X/10] |
-    | Career Outlook | [Your rigorous analysis] | [X/10] |
-    | Live Tuition Estimate | [Include the actual tuition found via Google Search] | - |
-    | Risk Factor | [Low/Med/High] | - |
-
-    **FUTURE PROOFING STRATEGY (5-9 Years)**
-    * **The Shift:** [Industry trend]
-    * **Actionable Advice:** [Specific minor, tech, or skill to learn]
-    * **Salary Expectation:** [Entry and Senior estimates in local currency of target destination]
-
-    ## 4. CRITICAL SUCCESS FACTORS
-    [Identify 3 specific risks (e.g., low stress tolerance, math gaps from the PDF) and provide strict, actionable advice to overcome them (e.g., "The Feynman Technique", "Body Double Strategy").]
-
-    ## 5. CONCLUSION
-    [A brief 3-sentence final verdict on their best pathway.]
-
-    ## 6. 5-YEAR DEVELOPMENT ROADMAP (From Current Grade to Uni Year 2)
-    | Year | Focus Area | Actionable Steps |
-    | :--- | :--- | :--- |
-    | Year 1 | Foundation | [Specific steps] |
-    | Year 2 | Application | [Specific steps] |
-    | Year 3 | Survival | [Specific steps] |
-    | Year 4 | Specialization | [Specific steps] |
-    | Year 5 | Professionalism | [Specific steps] |
-
-    ## 7. EXTRACURRICULAR SUGGESTIONS & PORTFOLIO BLUEPRINT
-    [Suggest 2-3 specific clubs/activities and 3 specific portfolio projects tailored to their major.]
-
-    ## 8. CITY & UNIVERSITY MATCHING
-    **Target Destination:** [Destination]
-    [Provide 3 specific university recommendations in the target destination, including the "Why". Include a short "Scholarship Match List".]
-
-    ## 9. THE BUDGET-OPTIMIZED STRATEGY
-    [Provide a strategic alternative pathway (like a Polytechnic/Diploma ladder or regional arbitrage) to save money, assuming an annual budget of the provided amount.]
-    | Strategy | Estimated Tuition | Saved Tuition | Risk Factor |
-    | :--- | :--- | :--- | :--- |
-    | Traditional Uni | [Amount] | - | [Risk] |
-    | Polytech / Diploma Pathway | [Amount] | [Amount Saved] | [Risk] |
+    You MUST adhere strictly to this exact JSON schema:
+    {
+      "superpower": "e.g., The Analytical-Communicator Profile",
+      "executive_summary": "3-4 sentence psychological and academic profile based on notes and PDF.",
+      "strategic_direction": "2-sentence strategy on the ideal career path.",
+      "matches": [
+        {
+          "university": "LIVE UNIVERSITY NAME FOUND ONLINE",
+          "major": "MAJOR NAME",
+          "fit_percentage": 95,
+          "best_fit_reason": "1 sentence explaining why, e.g., 'The Sweet Spot'",
+          "tuition_estimate": "Actual tuition found via Google Search",
+          "risk_factor": "Low/Medium/High",
+          "scores": { "cognitive": 9, "interest": 8, "personality": 7, "career": 9 },
+          "future_proofing": { "shift": "Industry trend", "advice": "Actionable advice", "salary": "Entry/Senior estimate" }
+        }
+      ],
+      "success_factors": [
+        {"risk": "Identify a specific risk from the PDF", "action": "Actionable advice to overcome it"}
+      ],
+      "roadmap": [
+        {"year": "Year 1", "focus": "Foundation", "action": "Specific steps"},
+        {"year": "Year 2", "focus": "Application", "action": "Specific steps"}
+      ],
+      "budget_strategy": {
+        "traditional_tuition": "Estimated Cost",
+        "polytech_tuition": "Estimated Cost",
+        "savings": "Amount saved",
+        "alternative_pathway": "Strategy explanation (like a Polytechnic/Diploma ladder)"
+      }
+    }
     """
     
     user_prompt = f"""
@@ -104,25 +75,34 @@ def generate_strategic_report(student_name: str, destination: str, budget: float
     --- COUNSELLOR NOTES ---
     {notes}
     
-    --- EXTRACTED PDF DATA (REPORT CARDS / NAVIGATHER) ---
+    --- EXTRACTED PDF DATA ---
     {pdf_data}
     --------------------
-    
-    TASK: Generate the strict, premium Fortrust Markdown report based on ALL the data above. Ensure you use Google Search to ground your university recommendations and tuition estimates in live, real-world data.
     """
 
     try:
         full_prompt = system_prompt + "\n\n" + user_prompt
-        # The NEW syntax for generating content WITH LIVE SEARCH ON!
+        
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=full_prompt,
             config=types.GenerateContentConfig(
-                tools=[{"google_search": {}}], # <-- Turns on live internet access
-                temperature=0.2 # Keep it strictly factual so it doesn't hallucinate
+                tools=[{"google_search": {}}], 
+                temperature=0.2,
+                # THIS IS THE MAGIC: It forces Gemini to return JSON, preventing UI crashes
+                response_mime_type="application/json" 
             )
         )
-        return response.text
+        
+        # Strip any accidental markdown formatting just in case
+        clean_json = response.text.strip()
+        if clean_json.startswith("```json"):
+            clean_json = clean_json[7:-3].strip()
+        elif clean_json.startswith("```"):
+            clean_json = clean_json[3:-3].strip()
+            
+        return clean_json
+        
     except Exception as e:
         print(f"Gemini API Error: {e}")
-        return "Error generating AI report. Please check your API key and connection."
+        return json.dumps({"error": "Error generating AI report. Please check your API key and connection."})
