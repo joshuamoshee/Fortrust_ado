@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from google import genai
 from supabase import create_client, Client
+import traceback
 
 load_dotenv()
 
@@ -1036,9 +1037,16 @@ async def upload_additional_document(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found.")
 
-        current_docs = student.get('documents') or []
+        # SAFEGUARD: Ensure current_docs is actually a list
+        raw_docs = student.get('documents')
+        if isinstance(raw_docs, str):
+            current_docs = json.loads(raw_docs)
+        else:
+            current_docs = raw_docs or []
+            
         current_text = student.get('pdf_text') or ""
         files_to_process = []
+        
         if report_card:
             files_to_process.append((report_card, "REPORT CARD"))
         if psych_test:
@@ -1048,20 +1056,31 @@ async def upload_additional_document(
         for file, title in files_to_process:
             safe_filename = f"UPDATE_{title.replace(' ', '_')}_{file.filename}"
             file_bytes = await file.read()
+            
+            # SAFEGUARD: Wrap Supabase in a try/catch so it doesn't crash the DB update if it fails
             if supabase:
-                supabase.storage.from_("student-documents").upload(
-                    path=safe_filename,
-                    file=file_bytes,
-                    file_options={"content-type": file.content_type}
-                )
+                try:
+                    supabase.storage.from_("student-documents").upload(
+                        path=safe_filename,
+                        file=file_bytes,
+                        file_options={"content-type": file.content_type}
+                    )
+                except Exception as storage_err:
+                    print(f"Supabase Upload Warning: {storage_err}")
+                    raise HTTPException(status_code=500, detail=f"Supabase Error: {str(storage_err)}. Check bucket settings.")
+
             current_docs.append({"title": f"{title} - {file.filename}", "filename": safe_filename})
             doc_titles.append(f"{title} - {file.filename}")
-            if file.filename.endswith('.pdf'):
+            
+            if file.filename.lower().endswith('.pdf'):
                 try:
+                    import PyPDF2
                     reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
                     current_text += f"\n\n--- [BEGIN {title} - {file.filename}] ---\n"
                     current_text += "\n".join([page.extract_text() or "" for page in reader.pages])
-                except Exception:
+                except Exception as pdf_err:
+                    print(f"PDF Extraction failed: {pdf_err}")
+                    # We don't crash here, we just skip text extraction
                     pass
 
         cur.execute(
@@ -1071,19 +1090,28 @@ async def upload_additional_document(
 
         agent_name = user_data.get("name", "Unknown") if user_data else "Unknown"
         if doc_titles:
+            # Assuming log_audit_event is defined elsewhere
             log_audit_event(
                 conn=conn, action="UPLOAD_DOC", entity="Student",
                 entity_id=case_id, changed_by=agent_name,
                 details={"documents_added": doc_titles}
             )
+            
         conn.commit()
         return {"status": "success", "message": "Documents securely added to vault."}
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        if conn:
+            conn.rollback()
+        # This will print the EXACT line number that crashed in your Render terminal
+        print("CRITICAL UPLOAD CRASH:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Server Crash: {str(e)}")
     finally:
-        cur.close()
-        conn.close()
+        if cur: cur.close()
+        if conn: conn.close()
 
 
 @app.post("/api/pipeline/{case_id}/notes")
@@ -1306,52 +1334,76 @@ async def create_marketing_lead(
 
 
 @app.post("/api/bulk-upload")
-async def bulk_upload_students(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(('.csv', '.xls', '.xlsx')):
-        raise HTTPException(status_code=400, detail="Invalid format. Please upload an Excel (.xlsx) or .csv file.")
+async def bulk_upload_leads(
+    file: UploadFile = File(...),
+    user_data: dict = Depends(verify_token)
+):
+    # 1. Reject invalid file types immediately
+    if not file.filename.endswith(('.xlsx', '.csv')):
+        raise HTTPException(status_code=400, detail="Invalid format. Please upload a .csv or .xlsx file.")
+
+    conn = get_db_connection()
     try:
-        content = await file.read()
-        if file.filename.lower().endswith('.csv'):
-            df = pd.read_csv(io.BytesIO(content))
+        # 2. Read the file into memory
+        contents = await file.read()
+        
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(contents))
         else:
-            df = pd.read_excel(io.BytesIO(content))
-        df = df.fillna('')
-        conn = get_db_connection()
+            df = pd.read_excel(io.BytesIO(contents))
+
+        # 3. Clean the data (convert NaN to empty strings so the DB doesn't crash)
+        df = df.fillna("")
+
+        # Ensure the columns are lowercase for easier matching
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
+        # Check if the mandatory 'name' column exists
+        if 'name' not in df.columns:
+            raise HTTPException(status_code=400, detail="The spreadsheet must contain a column titled 'name'.")
+
         success_count = 0
-        try:
-            with conn.cursor() as cur:
-                for _, row in df.iterrows():
-                    name = str(row.get('Name', '')).strip()
-                    email = str(row.get('Email (Active)', '')).strip()
-                    if not name or not email:
-                        continue
-                    phone = str(row.get('WA', '')).strip()
-                    program = str(row.get('Program yang diminati', '')).strip()
-                    source = str(row.get('How do you know about this event?', '')).strip()
-                    score = (1 if phone else 0) + (2 if program else 0)
-                    temperature = "Hot Leads" if score >= 3 else "Warm Leads" if score >= 1 else "Cold Leads"
-                    cur.execute("""
-                        INSERT INTO students (name, email, phone, program_interest, lead_source, lead_temperature, status, assignee)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'NEW LEAD', 'Unassigned')
-                    """, (name, email, phone, program, source, temperature))
-                    success_count += 1
-                conn.commit()
-                return {
-                    "status": "success",
-                    "message": f"Berhasil mengunggah dan memfilter {success_count} data dari Excel!"
-                }
-        except Exception as inner_e:
-            conn.rollback()
-            raise inner_e
-    except HTTPException:
-        raise
+        agent_name = user_data.get("name", "Unknown System")
+
+        # 4. Insert rows into the database
+        with conn.cursor() as cur:
+            for index, row in df.iterrows():
+                # Extract values, defaulting to empty strings if missing
+                name = row.get("name", "Unknown Lead")
+                if not name: 
+                    continue # Skip empty rows
+                
+                email = row.get("email", "")
+                phone = str(row.get("phone", ""))
+                program_interest = row.get("program", "")
+                
+                # Insert as a NEW LEAD assigned to the agent who uploaded it
+                cur.execute("""
+                    INSERT INTO students 
+                    (name, email, phone, program_interest, assignee, status, lead_source)
+                    VALUES (%s, %s, %s, %s, %s, 'NEW LEAD', 'Bulk Excel Upload')
+                """, (name, email, phone, program_interest, agent_name))
+                
+                success_count += 1
+            
+            # 5. Log the bulk action
+            cur.execute("""
+                INSERT INTO audit_logs (entity, action, changed_by, details) 
+                VALUES (%s, 'CREATE', %s, %s)
+            """, ("Bulk Leads", agent_name, f'{{"amount_imported": {success_count}}}'))
+            
+            conn.commit()
+
+        return {"status": "success", "message": f"Successfully imported {success_count} new leads."}
+
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="Gagal membaca file Excel. Pastikan nama kolom sesuai format."
-        )
+        if conn:
+            conn.rollback()
+        print("CRITICAL BULK UPLOAD CRASH:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to process file. Ensure columns are named correctly. Error: {str(e)}")
     finally:
-        if 'conn' in locals():
+        if conn:
             conn.close()
 
 
