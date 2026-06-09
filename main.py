@@ -7,6 +7,7 @@ from typing import List, Optional
 from ai_report import generate_strategic_report
 import psycopg2
 import os
+import shutil
 import bcrypt
 import json
 import io
@@ -36,6 +37,9 @@ if API_KEY:
     client = genai.Client(api_key=API_KEY)
 else:
     client = None
+
+# Local uploads directory (used as fallback only if Supabase isn't configured)
+os.makedirs("uploads", exist_ok=True)
 
 app = FastAPI(title="Fortrust OS API", version="1.0")
 
@@ -86,8 +90,7 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS max_capacity INTEGER DEFAULT 50;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS parent_corporate_id INTEGER REFERENCES users(id) ON DELETE SET NULL;")
-            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0;") # ADD THIS LINE
-            # NEW columns that frontend needs
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact TEXT DEFAULT '';")
 
@@ -259,7 +262,6 @@ class NewUserRequest(BaseModel):
     emergency_contact: str = ""
 
 
-# ✅ FIXED — ALL fields Optional so PUT can be partial
 class UpdateSystemUser(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
@@ -279,8 +281,8 @@ class UpdateSystemUser(BaseModel):
     swift_code: Optional[str] = None
     parent_corporate_id: Optional[int] = None
     emergency_contact: Optional[str] = None
-    is_active: Optional[bool] = None       # ✅ NEW for freeze/unfreeze
-    is_archived: Optional[bool] = None     # ✅ NEW for archive button
+    is_active: Optional[bool] = None
+    is_archived: Optional[bool] = None
 
 
 class UserCreate(BaseModel):
@@ -308,10 +310,11 @@ class UserUpdate(BaseModel):
 class UpdateLeadRequest(BaseModel):
     status: Optional[str] = None
     assigned_to: Optional[str] = None
-    assignee: Optional[str] = None              # ✅ NEW — bulk-reassign sends this
+    assignee: Optional[str] = None
     tuition: Optional[float] = None
     commission_rate: Optional[float] = None
     currency: Optional[str] = None
+    loss_reason: Optional[str] = None
 
 
 class TimelineNote(BaseModel):
@@ -359,6 +362,7 @@ class StudentUpdate(BaseModel):
     lead_source: Optional[str] = None
     lead_temperature: Optional[str] = None
     commission_earned: Optional[float] = None
+    loss_reason: Optional[str] = None  # ✅ ADDED THIS
 
 
 class InstitutionUpdate(BaseModel):
@@ -388,6 +392,11 @@ class InstitutionUpdate(BaseModel):
     commission_status: Optional[str] = None
     payment_date: Optional[str] = None
     commission_notes: Optional[str] = None
+
+
+class AIChatRequest(BaseModel):
+    message: str
+    history: Optional[List[dict]] = []
 
 
 # =====================================================================
@@ -428,13 +437,12 @@ def login_user(req: LoginRequest):
                 FROM users WHERE email=%s
             """, (req.email,))
             user = cur.fetchone()
-            
+
             if not user or not bcrypt.checkpw(req.password.encode('utf-8'), user['password'].encode('utf-8')):
                 raise HTTPException(status_code=401, detail="Invalid email or password.")
             if user['is_active'] is False:
                 raise HTTPException(status_code=403, detail="Account frozen.")
-            
-            # SUPER CCTV LOGIN TRACKING
+
             try:
                 cur.execute("""
                     INSERT INTO audit_logs (action, entity, entity_id, changed_by, details)
@@ -443,9 +451,8 @@ def login_user(req: LoginRequest):
                 conn.commit()
             except Exception as e:
                 print(f"CCTV Tracking Error: {e}")
-            
+
             expire_hours = 24 * 30 if req.remember_me else 24
-            # ✅ FIX: include `name` in JWT so audit logs attribute correctly
             token_data = {
                 "id": user['id'],
                 "name": user['name'],
@@ -454,11 +461,11 @@ def login_user(req: LoginRequest):
             }
             token = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
             return {
-                "status": "success", 
-                "token": token, 
+                "status": "success",
+                "token": token,
                 "user": {
-                    "id": user['id'], 
-                    "name": user['name'], 
+                    "id": user['id'],
+                    "name": user['name'],
                     "email": req.email,
                     "role": user['role'],
                     "branch": user['branch'],
@@ -519,7 +526,7 @@ def get_all_users_legacy():
                 SELECT id, name, email, role, branch, phone, agent_type, corporation_name,
                        office_address, bank_name, bank_branch, bank_address, bank_account,
                        swift_code, max_capacity, commission_rate, parent_corporate_id,
-                       emergency_contact,
+                       emergency_contact, training_points,
                        COALESCE(is_active, true) as is_active,
                        COALESCE(is_archived, false) as is_archived
                 FROM users ORDER BY id DESC
@@ -537,7 +544,6 @@ def update_system_user(user_id: int, req: UpdateSystemUser):
             data = req.dict(exclude_unset=True)
             if not data:
                 return {"status": "success"}
-            # Hash password if it's being updated
             if "password" in data and data["password"]:
                 data["password"] = bcrypt.hashpw(data["password"].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             updates = [f"{k} = %s" for k in data]
@@ -563,6 +569,30 @@ def delete_system_user(user_id: int):
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/users/{user_id}/award-training-point")
+def award_training_point(user_id: int, user_data: dict = Depends(verify_token)):
+    if user_data.get("role") != "MASTER_ADMIN" and user_data.get("id") != user_id:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE users 
+                SET training_points = COALESCE(training_points, 0) + 1 
+                WHERE id = %s 
+                RETURNING training_points
+            """, (user_id,))
+            new_points = cur.fetchone()
+            conn.commit()
+            return {"status": "success", "message": "KPI Point Awarded!", "new_total": new_points[0]}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="Failed to award point")
     finally:
         conn.close()
 
@@ -942,7 +972,6 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 params.append(req.status)
                 audit_details["new_status"] = req.status
 
-            # ✅ Support both `assignee` (new) and `assigned_to` (legacy)
             new_assignee = req.assignee or req.assigned_to
             if new_assignee is not None:
                 updates.append("assignee = %s")
@@ -1648,11 +1677,11 @@ def create_broadcast(req: BroadcastCreate, user_data: dict = Depends(verify_toke
                 INSERT INTO broadcasts (title, message, target_role, target_branch, send_email, created_by)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
             """, (
-                req.title, 
-                req.message, 
-                req.target_role, 
-                req.target_branch, 
-                req.send_email, 
+                req.title,
+                req.message,
+                req.target_role,
+                req.target_branch,
+                req.send_email,
                 user_data.get("name", "Master Admin")
             ))
             new_id = cur.fetchone()[0]
@@ -1711,7 +1740,7 @@ def get_commissions(user_data: dict = Depends(verify_token)):
                     WHERE assignee = %s AND (commission_earned > 0 OR status IN ('VISA', 'COMPLETED'))
                     ORDER BY created_at DESC
                 """, (user_data.get("name"),))
-            
+
             records = cur.fetchall()
             processed = []
             for r in records:
@@ -1719,7 +1748,7 @@ def get_commissions(user_data: dict = Depends(verify_token)):
                 amount = float(r['amount'] or 0)
                 if status == "PENDING_CENSUS" and amount > 0:
                     status = "CLEARED"
-                
+
                 processed.append({
                     "id": f"INV-{str(r['id']).zfill(4)}",
                     "student": r['student'],
@@ -1748,10 +1777,10 @@ def claim_commissions(user_data: dict = Depends(verify_token)):
                 cur.execute("UPDATE students SET payout_status = 'CLAIMED' WHERE payout_status = 'CLEARED' OR commission_earned > 0")
             else:
                 cur.execute("UPDATE students SET payout_status = 'CLAIMED' WHERE assignee = %s AND (payout_status = 'CLEARED' OR commission_earned > 0)", (user_data.get("name"),))
-            
+
             if cur.rowcount == 0:
                 return {"status": "error", "message": "No cleared funds available to claim."}
-                
+
             conn.commit()
             return {"status": "success", "message": "Funds claimed and invoice generated to Finance!"}
     except Exception as e:
@@ -1760,32 +1789,15 @@ def claim_commissions(user_data: dict = Depends(verify_token)):
     finally:
         conn.close()
 
+
 # =====================================================================
 # --- 13. AI UNIVERSITY PARTNERSHIP ASSISTANT (Agent Chatbot) ---
-# Add this section to the BOTTOM of your main.py.
-# It uses your `institutions` table as the knowledge base — the AI will
-# only answer based on real data, never make up universities.
 # =====================================================================
-
-class AIChatRequest(BaseModel):
-    message: str
-    history: Optional[List[dict]] = []   # last few messages for context
-
-
 @app.post("/api/agent/ai-assistant")
 def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verify_token)):
-    """
-    Smart partnership assistant for agents. Queries Fortrust's institutions
-    table and lets agents ask natural language questions about:
-    - Which schools we partner with in which countries
-    - What programs are available
-    - Commission rates and agreement terms
-    - Contact persons at institutions
-    """
     if not client:
         raise HTTPException(status_code=500, detail="Gemini AI not configured.")
 
-    # 1) Load all active institutions as the knowledge base
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1804,13 +1816,11 @@ def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verif
     finally:
         conn.close()
 
-    # 2) Build compact JSON context for the AI
     if not institutions:
         context_text = "EMPTY DATABASE — no institutions have been added yet."
     else:
         clean_data = []
         for inst in institutions:
-            # Convert any non-serializable fields to strings
             contacts = inst.get('contacts')
             if contacts and not isinstance(contacts, str):
                 contacts_str = json.dumps(contacts)
@@ -1836,15 +1846,13 @@ def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verif
             })
         context_text = json.dumps(clean_data, indent=2, default=str)
 
-    # 3) Format conversation history (last 6 messages for memory)
     history_text = ""
     for msg in (req.history or [])[-6:]:
         role = msg.get('role', 'user').upper()
         content = msg.get('content', '')
-        if content and content != req.message:  # skip current
+        if content and content != req.message:
             history_text += f"{role}: {content}\n\n"
 
-    # 4) Build the system prompt — STRICT data grounding
     agent_name = user_data.get("name", "Agent")
     prompt = f"""You are the **Fortrust Partnership Assistant**, an AI helping {agent_name} (an education agent at Fortrust) instantly answer student questions about which universities Fortrust partners with.
 
@@ -1877,7 +1885,6 @@ The goal: make agents self-sufficient so they don't have to ask the Master Admin
 
 Answer now (be helpful, accurate, and grounded in the database only):"""
 
-    # 5) Generate the response
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -1885,7 +1892,6 @@ Answer now (be helpful, accurate, and grounded in the database only):"""
         )
         ai_text = response.text.strip()
 
-        # Optional: log this interaction for audit
         try:
             conn = get_db_connection()
             log_audit_event(
@@ -1908,28 +1914,72 @@ Answer now (be helpful, accurate, and grounded in the database only):"""
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI processing error: {str(e)}")
-    
 
-@app.post("/api/users/{user_id}/award-training-point")
-def award_training_point(user_id: int, user_data: dict = Depends(verify_token)):
-    # Security: Ensure agents can only award points to themselves
-    if user_data.get("role") != "MASTER_ADMIN" and user_data.get("id") != user_id:
-        raise HTTPException(status_code=403, detail="Unauthorized")
 
-    conn = get_db_connection()
+# =====================================================================
+# --- 14. GENERIC DOCUMENT UPLOAD (NEW) ---
+# Uploads to Supabase Cloud Vault (permanent) with local fallback.
+# IMPORTANT: Render's local filesystem is ephemeral — files saved locally
+# will be DELETED on every redeploy. Supabase storage is recommended.
+# =====================================================================
+@app.post("/api/upload-document")
+async def upload_document(
+    file: UploadFile = File(...),
+    student_id: str = Form(...),
+    document_type: str = Form(...),
+    user_data: dict = Depends(verify_token)
+):
+    conn = None
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE users 
-                SET training_points = COALESCE(training_points, 0) + 1 
-                WHERE id = %s 
-                RETURNING training_points
-            """, (user_id,))
-            new_points = cur.fetchone()
-            conn.commit()
-            return {"status": "success", "message": "KPI Point Awarded!", "new_total": new_points[0]}
+        # 1. Create a safe filename
+        safe_filename = f"student{student_id}_{document_type}_{file.filename}"
+
+        # 2. Read file bytes once
+        file_bytes = await file.read()
+
+        # 3. Save to Supabase Cloud Vault if available — else fallback to local disk
+        public_url = ""
+        if supabase:
+            supabase.storage.from_("student-documents").upload(
+                path=safe_filename,
+                file=file_bytes,
+                file_options={"content-type": file.content_type or "application/octet-stream"}
+            )
+            public_url = f"/api/documents/{safe_filename}"
+        else:
+            # Local fallback — WARNING: ephemeral on Render
+            file_location = f"uploads/{safe_filename}"
+            with open(file_location, "wb") as buffer:
+                buffer.write(file_bytes)
+            public_url = f"/uploads/{safe_filename}"
+
+        # 4. Log the action in audit_logs using the proper helper (safe from SQL injection)
+        conn = get_db_connection()
+        log_audit_event(
+            conn=conn,
+            action="UPLOAD_DOC",
+            entity="Student",
+            entity_id=str(student_id),
+            changed_by=user_data.get("name", "Unknown"),
+            details={
+                "document_type": document_type,
+                "filename": file.filename,
+                "stored_as": safe_filename
+            }
+        )
+        conn.commit()
+
+        return {
+            "status": "success",
+            "filename": safe_filename,
+            "url": public_url,
+            "storage": "supabase" if supabase else "local-ephemeral"
+        }
+
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Failed to award point")
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
-        conn.close()
+        if conn:
+            conn.close()

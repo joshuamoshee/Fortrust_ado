@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, AlertTriangle, Loader2, ArrowRight, User, Mail, Thermometer, MapPin } from "lucide-react";
+import { X, AlertTriangle, Loader2, ArrowRight, User, Mail, Thermometer, MapPin, Target, Trophy, Medal, TrendingUp } from "lucide-react";
 
 // Pipeline Configuration
 const PIPELINE_STAGES = ["NEW LEAD", "QUALIFIED", "CONSULTING", "APPLICATION", "VISA", "COMPLETED", "DROPPED"];
@@ -18,6 +18,7 @@ const STAGE_COLORS: Record<string, string> = {
 };
 
 export default function StudentPipeline() {
+  const [user, setUser] = useState<any>(null);
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -26,16 +27,33 @@ export default function StudentPipeline() {
   const [lossReason, setLossReason] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { 
+    const storedUser = localStorage.getItem("fortrust_user");
+    if (storedUser) setUser(JSON.parse(storedUser));
+    fetchData(); 
+  }, []);
 
   const fetchData = async () => {
     try {
       const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline`, { 
+      const storedUser = localStorage.getItem("fortrust_user");
+      
+      if (!storedUser) return;
+      const currentUser = JSON.parse(storedUser);
+
+      // FIX 1: Pass role and agent_code in URL
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/api/pipeline?role=${currentUser.role}&agent_code=${encodeURIComponent(currentUser.name)}`;
+      
+      const res = await fetch(url, { 
         headers: { "Authorization": `Bearer ${token}` } 
       });
+      
       const data = await res.json();
-      if (data.status === "success") setStudents(data.data);
+      if (data.status === "success") {
+        setStudents(data.data);
+      } else {
+         console.error("Pipeline fetch failed:", data);
+      }
     } catch (error) {
       console.error("Failed to load pipeline");
     } finally {
@@ -46,7 +64,6 @@ export default function StudentPipeline() {
   // --- HTML5 DRAG AND DROP HANDLERS ---
   const handleDragStart = (e: React.DragEvent, studentId: string) => {
     e.dataTransfer.setData("studentId", studentId);
-    // Optional: Make the card look semi-transparent while dragging
     setTimeout(() => { (e.target as HTMLElement).style.opacity = "0.5"; }, 0);
   };
 
@@ -55,7 +72,7 @@ export default function StudentPipeline() {
   };
 
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); // Required to allow dropping
+    e.preventDefault(); 
   };
 
   const handleDropEvent = (e: React.DragEvent, newStage: string) => {
@@ -64,15 +81,14 @@ export default function StudentPipeline() {
     if (!studentId) return;
 
     const student = students.find(s => String(s.id) === studentId);
-    if (!student || student.status === newStage) return; // Ignore if dropped in the same column
+    if (!student || student.status === newStage) return; 
 
-    // If moved to DROPPED, intercept and open the modal
+    // Intercept DROPPED stage
     if (newStage === "DROPPED") {
       setDroppedStudent({ ...student, newStatus: newStage });
       return;
     }
 
-    // Otherwise, update normally
     updateStudentStatus(studentId, newStage, "");
   };
 
@@ -80,7 +96,7 @@ export default function StudentPipeline() {
   const updateStudentStatus = async (id: string, status: string, reason: string) => {
     setIsSaving(true);
     
-    // Optimistic UI Update (Makes the card snap instantly before the DB finishes)
+    // Optimistic UI Update
     setStudents(prev => prev.map(s => String(s.id) === String(id) ? { ...s, status } : s));
 
     try {
@@ -90,17 +106,26 @@ export default function StudentPipeline() {
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ status, loss_reason: reason })
       });
-      // Sync with server just in case
       fetchData();
     } catch (error) {
       console.error("Failed to update status");
-      fetchData(); // Revert optimistic update on failure
+      fetchData(); 
     } finally {
       setDroppedStudent(null);
       setLossReason("");
       setIsSaving(false);
     }
   };
+
+  // --- KPI CALCULATIONS ---
+  const targetDeals = 20; // Monthly Target
+  const closedDeals = students.filter(s => s.status === 'COMPLETED').length;
+  const progressPct = Math.min((closedDeals / targetDeals) * 100, 100);
+  
+  let rank = { name: "Bronze", color: "text-amber-700", bg: "bg-amber-100", border: "border-amber-200" };
+  if (closedDeals >= 5) rank = { name: "Silver", color: "text-slate-600", bg: "bg-slate-200", border: "border-slate-300" };
+  if (closedDeals >= 10) rank = { name: "Gold", color: "text-yellow-600", bg: "bg-yellow-100", border: "border-yellow-200" };
+  if (closedDeals >= 20) rank = { name: "Platinum", color: "text-indigo-600", bg: "bg-indigo-100", border: "border-indigo-200" };
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
@@ -112,10 +137,45 @@ export default function StudentPipeline() {
   return (
     <div className="p-4 lg:p-8 h-[calc(100vh-80px)] flex flex-col bg-slate-50/50">
       
-      <div className="flex justify-between items-center mb-6 shrink-0">
-        <div>
-          <h1 className="text-2xl font-black text-[#282860]">My Student Pipeline</h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">Drag and drop students to update their progress.</p>
+      {/* KPI DASHBOARD HEADER */}
+      <div className="mb-6 shrink-0">
+        <h1 className="text-2xl font-black text-[#282860] mb-4">My Student Pipeline</h1>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Target Box */}
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 shrink-0"><Target size={24}/></div>
+            <div className="flex-1">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Closing Target</p>
+              <div className="flex items-end gap-2">
+                <p className="text-2xl font-black text-[#282860] leading-none">{closedDeals}</p>
+                <p className="text-sm font-bold text-slate-400 mb-0.5">/ {targetDeals}</p>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
+                <div className="bg-blue-500 h-1.5 rounded-full transition-all duration-1000" style={{ width: `${progressPct}%`}}></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Rank Box */}
+          <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-shadow">
+            <div className={`w-12 h-12 rounded-full ${rank.bg} ${rank.color} flex items-center justify-center shrink-0 border ${rank.border}`}><Medal size={24}/></div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Current Rank</p>
+              <p className={`text-2xl font-black ${rank.color} leading-none mt-1`}>{rank.name}</p>
+              <p className="text-[10px] font-bold text-slate-400 mt-1">Next rank at {rank.name === 'Bronze' ? 5 : rank.name === 'Silver' ? 10 : rank.name === 'Gold' ? 20 : 'MAX'} deals</p>
+            </div>
+          </div>
+
+          {/* Training Points Box */}
+          <div className="bg-gradient-to-br from-[#282860] to-[#1b1b42] rounded-2xl p-5 border border-[#3a3a7a] shadow-md flex items-center gap-4 text-white">
+            <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center shrink-0"><Trophy className="text-[#BAD133]" size={24}/></div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-[#BAD133]">Training Points</p>
+              <p className="text-2xl font-black leading-none mt-1">{user?.training_points || 0} <span className="text-sm text-white/60">PTS</span></p>
+              <p className="text-[10px] font-medium text-white/60 mt-1">Complete Academy modules to earn.</p>
+            </div>
+          </div>
         </div>
       </div>
       
