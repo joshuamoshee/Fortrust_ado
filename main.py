@@ -39,7 +39,6 @@ if API_KEY:
 else:
     client = None
 
-# Local uploads directory (used as fallback only if Supabase isn't configured)
 os.makedirs("uploads", exist_ok=True)
 
 app = FastAPI(title="Fortrust OS API", version="1.0")
@@ -66,7 +65,6 @@ def verify_schema():
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            # Students columns
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS pdf_text TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS commission_earned NUMERIC DEFAULT 0.0;")
@@ -76,9 +74,9 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS currency VARCHAR(10) DEFAULT 'USD';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS payout_status TEXT DEFAULT 'PENDING_CENSUS';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS agent_cut NUMERIC DEFAULT 0;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS loss_reason TEXT DEFAULT '';")
 
-            # Users columns
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_type TEXT DEFAULT 'Individual Agent';")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS corporation_name TEXT DEFAULT '';")
@@ -96,7 +94,6 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact TEXT DEFAULT '';")
 
-            # Institutions table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS institutions (
                     id SERIAL PRIMARY KEY,
@@ -130,7 +127,6 @@ def verify_schema():
                 );
             """)
 
-            # Audit logs table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS audit_logs (
                     id SERIAL PRIMARY KEY,
@@ -143,7 +139,6 @@ def verify_schema():
                 );
             """)
 
-            # Broadcasts table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS broadcasts (
                     id SERIAL PRIMARY KEY,
@@ -181,6 +176,73 @@ def log_audit_event(conn, action: str, entity: str, entity_id: str, changed_by: 
         cur.close()
     except Exception as e:
         print(f"Audit Log Failed: {str(e)}")
+
+
+# =====================================================================
+# --- 🔒 SECURITY CONSTANTS & HELPERS (Document Vault) ---
+# =====================================================================
+ALLOWED_MIME_TYPES = {
+    'application/pdf',
+    'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+}
+MAX_FILE_SIZE_MB = 10
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+
+def sanitize_filename(filename: str) -> str:
+    """Strip path separators, null bytes, and dangerous characters."""
+    if not filename:
+        return "file"
+    filename = filename.replace('\\', '_').replace('/', '_').replace('\x00', '')
+    filename = filename.lstrip('.')
+    filename = filename[:200]
+    return filename or "file"
+
+
+def check_student_access(conn, case_id: str, user_data: dict) -> bool:
+    """
+    Returns True if this user can access this student's documents.
+    Rules:
+      - MASTER_ADMIN: always yes
+      - Corporate Agent / Team Manager: yes if any sub-agent is assigned
+      - Anyone else: yes ONLY if they are the assignee
+    """
+    role = user_data.get("role")
+    user_name = user_data.get("name")
+    user_id = user_data.get("id")
+
+    if role == "MASTER_ADMIN":
+        return True
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT assignee FROM students WHERE id = %s", (case_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            assignee = row.get("assignee")
+
+            if assignee == user_name:
+                return True
+
+            if role in ("Corporate Agent", "Team Manager"):
+                cur.execute(
+                    "SELECT name FROM users WHERE parent_corporate_id = %s",
+                    (user_id,)
+                )
+                sub_agents = [r['name'] for r in cur.fetchall()]
+                if assignee in sub_agents:
+                    return True
+
+        return False
+    except Exception as e:
+        print(f"[access-check] Error: {e}")
+        return False
 
 
 # =====================================================================
@@ -364,7 +426,7 @@ class StudentUpdate(BaseModel):
     lead_source: Optional[str] = None
     lead_temperature: Optional[str] = None
     commission_earned: Optional[float] = None
-    loss_reason: Optional[str] = None  # ✅ ADDED THIS
+    loss_reason: Optional[str] = None
 
 
 class InstitutionUpdate(BaseModel):
@@ -910,6 +972,7 @@ def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(ve
         conn.close()
 
 
+# 🔒 SECURED create_lead — auth required, file validation, two-phase save
 @app.post("/api/pipeline")
 async def create_lead(
     name: str = Form(...),
@@ -918,46 +981,122 @@ async def create_lead(
     notes: str = Form(""),
     assignee: str = Form("Unassigned"),
     report_cards: List[UploadFile] = File(default=[]),
-    psych_tests: List[UploadFile] = File(default=[])
+    psych_tests: List[UploadFile] = File(default=[]),
+    user_data: dict = Depends(verify_token)
 ):
-    extracted_pdf_text = ""
-    saved_documents = []
-    all_files = [(f, "REPORT CARD") for f in report_cards] + [(f, "PSYCHOLOGY TEST") for f in psych_tests]
-
-    for file, title in all_files:
-        if file and file.filename:
-            if file.filename.endswith(('.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png')):
-                safe_filename = f"NEW_{title.replace(' ', '_')}_{file.filename}"
-                file_bytes = await file.read()
-                if supabase:
-                    supabase.storage.from_("student-documents").upload(
-                        path=safe_filename,
-                        file=file_bytes,
-                        file_options={"content-type": file.content_type}
-                    )
-                saved_documents.append({"title": f"{title} - {file.filename}", "filename": safe_filename})
-                if file.filename.endswith('.pdf'):
-                    try:
-                        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-                        extracted_pdf_text += f"\n\n--- [BEGIN {title} - {file.filename}] ---\n"
-                        extracted_pdf_text += "\n".join([page.extract_text() or "" for page in reader.pages])
-                    except Exception:
-                        pass
-
-    conn = get_db_connection()
+    conn = None
     try:
+        conn = get_db_connection()
+
+        # Phase 1: INSERT student first to get a stable ID for filenames
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO students (name, email, phone, assignee, status, notes, documents, pdf_text)
-                VALUES (%s, %s, %s, %s, 'NEW LEAD', %s, %s::jsonb, %s)
-            """, (name, email, phone, assignee, notes, json.dumps(saved_documents), extracted_pdf_text))
+                VALUES (%s, %s, %s, %s, 'NEW LEAD', %s, '[]'::jsonb, '')
+                RETURNING id
+            """, (name, email, phone, assignee, notes))
+            new_id = cur.fetchone()[0]
             conn.commit()
-            return {"status": "success", "message": "Lead & Documents saved to Cloud!"}
+
+        # Phase 2: process files with proper S{id}_ prefix
+        extracted_pdf_text = ""
+        saved_documents = []
+        upload_errors = []
+        all_files = [(f, "REPORT CARD") for f in report_cards] + [(f, "PSYCHOLOGY TEST") for f in psych_tests]
+
+        for file, title in all_files:
+            if not file or not file.filename:
+                continue
+
+            # ✅ MIME check
+            if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
+                upload_errors.append(f"{file.filename}: type not allowed")
+                continue
+
+            # ✅ Sanitize filename
+            clean_original = sanitize_filename(file.filename).replace(" ", "_")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            safe_filename = f"S{new_id}_{title.replace(' ', '_')}_{timestamp}_{clean_original}"
+
+            try:
+                file_bytes = await file.read()
+            except Exception:
+                upload_errors.append(f"{file.filename}: could not read")
+                continue
+
+            # ✅ Size check
+            if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+                upload_errors.append(f"{file.filename}: too large (max {MAX_FILE_SIZE_MB}MB)")
+                continue
+            if len(file_bytes) == 0:
+                upload_errors.append(f"{file.filename}: empty file")
+                continue
+
+            if supabase:
+                try:
+                    supabase.storage.from_("student-documents").upload(
+                        path=safe_filename,
+                        file=file_bytes,
+                        file_options={"content-type": file.content_type or "application/octet-stream"}
+                    )
+                except Exception as supa_err:
+                    print(f"[create_lead] Supabase error: {supa_err}")
+                    upload_errors.append(f"{file.filename}: cloud storage failed")
+                    continue
+            else:
+                upload_errors.append(f"{file.filename}: cloud storage not configured")
+                continue
+
+            saved_documents.append({
+                "title": f"{title} - {file.filename}",
+                "filename": safe_filename,
+                "uploaded_by": user_data.get("name", "Unknown"),
+                "uploaded_at": datetime.now().isoformat(),
+                "size_bytes": len(file_bytes)
+            })
+
+            if file.filename.lower().endswith('.pdf'):
+                try:
+                    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                    extracted_pdf_text += f"\n\n--- [BEGIN {title} - {file.filename}] ---\n"
+                    extracted_pdf_text += "\n".join([page.extract_text() or "" for page in reader.pages])
+                except Exception:
+                    pass
+
+        # Phase 3: UPDATE student with documents + pdf_text
+        if saved_documents or extracted_pdf_text:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE students SET documents = %s::jsonb, pdf_text = %s WHERE id = %s",
+                    (json.dumps(saved_documents), extracted_pdf_text, new_id)
+                )
+
+                log_audit_event(
+                    conn=conn, action="CREATE_LEAD", entity="Student",
+                    entity_id=str(new_id), changed_by=user_data.get("name", "Unknown"),
+                    details={"documents_added": [d["title"] for d in saved_documents]}
+                )
+                conn.commit()
+
+        msg = "Lead & Documents saved to Cloud!"
+        if upload_errors:
+            msg += f" (Partial: {len(upload_errors)} file(s) failed.)"
+
+        return {
+            "status": "success",
+            "message": msg,
+            "student_id": new_id,
+            "errors": upload_errors if upload_errors else None
+        }
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail="Database insertion error.")
+        if conn:
+            conn.rollback()
+        print("[create_lead] FATAL:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create lead: {str(e)}")
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 
 @app.put("/api/pipeline/{case_id}")
@@ -988,7 +1127,6 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 params.append(req.currency or "USD")
                 audit_details["commission_logged"] = earned
 
-            # ✅ THIS WAS MISSING: Catch the loss reason and save it!
             if req.loss_reason is not None:
                 updates.append("loss_reason = %s")
                 params.append(req.loss_reason)
@@ -1013,6 +1151,7 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
     finally:
         conn.close()
 
+
 @app.delete("/api/pipeline/{case_id}")
 def delete_lead(case_id: str):
     conn = get_db_connection()
@@ -1028,96 +1167,172 @@ def delete_lead(case_id: str):
         conn.close()
 
 
+# 🔒 SECURED upload_additional_document
 @app.put("/api/pipeline/{case_id}/document")
 async def upload_additional_document(
     case_id: str,
     report_card: UploadFile = File(None),
     psych_test: UploadFile = File(None),
+    doc_type: str = Form(None),
     user_data: dict = Depends(verify_token)
 ):
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    conn = None
+    cur = None
     try:
+        conn = get_db_connection()
+
+        # ✅ ACCESS CHECK
+        if not check_student_access(conn, case_id, user_data):
+            log_audit_event(
+                conn=conn, action="DENIED_UPLOAD", entity="Student",
+                entity_id=case_id, changed_by=user_data.get("name", "Unknown"),
+                details={"reason": "not_authorized_for_student"}
+            )
+            conn.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to upload documents for this student."
+            )
+
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT documents, pdf_text FROM students WHERE id = %s", (case_id,))
         student = cur.fetchone()
         if not student:
             raise HTTPException(status_code=404, detail="Student not found.")
 
-        # SAFEGUARD: Ensure current_docs is actually a list
         raw_docs = student.get('documents')
-        if isinstance(raw_docs, str):
-            current_docs = json.loads(raw_docs)
+        if raw_docs is None:
+            current_docs = []
+        elif isinstance(raw_docs, str):
+            try:
+                current_docs = json.loads(raw_docs)
+            except Exception:
+                current_docs = []
+        elif isinstance(raw_docs, list):
+            current_docs = raw_docs
         else:
-            current_docs = raw_docs or []
-            
+            current_docs = []
+
         current_text = student.get('pdf_text') or ""
+
         files_to_process = []
-        
         if report_card:
-            files_to_process.append((report_card, "REPORT CARD"))
+            actual_title = sanitize_filename(doc_type or "REPORT CARD").upper()
+            files_to_process.append((report_card, actual_title))
         if psych_test:
             files_to_process.append((psych_test, "PSYCHOLOGY TEST"))
 
+        if not files_to_process:
+            raise HTTPException(
+                status_code=400,
+                detail="No file provided. Expected 'report_card' or 'psych_test' form field."
+            )
+
         doc_titles = []
+        upload_errors = []
+
         for file, title in files_to_process:
-            safe_filename = f"UPDATE_{title.replace(' ', '_')}_{file.filename}"
-            file_bytes = await file.read()
-            
-            # SAFEGUARD: Wrap Supabase in a try/catch so it doesn't crash the DB update if it fails
+            # ✅ MIME CHECK
+            if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
+                upload_errors.append(f"{file.filename}: file type '{file.content_type}' not allowed")
+                continue
+
+            # ✅ SANITIZE FILENAME
+            clean_original = sanitize_filename(file.filename or "file").replace(" ", "_")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            safe_filename = f"S{case_id}_{title.replace(' ', '_')}_{timestamp}_{clean_original}"
+
+            try:
+                file_bytes = await file.read()
+            except Exception as e:
+                print(f"[upload] Failed to read {file.filename}: {e}")
+                upload_errors.append(f"Could not read {file.filename}")
+                continue
+
+            # ✅ SIZE CHECK
+            if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+                upload_errors.append(f"{file.filename}: file too large ({len(file_bytes) // 1024 // 1024}MB, max {MAX_FILE_SIZE_MB}MB)")
+                continue
+            if len(file_bytes) == 0:
+                upload_errors.append(f"{file.filename}: empty file")
+                continue
+
             if supabase:
                 try:
                     supabase.storage.from_("student-documents").upload(
                         path=safe_filename,
                         file=file_bytes,
-                        file_options={"content-type": file.content_type}
+                        file_options={
+                            "content-type": file.content_type or "application/octet-stream"
+                        }
                     )
-                except Exception as storage_err:
-                    print(f"Supabase Upload Warning: {storage_err}")
-                    raise HTTPException(status_code=500, detail=f"Supabase Error: {str(storage_err)}. Check bucket settings.")
+                except Exception as supa_err:
+                    print(f"[upload] Supabase error for {safe_filename}: {supa_err}")
+                    upload_errors.append(f"Cloud vault error: {str(supa_err)[:100]}")
+                    continue
+            else:
+                print("[upload] WARNING: Supabase not configured")
+                upload_errors.append("Cloud storage not configured")
+                continue
 
-            current_docs.append({"title": f"{title} - {file.filename}", "filename": safe_filename})
+            current_docs.append({
+                "title": f"{title} - {file.filename}",
+                "filename": safe_filename,
+                "uploaded_by": user_data.get("name", "Unknown"),
+                "uploaded_at": datetime.now().isoformat(),
+                "size_bytes": len(file_bytes)
+            })
             doc_titles.append(f"{title} - {file.filename}")
-            
-            if file.filename.lower().endswith('.pdf'):
+
+            if file.filename and file.filename.lower().endswith('.pdf'):
                 try:
-                    import PyPDF2
                     reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
                     current_text += f"\n\n--- [BEGIN {title} - {file.filename}] ---\n"
                     current_text += "\n".join([page.extract_text() or "" for page in reader.pages])
                 except Exception as pdf_err:
-                    print(f"PDF Extraction failed: {pdf_err}")
-                    # We don't crash here, we just skip text extraction
-                    pass
+                    print(f"[upload] PDF extraction failed: {pdf_err}")
+
+        if upload_errors and not doc_titles:
+            raise HTTPException(status_code=400, detail="; ".join(upload_errors))
 
         cur.execute(
             "UPDATE students SET documents = %s::jsonb, pdf_text = %s WHERE id = %s",
             (json.dumps(current_docs), current_text, case_id)
         )
 
-        agent_name = user_data.get("name", "Unknown") if user_data else "Unknown"
+        agent_name = user_data.get("name", "Unknown")
         if doc_titles:
-            # Assuming log_audit_event is defined elsewhere
             log_audit_event(
                 conn=conn, action="UPLOAD_DOC", entity="Student",
                 entity_id=case_id, changed_by=agent_name,
                 details={"documents_added": doc_titles}
             )
-            
         conn.commit()
-        return {"status": "success", "message": "Documents securely added to vault."}
-        
+
+        msg = "Documents securely added to vault."
+        if upload_errors:
+            msg += f" (Partial: {len(upload_errors)} file(s) failed.)"
+
+        return {
+            "status": "success",
+            "message": msg,
+            "uploaded": doc_titles,
+            "errors": upload_errors if upload_errors else None
+        }
+
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[upload] FATAL error:")
+        traceback.print_exc()
         if conn:
             conn.rollback()
-        # This will print the EXACT line number that crashed in your Render terminal
-        print("CRITICAL UPLOAD CRASH:")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Server Crash: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 
 @app.post("/api/pipeline/{case_id}/notes")
@@ -1162,17 +1377,91 @@ def update_applications(case_id: str, req: ApplicationData):
         conn.close()
 
 
+# 🔒 SECURED download_document — ONLY ONE COPY (duplicate removed)
 @app.get("/api/documents/{filename}")
 def download_document(filename: str, user_data: dict = Depends(verify_token)):
+    """
+    SECURE document download:
+      - Requires valid JWT
+      - Extracts case_id from filename pattern "S{id}_..."
+      - Verifies caller has permission for that student
+      - Logs every access/denial in audit_logs
+      - Sets no-cache + nosniff headers
+    """
+    # ✅ Path traversal protection
+    if '..' in filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+
+    # Extract case_id from filename pattern: "S{id}_TITLE_TIMESTAMP_origname"
+    case_id = None
+    if filename.startswith('S'):
+        try:
+            case_id = filename[1:].split('_', 1)[0]
+            int(case_id)  # validate numeric
+        except (ValueError, IndexError):
+            case_id = None
+
+    conn = None
     try:
         if not supabase:
-            raise HTTPException(status_code=500, detail="Cloud storage not configured.")
+            raise HTTPException(status_code=503, detail="Cloud storage not configured.")
+
+        conn = get_db_connection()
+
+        # ✅ ACCESS CHECK
+        if case_id:
+            if not check_student_access(conn, case_id, user_data):
+                log_audit_event(
+                    conn=conn, action="DENIED_DOC_ACCESS", entity="Document",
+                    entity_id=filename, changed_by=user_data.get("name", "Unknown"),
+                    details={"reason": "not_authorized", "case_id": case_id}
+                )
+                conn.commit()
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to view this document."
+                )
+
         response = supabase.storage.from_("student-documents").download(filename)
-        return Response(content=response, media_type="application/pdf")
+
+        ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        content_types = {
+            'pdf': 'application/pdf',
+            'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+            'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls': 'application/vnd.ms-excel',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'txt': 'text/plain',
+        }
+        media_type = content_types.get(ext, 'application/octet-stream')
+
+        # ✅ LOG SUCCESSFUL ACCESS (CCTV trail)
+        log_audit_event(
+            conn=conn, action="VIEW_DOC", entity="Document",
+            entity_id=filename, changed_by=user_data.get("name", "Unknown"),
+            details={"case_id": case_id, "media_type": media_type}
+        )
+        conn.commit()
+
+        return Response(
+            content=response,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "Cache-Control": "private, no-store, max-age=0",
+                "X-Content-Type-Options": "nosniff",
+            }
+        )
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[download] Error fetching {filename}: {e}")
         raise HTTPException(status_code=404, detail="Document not found in Cloud Vault.")
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.post("/api/pipeline/{case_id}/verify-commission")
@@ -1344,13 +1633,11 @@ async def bulk_upload_leads(
     file: UploadFile = File(...),
     user_data: dict = Depends(verify_token)
 ):
-    # 1. Reject invalid file types immediately
     if not file.filename.endswith(('.xlsx', '.csv')):
         raise HTTPException(status_code=400, detail="Invalid format. Please upload a .csv or .xlsx file.")
 
     conn = get_db_connection()
     try:
-        # 2. Read the file into memory
         contents = await file.read()
         
         if file.filename.endswith('.csv'):
@@ -1358,46 +1645,38 @@ async def bulk_upload_leads(
         else:
             df = pd.read_excel(io.BytesIO(contents))
 
-        # 3. Clean the data (convert NaN to empty strings so the DB doesn't crash)
         df = df.fillna("")
-
-        # Ensure the columns are lowercase for easier matching
         df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # Check if the mandatory 'name' column exists
         if 'name' not in df.columns:
             raise HTTPException(status_code=400, detail="The spreadsheet must contain a column titled 'name'.")
 
         success_count = 0
         agent_name = user_data.get("name", "Unknown System")
 
-        # 4. Insert rows into the database
         with conn.cursor() as cur:
             for index, row in df.iterrows():
-                # Extract values, defaulting to empty strings if missing
                 name = row.get("name", "Unknown Lead")
-                if not name: 
-                    continue # Skip empty rows
-                
+                if not name:
+                    continue
+
                 email = row.get("email", "")
                 phone = str(row.get("phone", ""))
                 program_interest = row.get("program", "")
-                
-                # Insert as a NEW LEAD assigned to the agent who uploaded it
+
                 cur.execute("""
                     INSERT INTO students 
                     (name, email, phone, program_interest, assignee, status, lead_source)
                     VALUES (%s, %s, %s, %s, %s, 'NEW LEAD', 'Bulk Excel Upload')
                 """, (name, email, phone, program_interest, agent_name))
-                
+
                 success_count += 1
-            
-            # 5. Log the bulk action
+
             cur.execute("""
-                INSERT INTO audit_logs (entity, action, changed_by, details) 
+                INSERT INTO audit_logs (entity, action, changed_by, details)
                 VALUES (%s, 'CREATE', %s, %s)
             """, ("Bulk Leads", agent_name, f'{{"amount_imported": {success_count}}}'))
-            
+
             conn.commit()
 
         return {"status": "success", "message": f"Successfully imported {success_count} new leads."}
@@ -1849,7 +2128,7 @@ def claim_commissions(user_data: dict = Depends(verify_token)):
 
 
 # =====================================================================
-# --- 13. AI UNIVERSITY PARTNERSHIP ASSISTANT (Agent Chatbot) ---
+# --- 13. AI UNIVERSITY PARTNERSHIP ASSISTANT ---
 # =====================================================================
 @app.post("/api/agent/ai-chat")
 def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verify_token)):
@@ -1875,7 +2154,7 @@ def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verif
         conn.close()
 
     if not institutions:
-        context_text = "EMPTY DATABASE — no institutions have been added yet."
+        context_text = "EMPTY DATABASE - no institutions have been added yet."
     else:
         clean_data = []
         for inst in institutions:
@@ -1928,11 +2207,11 @@ The goal: make agents self-sufficient so they don't have to ask the Master Admin
 4. For country/region queries: list the universities, their cities, types, and base commission.
 5. For program queries: search the `programs` field across institutions and list matches.
 6. For contact/PIC questions: parse the `contacts` JSON and give name, email, phone.
-7. **Format clearly** — use bullet points, bold names, and concise paragraphs.
-8. **Be efficient** — agents are usually mid-conversation with a student. Get to the point fast.
+7. **Format clearly** - use bullet points, bold names, and concise paragraphs.
+8. **Be efficient** - agents are usually mid-conversation with a student. Get to the point fast.
 9. End EVERY response with a helpful follow-up like: "Want me to check programs at [related uni]?" or "Need contact details for any of these?"
-10. Use a friendly, professional tone — like a knowledgeable colleague, not a stiff bot.
-11. If the agent asks something unrelated (weather, jokes, code), politely redirect: "I'm focused on Fortrust's university partnerships — what can I help you find?"
+10. Use a friendly, professional tone - like a knowledgeable colleague, not a stiff bot.
+11. If the agent asks something unrelated (weather, jokes, code), politely redirect: "I'm focused on Fortrust's university partnerships - what can I help you find?"
 12. If the database is empty, say: "Our partnership database is empty right now. Please ask the Master Admin to add institutions before I can help with university queries."
 
 ## PREVIOUS CONVERSATION (for context):
@@ -1975,10 +2254,7 @@ Answer now (be helpful, accurate, and grounded in the database only):"""
 
 
 # =====================================================================
-# --- 14. GENERIC DOCUMENT UPLOAD (NEW) ---
-# Uploads to Supabase Cloud Vault (permanent) with local fallback.
-# IMPORTANT: Render's local filesystem is ephemeral — files saved locally
-# will be DELETED on every redeploy. Supabase storage is recommended.
+# --- 14. SECURED GENERIC DOCUMENT UPLOAD ---
 # =====================================================================
 @app.post("/api/upload-document")
 async def upload_document(
@@ -1989,30 +2265,64 @@ async def upload_document(
 ):
     conn = None
     try:
-        # 1. Create a safe filename
-        safe_filename = f"student{student_id}_{document_type}_{file.filename}"
+        conn = get_db_connection()
 
-        # 2. Read file bytes once
+        # Access check - only authorized users can upload to this student
+        if not check_student_access(conn, student_id, user_data):
+            log_audit_event(
+                conn=conn, action="DENIED_UPLOAD", entity="Student",
+                entity_id=student_id, changed_by=user_data.get("name", "Unknown"),
+                details={"reason": "not_authorized_for_student", "endpoint": "upload-document"}
+            )
+            conn.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to upload documents for this student."
+            )
+
+        # MIME check
+        if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type '{file.content_type}' not allowed."
+            )
+
+        # Sanitize
+        clean_doc_type = sanitize_filename(document_type).upper().replace(" ", "_")
+        clean_original = sanitize_filename(file.filename or "file").replace(" ", "_")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        safe_filename = f"S{student_id}_{clean_doc_type}_{timestamp}_{clean_original}"
+
         file_bytes = await file.read()
 
-        # 3. Save to Supabase Cloud Vault if available — else fallback to local disk
+        # Size check
+        if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File too large (max {MAX_FILE_SIZE_MB}MB)"
+            )
+        if len(file_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Empty file.")
+
         public_url = ""
         if supabase:
-            supabase.storage.from_("student-documents").upload(
-                path=safe_filename,
-                file=file_bytes,
-                file_options={"content-type": file.content_type or "application/octet-stream"}
-            )
-            public_url = f"/api/documents/{safe_filename}"
+            try:
+                supabase.storage.from_("student-documents").upload(
+                    path=safe_filename,
+                    file=file_bytes,
+                    file_options={"content-type": file.content_type or "application/octet-stream"}
+                )
+                public_url = f"/api/documents/{safe_filename}"
+            except Exception as supa_err:
+                print(f"[upload-document] Supabase error: {supa_err}")
+                raise HTTPException(status_code=500, detail=f"Cloud storage error: {str(supa_err)[:100]}")
         else:
-            # Local fallback — WARNING: ephemeral on Render
+            # Local fallback (ephemeral on Render)
             file_location = f"uploads/{safe_filename}"
             with open(file_location, "wb") as buffer:
                 buffer.write(file_bytes)
             public_url = f"/uploads/{safe_filename}"
 
-        # 4. Log the action in audit_logs using the proper helper (safe from SQL injection)
-        conn = get_db_connection()
         log_audit_event(
             conn=conn,
             action="UPLOAD_DOC",
@@ -2022,7 +2332,8 @@ async def upload_document(
             details={
                 "document_type": document_type,
                 "filename": file.filename,
-                "stored_as": safe_filename
+                "stored_as": safe_filename,
+                "size_bytes": len(file_bytes)
             }
         )
         conn.commit()
@@ -2034,9 +2345,13 @@ async def upload_document(
             "storage": "supabase" if supabase else "local-ephemeral"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         if conn:
             conn.rollback()
+        print("[upload-document] FATAL:")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
