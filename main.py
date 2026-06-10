@@ -193,6 +193,40 @@ ALLOWED_MIME_TYPES = {
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
+# File extension whitelist — primary validation method
+ALLOWED_EXTENSIONS = {
+    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
+    '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv'
+}
+
+
+def is_safe_filetype(file) -> tuple:
+    """
+    Returns (is_safe: bool, reason: str).
+    Checks by extension first (reliable), MIME as a sanity check.
+    """
+    filename = (file.filename or "").lower().strip()
+    if not filename:
+        return False, "missing filename"
+
+    if '.' not in filename:
+        return False, "file has no extension"
+
+    ext = '.' + filename.rsplit('.', 1)[-1]
+    if ext not in ALLOWED_EXTENSIONS:
+        return False, f"extension '{ext}' not allowed (allowed: PDF, images, Word, Excel, text)"
+
+    bad_mimes = {
+        'application/x-msdownload',
+        'application/x-sh',
+        'application/x-bat',
+        'application/javascript',
+    }
+    if file.content_type and file.content_type in bad_mimes:
+        return False, f"dangerous MIME type '{file.content_type}'"
+
+    return True, "ok"
+
 
 def sanitize_filename(filename: str) -> str:
     """Strip path separators, null bytes, and dangerous characters."""
@@ -1009,8 +1043,9 @@ async def create_lead(
                 continue
 
             # ✅ MIME check
-            if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
-                upload_errors.append(f"{file.filename}: type not allowed")
+            is_safe, reason = is_safe_filetype(file)
+            if not is_safe:
+                upload_errors.append(f"{file.filename}: {reason}")
                 continue
 
             # ✅ Sanitize filename
@@ -1233,8 +1268,9 @@ async def upload_additional_document(
 
         for file, title in files_to_process:
             # ✅ MIME CHECK
-            if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
-                upload_errors.append(f"{file.filename}: file type '{file.content_type}' not allowed")
+            is_safe, reason = is_safe_filetype(file)
+            if not is_safe:
+                upload_errors.append(f"{file.filename}: {reason}")
                 continue
 
             # ✅ SANITIZE FILENAME
