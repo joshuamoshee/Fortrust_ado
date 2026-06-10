@@ -1,108 +1,119 @@
+"""
+Fortrust AI Strategic Report Generator
+Uses Gemini 2.5 Flash with Google Search grounding to produce
+personalized university placement strategies for students.
+
+Fixed: removed response_mime_type conflict with tools (google_search)
+"""
+
 import os
-import json
-from dotenv import load_dotenv
 from google import genai
-from google.genai import types
 
-# 1. Force Python to open the .env vault right now
-load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# 2. Safely fetch the key
-API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    _client = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    _client = None
 
-if not API_KEY:
-    raise ValueError("GEMINI_API_KEY is missing! Make sure your file is named exactly '.env' and not '.env.txt'")
 
-# 3. Initialize the NEW Gemini Client
-client = genai.Client(api_key=API_KEY)
-
-def generate_strategic_report(student_name: str, destination: str, budget: float, notes: str, pdf_data: str = "") -> str:
+def generate_strategic_report(
+    student_name: str,
+    destination: str = "Global (AI Recommended)",
+    budget: float = 30000,
+    notes: str = "No notes provided.",
+    pdf_data: str = "No documents uploaded."
+) -> str:
     """
-    Generates a highly structured, premium Fortrust Assessment Report.
-    Forces strict JSON output so the React frontend can render it beautifully.
+    Generates a comprehensive strategic placement report for a student.
+    Returns markdown-formatted string ready to display in the UI.
+
+    Raises Exception on failure (callers should catch and surface to user).
     """
-    
-    system_prompt = """
-    You are a Senior Educational Psychologist and Strategic Admissions Expert at Fortrust.
-    Your job is to generate a comprehensive, premium student assessment report. 
-    
-    CRITICAL INSTRUCTION 1 (SEARCH): You have access to Google Search. You MUST search the live internet to find 3 REAL, up-to-date university programs that perfectly match the student's profile, destination, and budget. Find the actual current estimated tuition.
-        
-    CRITICAL INSTRUCTION 2 (FAIL-SAFE): First, scan the provided documents and notes. If you cannot find anything regarding the provided student's name, or if the document is clearly not an academic or profiling record, YOU MUST STOP IMMEDIATELY. Output this exact JSON:
-    {"error": "Sorry, we can't find anything regarding the student name or academic profile in this document. Please ensure you uploaded the correct file."}
-        
-    CRITICAL INSTRUCTION 3 (FORMAT): You MUST output ONLY raw, valid JSON. Do not use Markdown formatting. Do not wrap in ```json. 
-    
-    You MUST adhere strictly to this exact JSON schema:
-    {
-      "superpower": "e.g., The Analytical-Communicator Profile",
-      "executive_summary": "3-4 sentence psychological and academic profile based on notes and PDF.",
-      "strategic_direction": "2-sentence strategy on the ideal career path.",
-      "matches": [
-        {
-          "university": "LIVE UNIVERSITY NAME FOUND ONLINE",
-          "major": "MAJOR NAME",
-          "fit_percentage": 95,
-          "best_fit_reason": "1 sentence explaining why, e.g., 'The Sweet Spot'",
-          "tuition_estimate": "Actual tuition found via Google Search",
-          "risk_factor": "Low/Medium/High",
-          "scores": { "cognitive": 9, "interest": 8, "personality": 7, "career": 9 },
-          "future_proofing": { "shift": "Industry trend", "advice": "Actionable advice", "salary": "Entry/Senior estimate" }
-        }
-      ],
-      "success_factors": [
-        {"risk": "Identify a specific risk from the PDF", "action": "Actionable advice to overcome it"}
-      ],
-      "roadmap": [
-        {"year": "Year 1", "focus": "Foundation", "action": "Specific steps"},
-        {"year": "Year 2", "focus": "Application", "action": "Specific steps"}
-      ],
-      "budget_strategy": {
-        "traditional_tuition": "Estimated Cost",
-        "polytech_tuition": "Estimated Cost",
-        "savings": "Amount saved",
-        "alternative_pathway": "Strategy explanation (like a Polytechnic/Diploma ladder)"
-      }
-    }
-    """
-    
-    user_prompt = f"""
-    --- STUDENT DATA ---
-    STUDENT NAME: {student_name}
-    TARGET DESTINATION: {destination}
-    ANNUAL BUDGET: ${budget}
-    
-    --- COUNSELLOR NOTES ---
-    {notes}
-    
-    --- EXTRACTED PDF DATA ---
-    {pdf_data}
-    --------------------
-    """
+    if not _client:
+        raise Exception("GEMINI_API_KEY is not configured on the server.")
+
+    # Truncate very large PDF text to stay within reasonable limits
+    # Gemini 2.5 Flash handles ~1M tokens but we cap to keep responses fast
+    MAX_PDF_CHARS = 30000
+    pdf_excerpt = pdf_data[:MAX_PDF_CHARS] if pdf_data else "No documents uploaded."
+    if len(pdf_data) > MAX_PDF_CHARS:
+        pdf_excerpt += "\n\n[... document truncated for length ...]"
+
+    prompt = f"""You are a senior university placement counselor at Fortrust Education Services.
+Generate a **comprehensive Strategic Placement Report** for the student below.
+
+# STUDENT PROFILE
+- **Name:** {student_name}
+- **Target Destination:** {destination}
+- **Indicative Annual Budget (USD):** {budget:,.0f}
+- **Agent Notes:** {notes}
+
+# UPLOADED DOCUMENTS (psychology assessment, transcripts, etc.)
+```
+{pdf_excerpt}
+```
+
+# YOUR TASK
+Produce a well-structured markdown report with these EXACT sections:
+
+## 1. Student Snapshot
+A 3-4 sentence summary of who this student is — strengths, learning style, personality traits from the assessment.
+
+## 2. Cognitive & Personality Analysis
+Bullet points distilling the key insights from their psychological/academic assessment.
+- Cognitive strengths
+- Cognitive areas for growth
+- Personality / work style observations
+- Social profile
+
+## 3. Recommended Fields of Study
+List 3-5 specific majors/programs that fit this student's profile. For each, explain WHY in 1-2 sentences.
+
+## 4. Top University Recommendations
+Use Google Search to find 5-7 REAL, currently-operating universities that:
+- Offer the recommended majors
+- Match the budget (within ~30% tolerance)
+- Are located in or accessible from the target destination
+
+For each university include:
+- **University name** and country
+- **Tuition (latest available, in USD)**
+- **Why it's a good fit** for this student
+- **Application difficulty** (Easy / Moderate / Competitive)
+
+## 5. Recommended Pathway
+A short 4-step action plan over the next 12 months.
+
+## 6. Risk Factors & Mitigation
+2-3 honest risks (e.g., visa difficulty, English requirements, budget gaps) and how to address each.
+
+# FORMATTING RULES
+- Use clean markdown — headers, bullets, bold for emphasis
+- Be specific and grounded — cite real data from the assessment
+- Never invent universities or tuition figures — use Google Search
+- Keep it actionable, not generic
+- Total length: 600-1000 words
+
+Begin the report now."""
 
     try:
-        full_prompt = system_prompt + "\n\n" + user_prompt
-        
-        response = client.models.generate_content(
+        response = _client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=full_prompt,
-            config=types.GenerateContentConfig(
-                tools=[{"google_search": {}}], 
-                temperature=0.2,
-                # THIS IS THE MAGIC: It forces Gemini to return JSON, preventing UI crashes
-                response_mime_type="application/json" 
-            )
+            contents=prompt,
+            config={
+                "tools": [{"google_search": {}}],
+                # NOTE: We deliberately do NOT set response_mime_type here.
+                # Gemini does not allow tools + JSON output simultaneously.
+            }
         )
-        
-        # Strip any accidental markdown formatting just in case
-        clean_json = response.text.strip()
-        if clean_json.startswith("```json"):
-            clean_json = clean_json[7:-3].strip()
-        elif clean_json.startswith("```"):
-            clean_json = clean_json[3:-3].strip()
-            
-        return clean_json
-        
+        report_text = (response.text or "").strip()
+        if not report_text:
+            raise Exception("AI returned an empty response.")
+        return report_text
+
     except Exception as e:
+        # Log the real error so it surfaces in Render logs
         print(f"Gemini API Error: {e}")
-        return json.dumps({"error": "Error generating AI report. Please check your API key and connection."})
+        # Re-raise so the endpoint can return a proper 500
+        raise Exception(f"AI generation failed: {str(e)}")
