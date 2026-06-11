@@ -1996,46 +1996,213 @@ def delete_institution(inst_id: int, user_data: dict = Depends(verify_token)):
 # =====================================================================
 # --- 10. AI CONTRACT EXTRACTOR ---
 # =====================================================================
+ 
+MAX_AGREEMENT_CHARS = 80000  # ~80K chars, safe for Gemini 2.5 Flash
+ 
+ 
 @app.post("/api/admin/extract-commission")
 async def extract_commission_agreement(contract: UploadFile = File(...)):
+    if not client:
+        raise HTTPException(status_code=500, detail="Gemini API key not configured.")
+ 
+    # --- 1. Read PDF ---
     try:
+        if not contract.filename or not contract.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Please upload a PDF file.")
+ 
         content = await contract.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+ 
         reader = PyPDF2.PdfReader(io.BytesIO(content))
-        extracted_text = "".join([page.extract_text() or "" for page in reader.pages])
-        prompt = f"""
-        You are a top-tier legal AI assistant for an education agency. Read the uploaded University/College Commission Agreement.
-        CRITICAL FAIL-SAFE: If it is NOT a valid contract, return this exact JSON:
-        {{ "is_valid": false, "error_message": "Invalid contract document." }}
-
-        If valid, carefully extract the data and return ONLY raw JSON matching this exact structure:
-        {{
-            "is_valid": true,
-            "institution_name": "...",
-            "institution_type": "University / College / Vocational",
-            "country": "...",
-            "website": "...",
-            "agreement_type": "Commission-based / Fixed Fee / Tiered",
-            "base_commission": "...",
-            "performance_bonus": "...",
-            "tiered_levels": "...",
-            "duration_start": "YYYY-MM-DD or Unknown",
-            "duration_end": "YYYY-MM-DD or Unknown",
-            "terms_conditions": "Short summary of main terms...",
-            "contacts": [
-                {{"name": "...", "title": "...", "department": "...", "email": "...", "phone": "..."}}
-            ]
-        }}
-
-        CONTRACT TEXT TO SCAN:
-        {extracted_text}
-        """
-        if not client:
-            raise HTTPException(status_code=500, detail="Gemini API key not configured.")
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        clean_json = response.text.strip().replace("```json", "").replace("```", "")
-        return {"status": "success", "data": json.loads(clean_json)}
+        pages = []
+        for i, page in enumerate(reader.pages):
+            try:
+                t = page.extract_text() or ""
+                if t.strip():
+                    pages.append(f"\n--- PAGE {i+1} ---\n{t}")
+            except Exception as pe:
+                print(f"[extract-commission] page {i+1} skipped: {pe}")
+                continue
+ 
+        extracted_text = "\n".join(pages).strip()
+        if not extracted_text:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not extract text. PDF may be scanned/image-only."
+            )
+ 
+        if len(extracted_text) > MAX_AGREEMENT_CHARS:
+            print(f"[extract-commission] Truncating from {len(extracted_text)} to {MAX_AGREEMENT_CHARS} chars")
+            extracted_text = extracted_text[:MAX_AGREEMENT_CHARS] + "\n\n[...truncated...]"
+ 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to parse University Contract.")
+        print(f"[extract-commission] PDF read failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
+ 
+    # --- 2. Build strict extraction prompt ---
+    prompt = f"""You are a senior contract analyst at Fortrust Education Services.
+You are extracting structured data from a University/College partnership or commission agreement.
+ 
+# DOCUMENT TEXT
+```
+{extracted_text}
+```
+ 
+# FAIL-SAFE CHECK
+If the document is clearly NOT a partnership/commission agreement (e.g., it's a random PDF, invoice, brochure, or transcript), return EXACTLY:
+{{"is_valid": false, "error_message": "This document does not appear to be a partnership or commission agreement."}}
+ 
+# IF VALID, RETURN THIS EXACT JSON STRUCTURE
+Every field is required. Use null (not "Unknown", not "N/A", not empty string) when a value cannot be found.
+ 
+{{
+  "is_valid": true,
+  "institution_name": "Full official name as written, e.g. 'The Australian National University'",
+  "institution_type": "One of: University | College | Vocational | Language School | Other",
+  "country": "Country where the institution is based, e.g. 'Australia'",
+  "city": "City where the institution is based, e.g. 'Canberra'",
+  "website": "Official institution website URL if mentioned, else null",
+  "agreement_type": "One of: Commission-based | Fixed Fee | Tiered | Hybrid",
+  "base_commission": "Headline commission as a clear short sentence, e.g. '10% of first 12 months tuition, paid in two parts per semester'",
+  "performance_bonus": "Any bonus/incentive structure, e.g. 'Visa assistance $500 one-off' or null if none",
+  "tiered_levels": "If commission varies by program, summarize the tiers, e.g. 'Bachelors/Masters/PhD: 10%; English Pathway: 20%; MChD: flat $2,500/semester'. If single flat rate, return null.",
+  "duration_start": "Effective date in YYYY-MM-DD. If only a year, use January 1st of that year.",
+  "duration_end": "Expiry date in YYYY-MM-DD, or null if open-ended/perpetual",
+  "terms_conditions": "2-4 sentence summary of the most important terms: invoice deadlines, payment timing, key restrictions, exclusivity, territory, termination notice period. Be specific.",
+  "contacts": [
+    {{
+      "name": "Full name",
+      "title": "Job title",
+      "department": "Department or division",
+      "email": "Email address or null",
+      "phone": "Phone number or null"
+    }}
+  ]
+}}
+ 
+# EXTRACTION RULES
+1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01". "30/04/25" → "2025-04-30".
+2. **Amendments / Variation Letters**: If the document is a variation/amendment that MODIFIES a previous agreement, extract the POST-AMENDMENT state. Add a note in `terms_conditions` like "[Variation dated YYYY-MM-DD: ...]".
+3. **Multiple commission rates**: If different programs have different rates, the headline rate goes in `base_commission`, and the full breakdown goes in `tiered_levels`.
+4. **Contacts**: Include the institution's authorized signatory (the person who signed for the university), plus any operational contacts (admissions email, commission payments email). Skip generic info@ addresses.
+5. **Territory**: Mention in `terms_conditions` if the agent is limited to specific countries.
+6. **Currency**: If commissions are in non-USD currency (e.g., AUD, GBP), mention in `terms_conditions`.
+ 
+# WORKED EXAMPLE (for an ANU-style Australian agreement)
+This is what good extraction looks like:
+{{
+  "is_valid": true,
+  "institution_name": "The Australian National University",
+  "institution_type": "University",
+  "country": "Australia",
+  "city": "Canberra",
+  "website": null,
+  "agreement_type": "Commission-based",
+  "base_commission": "10% of first 12 months tuition, paid in two parts per semester after each Census Date",
+  "performance_bonus": "Visa assistance only: $500 one-off; Partial service: $1,000 one-off",
+  "tiered_levels": "Bachelors/Honours/Masters/PhD/Diploma: 10% Part 1 + 10% Part 2 of respective semester tuition. Graduate Certificate: 10% (single payment, 6-month program). MChD: $2,500 per semester. UC English Language Pathway: 20%.",
+  "duration_start": "2021-11-01",
+  "duration_end": "2025-04-30",
+  "terms_conditions": "Non-exclusive appointment. Territory: Indonesia, Malaysia, Philippines. All payments in AUD. Commission invoiced within 12 months of relevant Census Date. Either party may terminate with 30 days written notice. Commission not payable for students with Australia Awards Scholarships, US Federal Aid recipients, or diplomatic visa holders. [Variation dated 2024-07-19: Added UC English Language Program pathway with 20% commission.]",
+  "contacts": [
+    {{
+      "name": "Dr Amanda Barry",
+      "title": "Director, Future Students",
+      "department": "International Strategy and Future Students Division",
+      "email": "agent.contract@anu.edu.au",
+      "phone": null
+    }}
+  ]
+}}
+ 
+# OUTPUT FORMAT
+Return ONLY the JSON object. No preamble, no markdown fences, no commentary.
+Begin extraction now."""
+ 
+    # --- 3. Call Gemini with JSON mode + low temperature ---
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "temperature": 0.1,
+            }
+        )
+ 
+        raw = (response.text or "").strip()
+        if not raw:
+            raise Exception("Gemini returned an empty response.")
+ 
+        # Strip code fences if the AI added them
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+ 
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as je:
+            print(f"[extract-commission] JSON parse error: {je}")
+            print(f"[extract-commission] Raw response: {raw[:1000]}")
+            raise Exception(f"AI returned malformed JSON: {raw[:200]}")
+ 
+        # --- 4. Handle invalid doc ---
+        if not data.get("is_valid"):
+            return {
+                "status": "error",
+                "data": data,
+                "message": data.get("error_message", "Document is not a valid agreement.")
+            }
+ 
+        # --- 5. Fill missing keys with null, clean empty strings ---
+        defaults = {
+            "institution_name": None,
+            "institution_type": None,
+            "country": None,
+            "city": None,
+            "website": None,
+            "agreement_type": None,
+            "base_commission": None,
+            "performance_bonus": None,
+            "tiered_levels": None,
+            "duration_start": None,
+            "duration_end": None,
+            "terms_conditions": None,
+            "contacts": [],
+        }
+        for k, v in defaults.items():
+            if k not in data:
+                data[k] = v
+ 
+        # Normalize empty/placeholder strings to null
+        for k in list(data.keys()):
+            if isinstance(data[k], str) and data[k].strip() in ("", "Unknown", "N/A", "null", "None"):
+                data[k] = None
+ 
+        # Ensure contacts is always a list
+        if not isinstance(data.get("contacts"), list):
+            data["contacts"] = []
+ 
+        print(f"[extract-commission] Extracted: {data.get('institution_name')} "
+              f"({data.get('country')}) — {len(data.get('contacts', []))} contacts")
+ 
+        return {"status": "success", "data": data}
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[extract-commission] AI extraction failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI extraction failed: {str(e)}"
+        )
 
 
 # =====================================================================
@@ -2388,6 +2555,112 @@ async def upload_document(
             conn.rollback()
         print("[upload-document] FATAL:")
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@app.post("/api/admin/cleanup-orphan-docs")
+def cleanup_orphan_docs(
+    fix: bool = False,
+    user_data: dict = Depends(verify_token)
+):
+    if user_data.get("role") != "MASTER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Master Admin can run this.")
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not configured.")
+ 
+    conn = get_db_connection()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT id, name, documents FROM students WHERE documents IS NOT NULL")
+        students = cur.fetchall()
+ 
+        report = []
+        total_orphans = 0
+        total_cleaned = 0
+ 
+        for student in students:
+            raw_docs = student.get('documents')
+            if raw_docs is None:
+                continue
+            if isinstance(raw_docs, str):
+                try:
+                    docs = json.loads(raw_docs)
+                except Exception:
+                    continue
+            elif isinstance(raw_docs, list):
+                docs = raw_docs
+            else:
+                continue
+ 
+            if not isinstance(docs, list):
+                continue
+ 
+            valid_docs = []
+            orphan_docs = []
+ 
+            for doc in docs:
+                filename = doc.get('filename')
+                if not filename:
+                    orphan_docs.append({"reason": "no filename", "doc": doc})
+                    continue
+                try:
+                    # Try to get file info from Supabase
+                    files = supabase.storage.from_("student-documents").list(
+                        path="",
+                        options={"search": filename}
+                    )
+                    exists = any(f.get('name') == filename for f in (files or []))
+                    if exists:
+                        valid_docs.append(doc)
+                    else:
+                        orphan_docs.append({"reason": "missing in supabase", "doc": doc})
+                        total_orphans += 1
+                except Exception as e:
+                    print(f"[cleanup] Could not check {filename}: {e}")
+                    valid_docs.append(doc)  # Keep it if we can't verify (safer)
+ 
+            if orphan_docs:
+                report.append({
+                    "student_id": student['id'],
+                    "student_name": student['name'],
+                    "orphan_count": len(orphan_docs),
+                    "orphans": [o['doc'].get('title') or o['doc'].get('filename') for o in orphan_docs]
+                })
+ 
+                if fix:
+                    cur.execute(
+                        "UPDATE students SET documents = %s::jsonb WHERE id = %s",
+                        (json.dumps(valid_docs), student['id'])
+                    )
+                    total_cleaned += len(orphan_docs)
+ 
+        if fix:
+            conn.commit()
+            log_audit_event(
+                conn=conn, action="CLEANUP_ORPHAN_DOCS", entity="System",
+                entity_id=None, changed_by=user_data.get("name", "Admin"),
+                details={"orphans_removed": total_cleaned}
+            )
+            conn.commit()
+ 
+        return {
+            "status": "success",
+            "fix_applied": fix,
+            "students_with_orphans": len(report),
+            "total_orphans_found": total_orphans,
+            "total_orphans_cleaned": total_cleaned if fix else 0,
+            "report": report,
+            "next_step": "Call again with ?fix=true to remove orphans" if not fix and total_orphans > 0 else None
+        }
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:

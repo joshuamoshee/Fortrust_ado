@@ -14,7 +14,7 @@ const DOC_TYPES = [
   "Report Card",
   "English Test",
   "SOP",
-  "Psychology Test",
+  "Profiling Test",   
   "Other"
 ];
 
