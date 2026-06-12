@@ -6,7 +6,7 @@ import {
   FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
   X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
   Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
-  Eye, Trash2, Plus, MessageSquare, Send, Clock, User
+  Eye, Trash2, Plus, MessageSquare, Send, Clock, User, Circle
 } from "lucide-react";
 
 const DOC_TYPES = [
@@ -14,9 +14,52 @@ const DOC_TYPES = [
   "Report Card",
   "English Test",
   "SOP",
-  "Profiling Test",   
+  "Profiling Test",
   "Other"
 ];
+
+// Standard categories shown in the checklist (each can hold multiple files).
+const STANDARD_CATEGORIES = [
+  { type: "Passport", description: "Valid international passport (bio page)" },
+  { type: "Report Card", description: "Academic transcripts - usually 6+ files across semesters" },
+  { type: "English Test", description: "IELTS / TOEFL / PTE certificate" },
+  { type: "SOP", description: "Statement of Purpose" },
+  { type: "Profiling Test", description: "Profiling test results (HCC or any provider)" }
+];
+
+// Category matchers - used to group existing docs into the right buckets.
+// Backward-compatible: old "PSYCHOLOGY TEST" titles still match Profiling Test.
+const CATEGORY_MATCHERS: Record<string, (t: string, f: string) => boolean> = {
+  "Passport": (t, f) => t.includes("PASSPORT") || f.includes("PASSPORT"),
+  "Report Card": (t, f) =>
+    t.includes("REPORT CARD") || t.includes("REPORT_CARD") || t.includes("RAPOT") ||
+    f.includes("REPORT_CARD") || f.includes("RAPOT"),
+  "English Test": (t, f) =>
+    t.includes("ENGLISH") || t.includes("IELTS") || t.includes("TOEFL") || t.includes("PTE") ||
+    f.includes("ENGLISH") || f.includes("IELTS") || f.includes("TOEFL"),
+  "SOP": (t, f) =>
+    t.includes("SOP") || t.includes("STATEMENT OF PURPOSE") ||
+    f.includes("SOP") || f.includes("STATEMENT_OF_PURPOSE"),
+  "Profiling Test": (t, f) =>
+    t.includes("PROFILING") || t.includes("PSYCHOLOGY") || t.includes("PSIKOLOG") || t.includes("HCC") ||
+    f.includes("PROFILING") || f.includes("PSYCHOLOGY")
+};
+
+function getDocsInCategory(category: string, allDocs: any[]): any[] {
+  const matcher = CATEGORY_MATCHERS[category];
+  if (!matcher) return [];
+  return allDocs.filter((d: any) => 
+    matcher((d.title || "").toUpperCase(), (d.filename || "").toUpperCase())
+  );
+}
+
+function getOtherDocs(allDocs: any[]): any[] {
+  return allDocs.filter((d: any) => {
+    const t = (d.title || "").toUpperCase();
+    const f = (d.filename || "").toUpperCase();
+    return !Object.values(CATEGORY_MATCHERS).some(m => m(t, f));
+  });
+}
 
 export default function GlobalStudentDatabase() {
   const [allStudents, setAllStudents] = useState<any[]>([]);
@@ -71,7 +114,14 @@ export default function GlobalStudentDatabase() {
       ]);
       const studentsData = await studentsRes.json();
       const usersData = await usersRes.json();
-      if (studentsData.status === "success") setAllStudents(studentsData.data);
+      if (studentsData.status === "success") {
+        setAllStudents(studentsData.data);
+        // Keep editingStudent in sync if dossier is open
+        if (editingStudent) {
+          const fresh = studentsData.data.find((s: any) => s.id === editingStudent.id);
+          if (fresh) setEditingStudent(fresh);
+        }
+      }
       if (usersData.status === "success") setAgents(usersData.data);
     } catch (error) {
       console.error("Failed to fetch data");
@@ -196,12 +246,12 @@ export default function GlobalStudentDatabase() {
       const token = localStorage.getItem("fortrust_token");
       const formData = new FormData();
       
-      if (docType === "Psychology Test") {
-        formData.append("psych_test", file);
-      } else {
-        formData.append("report_card", file);
-        formData.append("doc_type", docType);
-      }
+      // Always send via report_card field with doc_type, so the backend
+      // uses our exact category name (Profiling Test, Report Card, etc.)
+      // as the title. This means uploading multiple files in the same
+      // category works correctly.
+      formData.append("report_card", file);
+      formData.append("doc_type", docType);
 
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/document`, {
         method: "PUT",
@@ -213,10 +263,8 @@ export default function GlobalStudentDatabase() {
 
       if (res.ok) {
         setNotification({type: 'success', message: `${docType} uploaded securely to vault.`});
-        fetchData();
-        const newDoc = { title: `${docType.toUpperCase()} - ${file.name}`, filename: file.name };
-        const currentDocs = typeof editingStudent.documents === 'string' ? JSON.parse(editingStudent.documents || "[]") : (editingStudent.documents || []);
-        setEditingStudent({ ...editingStudent, documents: [...currentDocs, newDoc] });
+        // Refetch to get the real server-side filename (with S{id}_TYPE_TIMESTAMP_ prefix)
+        await fetchData();
       } else {
         const errMsg = Array.isArray(data.detail) 
           ? data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(", ")
@@ -243,7 +291,19 @@ export default function GlobalStudentDatabase() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (!res.ok) {
-        setNotification({type: 'error', message: 'Document not found in vault.'});
+        // Better error messages depending on status
+        let msg = "Could not load document.";
+        if (res.status === 404) {
+          msg = "This file is registered but missing from the cloud vault. It may have been deleted or upload didn't complete - please re-upload.";
+        } else if (res.status === 403) {
+          msg = "You don't have permission to view this document.";
+        } else {
+          try {
+            const data = await res.json();
+            msg = data.detail || msg;
+          } catch {}
+        }
+        setNotification({type: 'error', message: msg});
         return;
       }
       const blob = await res.blob();
@@ -254,7 +314,7 @@ export default function GlobalStudentDatabase() {
       setNotification({type: 'error', message: 'Could not load document.'});
     } finally {
       setLoadingDocFilename(null);
-      setTimeout(() => setNotification(null), 3000);
+      setTimeout(() => setNotification(null), 5000);
     }
   };
 
@@ -332,36 +392,21 @@ export default function GlobalStudentDatabase() {
     try { studentTimeline = typeof editingStudent.timeline === 'string' ? JSON.parse(editingStudent.timeline) : (editingStudent.timeline || []); } catch (e) { studentTimeline = []; }
   }
 
-  const standardRequirements = [
-    { type: "Passport", name: "Valid International Passport (Bio Page)" },
-    { type: "Report Card", name: "Academic Transcript (Last 1 Year)" },
-    { type: "English Test", name: "IELTS / PTE / TOEFL Certificate" },
-    { type: "SOP", name: "Statement of Purpose (SOP)" },
-    { type: "Psychology Test", name: "HCC Profiling Test Results" }
-  ];
-
-  const getDocStatus = (reqType: string) => {
-    const found = studentDocs.find((d: any) => 
-      (d.title || "").toUpperCase().includes(reqType.toUpperCase()) || 
-      (d.filename || "").toUpperCase().includes(reqType.toUpperCase())
-    );
-    return found ? { uploaded: true, file: found } : { uploaded: false, file: null };
-  };
-
-  const uploadedCount = standardRequirements.filter(req => getDocStatus(req.type).uploaded).length;
-  const totalSuggested = standardRequirements.length;
+  const totalDocCount = studentDocs.length;
+  const categoriesWithDocs = STANDARD_CATEGORIES.filter(c => getDocsInCategory(c.type, studentDocs).length > 0).length;
+  const otherDocs = getOtherDocs(studentDocs);
 
   return (
     <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full relative animate-in fade-in">
       
       {notification && (
-        <div className={`fixed top-6 right-6 z-[100] px-6 py-4 rounded-2xl font-bold flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4
+        <div className={`fixed top-6 right-6 z-[100] px-6 py-4 rounded-2xl font-bold flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 max-w-md
           ${notification.type === 'success' ? 'bg-[#282860] text-white border border-[#3a3a7a]' : 'bg-red-500 text-white border border-red-600'}`}>
           <div className="flex items-center gap-3">
-            {notification.type === 'success' ? <CheckCircle2 className="text-[#BAD133]" size={20}/> : <ShieldAlert size={20}/>}
-            {notification.message}
+            {notification.type === 'success' ? <CheckCircle2 className="text-[#BAD133] shrink-0" size={20}/> : <ShieldAlert size={20} className="shrink-0"/>}
+            <span className="text-sm">{notification.message}</span>
           </div>
-          <button onClick={() => setNotification(null)} className="ml-6 opacity-70 hover:opacity-100 transition-opacity"><X size={18} /></button>
+          <button onClick={() => setNotification(null)} className="ml-6 opacity-70 hover:opacity-100 transition-opacity shrink-0"><X size={18} /></button>
         </div>
       )}
 
@@ -550,9 +595,9 @@ export default function GlobalStudentDatabase() {
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Lead Temperature</label>
                       <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={newStudent.lead_temperature} onChange={e => setNewStudent({...newStudent, lead_temperature: e.target.value})}>
-                        <option value="Hot Leads">🔥 Hot Lead</option>
-                        <option value="Warm Leads">☀️ Warm Lead</option>
-                        <option value="Cold Leads">❄️ Cold Lead</option>
+                        <option value="Hot Leads">Hot Lead</option>
+                        <option value="Warm Leads">Warm Lead</option>
+                        <option value="Cold Leads">Cold Lead</option>
                       </select>
                     </div>
                     <div>
@@ -639,7 +684,7 @@ export default function GlobalStudentDatabase() {
                 <Edit2 size={16} /> Profile Settings
               </button>
               <button onClick={() => setDossierTab('documents')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'documents' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
-                <UploadCloud size={16} /> Application Vault
+                <UploadCloud size={16} /> Application Vault {totalDocCount > 0 && <span className="bg-[#BAD133] text-[#1b1b42] text-[10px] px-2 py-0.5 rounded-full font-black">{totalDocCount}</span>}
               </button>
               <button onClick={() => setDossierTab('ai')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'ai' ? 'border-b-2 border-[#BAD133] text-[#1b1b42] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
                 <BrainCircuit size={16} /> AI Intelligence
@@ -704,7 +749,7 @@ export default function GlobalStudentDatabase() {
                 </div>
               )}
 
-              {/* DOCUMENTS TAB */}
+              {/* DOCUMENTS TAB - REBUILT FOR MULTI-FILE */}
               {dossierTab === 'documents' && (
                 <div className="p-6 space-y-6 animate-in fade-in">
                   
@@ -715,7 +760,7 @@ export default function GlobalStudentDatabase() {
                         {isUploadingDoc ? <Loader2 size={28} className="animate-spin" /> : <UploadCloud size={28} />}
                       </div>
                       <h3 className="text-lg font-black text-[#282860]">Upload Student Document</h3>
-                      <p className="text-sm text-slate-500 mt-1 max-w-sm">Select the document type below, then choose your file.</p>
+                      <p className="text-sm text-slate-500 mt-1 max-w-sm">Select the document type, then choose your file. You can upload multiple files per category.</p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl mx-auto">
@@ -730,7 +775,7 @@ export default function GlobalStudentDatabase() {
                         <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">File</label>
                         <label className={`bg-[#282860] hover:bg-[#1b1b42] text-white px-4 py-3 rounded-xl text-sm font-bold shadow-md cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-2 ${isUploadingDoc ? 'opacity-50 cursor-not-allowed' : ''}`}>
                           {isUploadingDoc ? "Uploading..." : "Browse"}
-                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="hidden" disabled={isUploadingDoc}
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden" disabled={isUploadingDoc}
                             onChange={(e) => {
                               if(e.target.files && e.target.files[0]) handleDocumentUpload(e.target.files[0], selectedDocType);
                               e.target.value = "";
@@ -738,83 +783,122 @@ export default function GlobalStudentDatabase() {
                         </label>
                       </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 text-center mt-4">Accepted: PDF, JPG, PNG, DOC, DOCX</p>
+                    <p className="text-[10px] text-slate-400 text-center mt-4">Accepted: PDF, images, Word, Excel, text (max 10MB)</p>
                   </div>
 
                   {/* PROGRESS CHIP */}
                   <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between shadow-sm gap-4">
                     <div>
                       <h3 className="font-black text-[#282860] flex items-center gap-2"><FileText size={20} className="text-blue-500"/> Application Document Vault</h3>
-                      <p className="text-xs text-slate-500 mt-1 max-w-md">Upload student documents anytime. All files are optional — you can proceed at any pipeline stage.</p>
+                      <p className="text-xs text-slate-500 mt-1 max-w-md">Upload as many files as needed per category. E.g. 6+ report cards across semesters, multiple profiling tests, etc.</p>
                     </div>
                     <div className="bg-slate-50 text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 flex items-center gap-2 shrink-0">
                       <UploadCloud size={16} className="text-blue-500"/> 
-                      <span><strong className="text-[#282860]">{uploadedCount}</strong> of {totalSuggested} suggested uploaded</span>
+                      <span><strong className="text-[#282860]">{totalDocCount}</strong> file{totalDocCount === 1 ? '' : 's'} &bull; <strong className="text-[#282860]">{categoriesWithDocs}</strong>/{STANDARD_CATEGORIES.length} categories</span>
                     </div>
                   </div>
 
-                  {/* DOC CHECKLIST */}
+                  {/* CATEGORY CARDS - each holds 0..N files */}
                   <div className="space-y-3">
-                    {standardRequirements.map((req, i) => {
-                      const docStatus = getDocStatus(req.type);
-                      const isLoadingThisDoc = docStatus.file && loadingDocFilename === docStatus.file.filename;
+                    {STANDARD_CATEGORIES.map((cat) => {
+                      const filesInCat = getDocsInCategory(cat.type, studentDocs);
+                      const count = filesInCat.length;
+                      const isEmpty = count === 0;
+
                       return (
-                        <div key={i} className="bg-white border border-slate-200 p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div className="flex items-center gap-4">
-                            <div className={`p-3 rounded-xl border shrink-0 ${docStatus.uploaded ? "bg-emerald-50 border-emerald-100 text-emerald-600" : "bg-slate-50 border-slate-200 text-slate-400"}`}>
-                              <FileText size={20}/>
+                        <div key={cat.type} className={`rounded-2xl border shadow-sm transition-all ${
+                          isEmpty ? "bg-white border-slate-200" : "bg-white border-emerald-200"
+                        }`}>
+                          {/* Header */}
+                          <div className="p-4 flex items-center justify-between border-b border-slate-100">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`p-3 rounded-xl border shrink-0 ${
+                                isEmpty
+                                  ? "bg-slate-50 border-slate-200 text-slate-400"
+                                  : "bg-emerald-50 border-emerald-100 text-emerald-600"
+                              }`}>
+                                <FileText size={20}/>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-bold text-[#282860]">{cat.type}</p>
+                                  {!isEmpty && (
+                                    <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider">
+                                      {count} file{count === 1 ? '' : 's'}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-500 mt-0.5">{cat.description}</p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="text-sm font-bold text-[#282860]">{req.name}</p>
-                              {docStatus.uploaded ? (
-                                <p className="text-xs text-slate-400 font-mono mt-0.5 truncate max-w-xs" title={docStatus.file.filename}>{docStatus.file.filename}</p>
-                              ) : (
-                                <p className="text-xs text-slate-400 mt-0.5 italic">Not uploaded yet — optional.</p>
-                              )}
+
+                            {/* Always-visible Add button */}
+                            <label className={`shrink-0 bg-slate-50 hover:bg-[#282860] hover:text-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm ${isUploadingDoc ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                              {isUploadingDoc ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
+                              <span className="hidden sm:inline">Add</span>
+                              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden" disabled={isUploadingDoc}
+                                onChange={(e) => {
+                                  if(e.target.files && e.target.files[0]) handleDocumentUpload(e.target.files[0], cat.type);
+                                  e.target.value = "";
+                                }} />
+                            </label>
+                          </div>
+
+                          {/* File list (or empty hint) */}
+                          {isEmpty ? (
+                            <div className="px-4 py-3 text-xs text-slate-400 italic flex items-center gap-2">
+                              <Circle size={12} className="text-slate-300"/>
+                              No files yet. Optional - click "Add" above when ready.
                             </div>
-                          </div>
-                          
-                          <div className="shrink-0 flex items-center gap-2">
-                            {docStatus.uploaded ? (
-                              <>
-                                <span className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider">Uploaded</span>
-                                <button onClick={() => handleViewDocument(docStatus.file.filename)} disabled={!!isLoadingThisDoc}
-                                  className="p-2 bg-slate-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-50" 
-                                  title="View Document">
-                                  {isLoadingThisDoc ? <Loader2 size={16} className="animate-spin" /> : <Eye size={16} />}
-                                </button>
-                              </>
-                            ) : (
-                              <label className="bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-2 shadow-sm">
-                                {isUploadingDoc ? <Loader2 size={14} className="animate-spin"/> : <UploadCloud size={14}/>}
-                                <span>Upload</span>
-                                <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="hidden" disabled={isUploadingDoc}
-                                  onChange={(e) => {
-                                    if(e.target.files && e.target.files[0]) handleDocumentUpload(e.target.files[0], req.type);
-                                    e.target.value = "";
-                                  }} />
-                              </label>
-                            )}
-                          </div>
+                          ) : (
+                            <div className="divide-y divide-slate-50">
+                              {filesInCat.map((doc: any, i: number) => {
+                                const isLoadingThisDoc = loadingDocFilename === doc.filename;
+                                const displayName = doc.title || doc.filename || "Untitled";
+                                return (
+                                  <div key={`${doc.filename}-${i}`} className="px-4 py-2.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                      <CheckCircle2 size={14} className="text-emerald-500 shrink-0"/>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-semibold text-slate-700 truncate" title={displayName}>
+                                          {displayName}
+                                        </p>
+                                        {doc.uploaded_by && (
+                                          <p className="text-[10px] text-slate-400 truncate">
+                                            by {doc.uploaded_by}{doc.uploaded_at ? ` &bull; ${new Date(doc.uploaded_at).toLocaleDateString()}` : ''}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <button onClick={() => handleViewDocument(doc.filename)} disabled={isLoadingThisDoc}
+                                      className="p-2 bg-slate-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-50 shrink-0"
+                                      title="View Document">
+                                      {isLoadingThisDoc ? <Loader2 size={14} className="animate-spin"/> : <Eye size={14}/>}
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
                   </div>
 
-                  {/* ADDITIONAL FILES */}
-                  {studentDocs.filter((d: any) => !standardRequirements.some(req => (d.title || "").toUpperCase().includes(req.type.toUpperCase()) || (d.filename || "").toUpperCase().includes(req.type.toUpperCase()))).length > 0 && (
+                  {/* OTHER / UNCATEGORIZED FILES */}
+                  {otherDocs.length > 0 && (
                     <div className="mt-8">
-                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 pl-2">Additional Files</h4>
-                      <div className="space-y-3">
-                        {studentDocs.filter((d: any) => !standardRequirements.some(req => (d.title || "").toUpperCase().includes(req.type.toUpperCase()) || (d.filename || "").toUpperCase().includes(req.type.toUpperCase()))).map((doc: any, i: number) => {
+                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 pl-2">Other Files ({otherDocs.length})</h4>
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-50">
+                        {otherDocs.map((doc: any, i: number) => {
                           const isLoadingThisDoc = loadingDocFilename === doc.filename;
                           return (
-                            <div key={i} className="bg-white border border-slate-200 p-4 rounded-xl shadow-sm flex items-center justify-between">
-                              <div className="flex items-center gap-4 min-w-0">
-                                <div className="bg-slate-50 text-slate-500 border border-slate-200 p-2.5 rounded-lg shrink-0"><FileText size={18}/></div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-bold text-[#282860] truncate" title={doc.title}>{doc.title || "Untitled Document"}</p>
-                                  <p className="text-xs text-slate-400 font-mono mt-0.5 truncate" title={doc.filename}>{doc.filename || "unknown_file.pdf"}</p>
+                            <div key={`other-${i}`} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                              <div className="flex items-center gap-3 min-w-0 flex-1">
+                                <div className="bg-slate-50 text-slate-500 border border-slate-200 p-2 rounded-lg shrink-0"><FileText size={16}/></div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-semibold text-slate-700 truncate" title={doc.title}>{doc.title || "Untitled"}</p>
+                                  <p className="text-[10px] text-slate-400 font-mono truncate" title={doc.filename}>{doc.filename}</p>
                                 </div>
                               </div>
                               <button onClick={() => handleViewDocument(doc.filename)} disabled={isLoadingThisDoc}
@@ -838,7 +922,7 @@ export default function GlobalStudentDatabase() {
                       <BrainCircuit size={64} className="text-[#BAD133] mb-6 drop-shadow-[0_0_15px_rgba(186,209,51,0.3)]" />
                       <h3 className="text-2xl font-black text-white mb-2">Generate Strategic Profile</h3>
                       <p className="text-slate-300 text-sm mb-8 max-w-md mx-auto leading-relaxed">
-                        Fortrust AI will scan {editingStudent.name}'s uploaded HCC Psychological test and Academic Report Cards to generate a comprehensive placement strategy.
+                        Fortrust AI will cross-reference {editingStudent.name}'s uploaded profiling tests and academic report cards to generate a comprehensive placement strategy.
                       </p>
                       <button onClick={generateAIReport} className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] font-black px-8 py-4 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3">
                         <Activity size={20} /> Run AI Analysis
@@ -852,7 +936,7 @@ export default function GlobalStudentDatabase() {
                         <Loader2 size={48} className="animate-spin text-[#BAD133] relative z-10" />
                       </div>
                       <h3 className="text-xl font-black text-[#282860] mb-2">Analyzing Dossier...</h3>
-                      <p className="text-sm text-slate-500 font-medium">Extracting psychological traits and calculating academic metrics.</p>
+                      <p className="text-sm text-slate-500 font-medium">Cross-referencing profiling results with academic performance.</p>
                     </div>
                   )}
                   {aiReport && !isGeneratingAI && (
