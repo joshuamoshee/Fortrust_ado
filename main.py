@@ -93,6 +93,8 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS field_interests TEXT DEFAULT '';")
+            
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS institutions (
