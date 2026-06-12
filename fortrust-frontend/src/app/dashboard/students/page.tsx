@@ -27,8 +27,29 @@ const STANDARD_CATEGORIES = [
   { type: "Profiling Test", description: "Profiling test results (HCC or any provider)" }
 ];
 
+// Academic fields for the "Field of Interest" selector - 3rd AI variable
+const ACADEMIC_FIELDS = [
+  { label: "Business & Management", emoji: "💼" },
+  { label: "Economics & Finance", emoji: "📈" },
+  { label: "Marketing & Communication", emoji: "📣" },
+  { label: "Computer Science & IT", emoji: "💻" },
+  { label: "Engineering", emoji: "⚙️" },
+  { label: "Medicine & Health Sciences", emoji: "🩺" },
+  { label: "Sciences (Bio/Chem/Physics)", emoji: "🔬" },
+  { label: "Mathematics", emoji: "🧮" },
+  { label: "Psychology", emoji: "🧠" },
+  { label: "Law", emoji: "⚖️" },
+  { label: "International Relations", emoji: "🌍" },
+  { label: "Design & Creative Arts", emoji: "🎨" },
+  { label: "Architecture", emoji: "🏛️" },
+  { label: "Education & Teaching", emoji: "📚" },
+  { label: "Hospitality & Tourism", emoji: "🏨" },
+  { label: "Other", emoji: "✨" },
+];
+
+const MAX_FIELD_INTERESTS = 3;
+
 // Category matchers - used to group existing docs into the right buckets.
-// Backward-compatible: old "PSYCHOLOGY TEST" titles still match Profiling Test.
 const CATEGORY_MATCHERS: Record<string, (t: string, f: string) => boolean> = {
   "Passport": (t, f) => t.includes("PASSPORT") || f.includes("PASSPORT"),
   "Report Card": (t, f) =>
@@ -84,6 +105,9 @@ export default function GlobalStudentDatabase() {
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState("Report Card");
   const [loadingDocFilename, setLoadingDocFilename] = useState<string | null>(null);
+  const [deletingDocFilename, setDeletingDocFilename] = useState<string | null>(null);
+
+  const [fieldInterests, setFieldInterests] = useState<string[]>([]);
 
   const [newNote, setNewNote] = useState("");
   const [isSendingNote, setIsSendingNote] = useState(false);
@@ -103,6 +127,27 @@ export default function GlobalStudentDatabase() {
     if (dossierTab === 'notes') notesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [dossierTab, editingStudent?.timeline]);
 
+  // Load field_interests from the student record when dossier opens
+  useEffect(() => {
+    if (editingStudent) {
+      const raw = editingStudent.field_interests;
+      if (!raw) {
+        setFieldInterests([]);
+      } else if (Array.isArray(raw)) {
+        setFieldInterests(raw);
+      } else if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw);
+          setFieldInterests(Array.isArray(parsed) ? parsed : []);
+        } catch {
+          setFieldInterests(raw.split(',').map((s: string) => s.trim()).filter(Boolean));
+        }
+      }
+    } else {
+      setFieldInterests([]);
+    }
+  }, [editingStudent?.id]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -116,7 +161,6 @@ export default function GlobalStudentDatabase() {
       const usersData = await usersRes.json();
       if (studentsData.status === "success") {
         setAllStudents(studentsData.data);
-        // Keep editingStudent in sync if dossier is open
         if (editingStudent) {
           const fresh = studentsData.data.find((s: any) => s.id === editingStudent.id);
           if (fresh) setEditingStudent(fresh);
@@ -200,7 +244,8 @@ export default function GlobalStudentDatabase() {
           phone: editingStudent.phone,
           program_interest: editingStudent.program_interest,
           status: editingStudent.status,
-          lead_temperature: editingStudent.lead_temperature
+          lead_temperature: editingStudent.lead_temperature,
+          field_interests: JSON.stringify(fieldInterests)
         })
       });
       if (res.ok) {
@@ -245,11 +290,6 @@ export default function GlobalStudentDatabase() {
     try {
       const token = localStorage.getItem("fortrust_token");
       const formData = new FormData();
-      
-      // Always send via report_card field with doc_type, so the backend
-      // uses our exact category name (Profiling Test, Report Card, etc.)
-      // as the title. This means uploading multiple files in the same
-      // category works correctly.
       formData.append("report_card", file);
       formData.append("doc_type", docType);
 
@@ -263,7 +303,6 @@ export default function GlobalStudentDatabase() {
 
       if (res.ok) {
         setNotification({type: 'success', message: `${docType} uploaded securely to vault.`});
-        // Refetch to get the real server-side filename (with S{id}_TYPE_TIMESTAMP_ prefix)
         await fetchData();
       } else {
         const errMsg = Array.isArray(data.detail) 
@@ -291,7 +330,6 @@ export default function GlobalStudentDatabase() {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (!res.ok) {
-        // Better error messages depending on status
         let msg = "Could not load document.";
         if (res.status === 404) {
           msg = "This file is registered but missing from the cloud vault. It may have been deleted or upload didn't complete - please re-upload.";
@@ -315,6 +353,39 @@ export default function GlobalStudentDatabase() {
     } finally {
       setLoadingDocFilename(null);
       setTimeout(() => setNotification(null), 5000);
+    }
+  };
+
+  const handleDeleteDocument = async (filename: string, displayName: string) => {
+    if (!filename || !editingStudent) return;
+    if (!window.confirm(`Delete "${displayName}"?\n\nThis cannot be undone.`)) return;
+
+    setDeletingDocFilename(filename);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/document/${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${token}` }
+        }
+      );
+      if (res.ok) {
+        setNotification({type: 'success', message: 'Document deleted.'});
+        await fetchData();
+      } else {
+        let msg = "Failed to delete document.";
+        try {
+          const data = await res.json();
+          msg = data.detail || msg;
+        } catch {}
+        setNotification({type: 'error', message: msg});
+      }
+    } catch (e) {
+      setNotification({type: 'error', message: 'Network error.'});
+    } finally {
+      setDeletingDocFilename(null);
+      setTimeout(() => setNotification(null), 4000);
     }
   };
 
@@ -745,11 +816,69 @@ export default function GlobalStudentDatabase() {
                         </div>
                       </div>
                     </div>
+
+                    {/* FIELD OF INTEREST - 3rd AI variable */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                      <div className="border-b border-slate-100 pb-3">
+                        <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
+                          <BrainCircuit size={16} className="text-purple-500"/> Academic Field of Interest
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-1.5">
+                          Ask the student: <em>"Which core academic field interests you the most?"</em> Select up to {MAX_FIELD_INTERESTS}. 
+                          Used by AI as a 3rd variable alongside report cards and profiling test.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {ACADEMIC_FIELDS.map((field) => {
+                          const isSelected = fieldInterests.includes(field.label);
+                          const isMaxed = fieldInterests.length >= MAX_FIELD_INTERESTS && !isSelected;
+                          return (
+                            <button
+                              key={field.label}
+                              type="button"
+                              disabled={isMaxed}
+                              onClick={() => {
+                                if (isSelected) {
+                                  setFieldInterests(prev => prev.filter(f => f !== field.label));
+                                } else if (fieldInterests.length < MAX_FIELD_INTERESTS) {
+                                  setFieldInterests(prev => [...prev, field.label]);
+                                }
+                              }}
+                              className={`p-3 rounded-xl text-xs font-bold transition-all border text-left flex items-start gap-2 ${
+                                isSelected
+                                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-md ring-2 ring-emerald-200'
+                                  : isMaxed
+                                    ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700'
+                              }`}
+                            >
+                              <span className="text-base shrink-0">{field.emoji}</span>
+                              <span className="leading-tight">{field.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className={`text-xs font-bold flex items-center gap-2 ${
+                        fieldInterests.length === 0 ? 'text-slate-400' :
+                        fieldInterests.length === MAX_FIELD_INTERESTS ? 'text-emerald-600' :
+                        'text-blue-600'
+                      }`}>
+                        <CheckCircle2 size={14}/>
+                        {fieldInterests.length} / {MAX_FIELD_INTERESTS} selected
+                        {fieldInterests.length > 0 && (
+                          <span className="text-slate-500 font-normal ml-2">
+                            - {fieldInterests.join(", ")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </form>
                 </div>
               )}
 
-              {/* DOCUMENTS TAB - REBUILT FOR MULTI-FILE */}
+              {/* DOCUMENTS TAB - MULTI-FILE */}
               {dossierTab === 'documents' && (
                 <div className="p-6 space-y-6 animate-in fade-in">
                   
@@ -794,7 +923,7 @@ export default function GlobalStudentDatabase() {
                     </div>
                     <div className="bg-slate-50 text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 flex items-center gap-2 shrink-0">
                       <UploadCloud size={16} className="text-blue-500"/> 
-                      <span><strong className="text-[#282860]">{totalDocCount}</strong> file{totalDocCount === 1 ? '' : 's'} &bull; <strong className="text-[#282860]">{categoriesWithDocs}</strong>/{STANDARD_CATEGORIES.length} categories</span>
+                      <span><strong className="text-[#282860]">{totalDocCount}</strong> file{totalDocCount === 1 ? '' : 's'} - <strong className="text-[#282860]">{categoriesWithDocs}</strong>/{STANDARD_CATEGORIES.length} categories</span>
                     </div>
                   </div>
 
@@ -809,7 +938,6 @@ export default function GlobalStudentDatabase() {
                         <div key={cat.type} className={`rounded-2xl border shadow-sm transition-all ${
                           isEmpty ? "bg-white border-slate-200" : "bg-white border-emerald-200"
                         }`}>
-                          {/* Header */}
                           <div className="p-4 flex items-center justify-between border-b border-slate-100">
                             <div className="flex items-center gap-3 min-w-0">
                               <div className={`p-3 rounded-xl border shrink-0 ${
@@ -832,7 +960,6 @@ export default function GlobalStudentDatabase() {
                               </div>
                             </div>
 
-                            {/* Always-visible Add button */}
                             <label className={`shrink-0 bg-slate-50 hover:bg-[#282860] hover:text-white border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm ${isUploadingDoc ? 'opacity-50 cursor-not-allowed' : ''}`}>
                               {isUploadingDoc ? <Loader2 size={14} className="animate-spin"/> : <Plus size={14}/>}
                               <span className="hidden sm:inline">Add</span>
@@ -844,7 +971,6 @@ export default function GlobalStudentDatabase() {
                             </label>
                           </div>
 
-                          {/* File list (or empty hint) */}
                           {isEmpty ? (
                             <div className="px-4 py-3 text-xs text-slate-400 italic flex items-center gap-2">
                               <Circle size={12} className="text-slate-300"/>
@@ -854,6 +980,7 @@ export default function GlobalStudentDatabase() {
                             <div className="divide-y divide-slate-50">
                               {filesInCat.map((doc: any, i: number) => {
                                 const isLoadingThisDoc = loadingDocFilename === doc.filename;
+                                const isDeletingThisDoc = deletingDocFilename === doc.filename;
                                 const displayName = doc.title || doc.filename || "Untitled";
                                 return (
                                   <div key={`${doc.filename}-${i}`} className="px-4 py-2.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
@@ -865,16 +992,23 @@ export default function GlobalStudentDatabase() {
                                         </p>
                                         {doc.uploaded_by && (
                                           <p className="text-[10px] text-slate-400 truncate">
-                                            by {doc.uploaded_by}{doc.uploaded_at ? ` &bull; ${new Date(doc.uploaded_at).toLocaleDateString()}` : ''}
+                                            by {doc.uploaded_by}{doc.uploaded_at ? ` - ${new Date(doc.uploaded_at).toLocaleDateString()}` : ''}
                                           </p>
                                         )}
                                       </div>
                                     </div>
-                                    <button onClick={() => handleViewDocument(doc.filename)} disabled={isLoadingThisDoc}
-                                      className="p-2 bg-slate-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-50 shrink-0"
-                                      title="View Document">
-                                      {isLoadingThisDoc ? <Loader2 size={14} className="animate-spin"/> : <Eye size={14}/>}
-                                    </button>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <button onClick={() => handleViewDocument(doc.filename)} disabled={isLoadingThisDoc || isDeletingThisDoc}
+                                        className="p-2 bg-slate-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                                        title="View Document">
+                                        {isLoadingThisDoc ? <Loader2 size={14} className="animate-spin"/> : <Eye size={14}/>}
+                                      </button>
+                                      <button onClick={() => handleDeleteDocument(doc.filename, displayName)} disabled={isLoadingThisDoc || isDeletingThisDoc}
+                                        className="p-2 bg-slate-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                                        title="Delete Document">
+                                        {isDeletingThisDoc ? <Loader2 size={14} className="animate-spin"/> : <Trash2 size={14}/>}
+                                      </button>
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -892,19 +1026,27 @@ export default function GlobalStudentDatabase() {
                       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-50">
                         {otherDocs.map((doc: any, i: number) => {
                           const isLoadingThisDoc = loadingDocFilename === doc.filename;
+                          const isDeletingThisDoc = deletingDocFilename === doc.filename;
+                          const displayName = doc.title || doc.filename || "Untitled";
                           return (
                             <div key={`other-${i}`} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
                               <div className="flex items-center gap-3 min-w-0 flex-1">
                                 <div className="bg-slate-50 text-slate-500 border border-slate-200 p-2 rounded-lg shrink-0"><FileText size={16}/></div>
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-semibold text-slate-700 truncate" title={doc.title}>{doc.title || "Untitled"}</p>
+                                  <p className="text-sm font-semibold text-slate-700 truncate" title={doc.title}>{displayName}</p>
                                   <p className="text-[10px] text-slate-400 font-mono truncate" title={doc.filename}>{doc.filename}</p>
                                 </div>
                               </div>
-                              <button onClick={() => handleViewDocument(doc.filename)} disabled={isLoadingThisDoc}
-                                className="text-blue-600 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg transition-colors border border-blue-100 flex items-center gap-1.5 disabled:opacity-50 shrink-0">
-                                {isLoadingThisDoc ? <Loader2 size={14} className="animate-spin"/> : <Eye size={14}/>} View
-                              </button>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button onClick={() => handleViewDocument(doc.filename)} disabled={isLoadingThisDoc || isDeletingThisDoc}
+                                  className="text-blue-600 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg transition-colors border border-blue-100 flex items-center gap-1.5 disabled:opacity-50">
+                                  {isLoadingThisDoc ? <Loader2 size={14} className="animate-spin"/> : <Eye size={14}/>} View
+                                </button>
+                                <button onClick={() => handleDeleteDocument(doc.filename, displayName)} disabled={isLoadingThisDoc || isDeletingThisDoc}
+                                  className="text-red-600 font-bold text-xs bg-red-50 px-3 py-1.5 rounded-lg transition-colors border border-red-100 flex items-center gap-1.5 disabled:opacity-50">
+                                  {isDeletingThisDoc ? <Loader2 size={14} className="animate-spin"/> : <Trash2 size={14}/>}
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -922,8 +1064,13 @@ export default function GlobalStudentDatabase() {
                       <BrainCircuit size={64} className="text-[#BAD133] mb-6 drop-shadow-[0_0_15px_rgba(186,209,51,0.3)]" />
                       <h3 className="text-2xl font-black text-white mb-2">Generate Strategic Profile</h3>
                       <p className="text-slate-300 text-sm mb-8 max-w-md mx-auto leading-relaxed">
-                        Fortrust AI will cross-reference {editingStudent.name}'s uploaded profiling tests and academic report cards to generate a comprehensive placement strategy.
+                        Fortrust AI will cross-reference {editingStudent.name}'s report cards, profiling tests, and selected academic interests to generate a comprehensive placement strategy.
                       </p>
+                      {fieldInterests.length === 0 && (
+                        <p className="text-amber-300 text-xs mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2">
+                          ⚠️ Tip: Select Field of Interest in Profile tab for richer AI analysis.
+                        </p>
+                      )}
                       <button onClick={generateAIReport} className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] font-black px-8 py-4 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3">
                         <Activity size={20} /> Run AI Analysis
                       </button>
@@ -936,7 +1083,7 @@ export default function GlobalStudentDatabase() {
                         <Loader2 size={48} className="animate-spin text-[#BAD133] relative z-10" />
                       </div>
                       <h3 className="text-xl font-black text-[#282860] mb-2">Analyzing Dossier...</h3>
-                      <p className="text-sm text-slate-500 font-medium">Cross-referencing profiling results with academic performance.</p>
+                      <p className="text-sm text-slate-500 font-medium">Cross-referencing grades, profiling results, and student aspirations.</p>
                     </div>
                   )}
                   {aiReport && !isGeneratingAI && (

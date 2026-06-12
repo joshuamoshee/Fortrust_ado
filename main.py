@@ -461,6 +461,7 @@ class StudentUpdate(BaseModel):
     lead_temperature: Optional[str] = None
     commission_earned: Optional[float] = None
     loss_reason: Optional[str] = None
+    field_interests: Optional[str] = None
 
 
 class InstitutionUpdate(BaseModel):
@@ -1547,84 +1548,187 @@ async def verify_commission(
 # --- 5. AI FEATURES ---
 # =====================================================================
 @app.post("/api/ai-strategy")
-def get_ai_strategy(req: AIRequest):
-    conn = get_db_connection()
+def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
+    """
+    Generates a strategic placement report by:
+    1. Fetching the student record
+    2. Re-extracting text from ALL uploaded PDFs in Supabase
+    3. Grouping them by category (Report Card, Profiling Test, Other)
+    4. Combining with student's declared field_interests
+    5. Calling Gemini with all three variables
+    """
+    conn = None
     try:
+        conn = get_db_connection()
+ 
+        # Fetch student
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT name, notes, pdf_text FROM students WHERE id = %s", (req.case_id,))
+            cur.execute("""
+                SELECT id, name, notes, documents, field_interests,
+                       program_interest, country_interest
+                FROM students WHERE id = %s
+            """, (req.case_id,))
             student = cur.fetchone()
-    finally:
-        conn.close()
-
-    if not student:
-        return {"status": "error", "report": "Student not found."}
-    try:
-        premium_report = generate_strategic_report(
-            student_name=student['name'],
-            destination="Global (AI Recommended)",
-            budget=30000,
-            notes=student['notes'] or "No notes provided.",
-            pdf_data=student['pdf_text'] or "No documents uploaded."
-        )
-        return {"status": "success", "report": premium_report}
+ 
+        if not student:
+            return {"status": "error", "report": "Student not found."}
+ 
+        # Access check (so agents can't pull each other's students' reports)
+        if not check_student_access(conn, str(student['id']), user_data):
+            raise HTTPException(status_code=403, detail="Not authorized for this student.")
+ 
+        # ---------- Parse documents JSONB ----------
+        raw_docs = student.get('documents')
+        if raw_docs is None:
+            docs = []
+        elif isinstance(raw_docs, str):
+            try: docs = json.loads(raw_docs)
+            except: docs = []
+        elif isinstance(raw_docs, list):
+            docs = raw_docs
+        else:
+            docs = []
+ 
+        # ---------- Re-extract text from every PDF in Supabase ----------
+        # This is the key fix: instead of relying on cached pdf_text in the
+        # students table (which can be stale or partial), we pull fresh
+        # text from each file every time the AI report is generated.
+        rapot_texts = []
+        profiling_texts = []
+        other_texts = []
+ 
+        if not supabase:
+            print("[ai-strategy] WARNING: Supabase not configured; cannot extract PDFs.")
+ 
+        for doc in docs:
+            filename = doc.get('filename')
+            if not filename or not filename.lower().endswith('.pdf'):
+                continue
+            if not supabase:
+                continue
+ 
+            try:
+                file_bytes = supabase.storage.from_("student-documents").download(filename)
+                if not file_bytes:
+                    print(f"[ai-strategy] {filename} returned empty from Supabase")
+                    continue
+ 
+                reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                pages = []
+                for page in reader.pages:
+                    try:
+                        t = page.extract_text() or ""
+                        if t.strip():
+                            pages.append(t)
+                    except Exception:
+                        continue
+                pdf_text = "\n".join(pages).strip()
+ 
+                if not pdf_text:
+                    print(f"[ai-strategy] {filename} had no extractable text")
+                    continue
+ 
+                # Classify by title (which we set from doc_type at upload time)
+                title = (doc.get('title') or '').upper()
+                fname_upper = filename.upper()
+                doc_label = doc.get('title') or filename
+ 
+                if ("REPORT CARD" in title or "RAPOT" in title or
+                    "REPORT_CARD" in fname_upper or "RAPOT" in fname_upper):
+                    rapot_texts.append(f"--- {doc_label} ---\n{pdf_text}")
+                elif ("PROFILING" in title or "PSYCHOLOGY" in title or "PSIKOLOG" in title or
+                      "HCC" in title or "PROFILING" in fname_upper or "PSYCHOLOGY" in fname_upper):
+                    profiling_texts.append(f"--- {doc_label} ---\n{pdf_text}")
+                else:
+                    other_texts.append(f"--- {doc_label} ---\n{pdf_text}")
+ 
+            except Exception as e:
+                print(f"[ai-strategy] Extract failed for {filename}: {e}")
+                continue
+ 
+        # Combine into structured text
+        combined_parts = []
+        if rapot_texts:
+            combined_parts.append("========== REPORT CARDS (RAPOT) ==========\n" + "\n\n".join(rapot_texts))
+        if profiling_texts:
+            combined_parts.append("========== PROFILING TEST RESULTS ==========\n" + "\n\n".join(profiling_texts))
+        if other_texts:
+            combined_parts.append("========== OTHER DOCUMENTS ==========\n" + "\n\n".join(other_texts))
+ 
+        combined_text = "\n\n".join(combined_parts) if combined_parts else "No PDF documents could be extracted."
+ 
+        # ---------- Parse field_interests ----------
+        field_interests_raw = student.get('field_interests')
+        field_interests = []
+        if field_interests_raw:
+            if isinstance(field_interests_raw, str):
+                try:
+                    parsed = json.loads(field_interests_raw)
+                    if isinstance(parsed, list):
+                        field_interests = parsed
+                    else:
+                        field_interests = [str(parsed)]
+                except Exception:
+                    # Fallback: comma-separated
+                    field_interests = [f.strip() for f in field_interests_raw.split(',') if f.strip()]
+            elif isinstance(field_interests_raw, list):
+                field_interests = field_interests_raw
+ 
+        print(f"[ai-strategy] Student {student['name']} — "
+              f"rapot files: {len(rapot_texts)}, profiling: {len(profiling_texts)}, "
+              f"other: {len(other_texts)}, interests: {field_interests}")
+ 
+        # ---------- Generate report ----------
+        try:
+            premium_report = generate_strategic_report(
+                student_name=student['name'],
+                destination=student.get('country_interest') or "Global (AI Recommended)",
+                budget=30000,
+                notes=student.get('notes') or "No notes provided.",
+                pdf_data=combined_text,
+                field_interests=field_interests,
+                program_interest=student.get('program_interest') or ""
+            )
+ 
+            log_audit_event(
+                conn=conn, action="AI_QUERY", entity="Student",
+                entity_id=str(student['id']),
+                changed_by=user_data.get("name", "Unknown"),
+                details={
+                    "rapot_files": len(rapot_texts),
+                    "profiling_files": len(profiling_texts),
+                    "other_files": len(other_texts),
+                    "field_interests": field_interests
+                }
+            )
+            conn.commit()
+ 
+            return {
+                "status": "success",
+                "report": premium_report,
+                "stats": {
+                    "rapot_files": len(rapot_texts),
+                    "profiling_files": len(profiling_texts),
+                    "other_files": len(other_texts),
+                    "field_interests": field_interests
+                }
+            }
+ 
+        except Exception as e:
+            print(f"[ai-strategy] AI generation error: {e}")
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=str(e))
+ 
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"[ai-strategy] FATAL: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/pipeline/{case_id}/draft-email")
-def draft_student_email(case_id: str):
-    conn = get_db_connection()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT name, status, timeline, applications FROM students WHERE id = %s",
-                (case_id,)
-            )
-            s = cur.fetchone()
     finally:
-        conn.close()
-
-    if not s:
-        raise HTTPException(status_code=404, detail="Student not found.")
-
-    prompt = f"""
-    You are a helpful education agent writing directly to your student.
-    Draft a professional, helpful, and friendly email to your student named {s['name']}.
-    Address the student directly (e.g., "Hi {s['name']},"). Do not refer to them in the third person.
-    Context - Status: {s['status']}. Notes: {json.dumps(s['timeline'])}. Apps: {json.dumps(s['applications'])}.
-    Return ONLY valid JSON: {{"subject": "...", "body": "..."}}
-    """
-    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-    clean_json = response.text.strip().replace("```json", "").replace("```", "")
-    return {"status": "success", "data": json.loads(clean_json)}
-
-
-@app.post("/api/pipeline/{case_id}/draft-whatsapp")
-def draft_whatsapp_message(case_id: str):
-    conn = get_db_connection()
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT name, status, timeline, applications FROM students WHERE id = %s",
-                (case_id,)
-            )
-            s = cur.fetchone()
-    finally:
-        conn.close()
-
-    if not s:
-        raise HTTPException(status_code=404, detail="Student not found.")
-
-    prompt = f"""
-    You are a helpful education agent writing directly to your student.
-    Draft a short, friendly, and supportive WhatsApp message to your student named {s['name']}.
-    Context - Status: {s['status']}. Timeline: {json.dumps(s['timeline'])}.
-    Return ONLY valid JSON: {{"message": "..."}}
-    """
-    response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-    clean_json = response.text.strip().replace("```json", "").replace("```", "")
-    return {"status": "success", "data": json.loads(clean_json)}
-
+        if conn:
+            conn.close()
+ 
 
 # =====================================================================
 # --- 6. MARKETING MODULE ---
@@ -2663,5 +2767,106 @@ def cleanup_orphan_docs(
             conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        if conn:
+            conn.close()
+
+@app.delete("/api/pipeline/{case_id}/document/{filename}")
+async def delete_document(
+    case_id: str,
+    filename: str,
+    user_data: dict = Depends(verify_token)
+):
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+ 
+        # Access check
+        if not check_student_access(conn, case_id, user_data):
+            log_audit_event(
+                conn=conn, action="DENIED_DELETE_DOC", entity="Student",
+                entity_id=case_id, changed_by=user_data.get("name", "Unknown"),
+                details={"filename": filename}
+            )
+            conn.commit()
+            raise HTTPException(status_code=403, detail="Not authorized to delete this file.")
+ 
+        # Path traversal protection
+        if "/" in filename or "\\" in filename or ".." in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename.")
+ 
+        # The filename must start with S{case_id}_ — proves it belongs to this student
+        if not filename.startswith(f"S{case_id}_"):
+            raise HTTPException(status_code=403, detail="This file doesn't belong to this student.")
+ 
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT documents FROM students WHERE id = %s", (case_id,))
+        student = cur.fetchone()
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found.")
+ 
+        # Parse existing docs
+        raw_docs = student.get('documents')
+        if raw_docs is None:
+            docs = []
+        elif isinstance(raw_docs, str):
+            try: docs = json.loads(raw_docs)
+            except: docs = []
+        elif isinstance(raw_docs, list):
+            docs = raw_docs
+        else:
+            docs = []
+ 
+        # Find the doc
+        doc_to_delete = next((d for d in docs if d.get('filename') == filename), None)
+        if not doc_to_delete:
+            raise HTTPException(status_code=404, detail="Document not found in vault.")
+ 
+        # Remove from Supabase (best-effort; continue even if it fails)
+        supabase_removed = False
+        if supabase:
+            try:
+                supabase.storage.from_("student-documents").remove([filename])
+                supabase_removed = True
+            except Exception as supa_err:
+                print(f"[delete-doc] Supabase remove error for {filename}: {supa_err}")
+ 
+        # Remove from documents JSONB
+        new_docs = [d for d in docs if d.get('filename') != filename]
+        cur.execute(
+            "UPDATE students SET documents = %s::jsonb WHERE id = %s",
+            (json.dumps(new_docs), case_id)
+        )
+ 
+        # Audit log
+        log_audit_event(
+            conn=conn, action="DELETE_DOC", entity="Student",
+            entity_id=case_id, changed_by=user_data.get("name", "Unknown"),
+            details={
+                "filename": filename,
+                "title": doc_to_delete.get('title'),
+                "supabase_removed": supabase_removed
+            }
+        )
+        conn.commit()
+ 
+        print(f"[delete-doc] {filename} removed by {user_data.get('name')} (supabase: {supabase_removed})")
+        return {
+            "status": "success",
+            "message": "Document deleted.",
+            "supabase_removed": supabase_removed
+        }
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[delete-doc] FATAL: {e}")
+        traceback.print_exc()
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cur:
+            cur.close()
         if conn:
             conn.close()
