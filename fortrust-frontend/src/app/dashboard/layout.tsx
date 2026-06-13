@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
   Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe, BellRing, Bot
+  GraduationCap, Globe, BellRing, Bot, MessageSquare
 } from "lucide-react";
 
 // --- TRANSLATION DICTIONARY ---
@@ -22,7 +22,7 @@ const translations = {
     agentManagement: "Agent Management",
     globalStudents: "Global Students",
     broadcasts: "Broadcast Hub",
-    aiAssistant: "AI Assistant", // NEW
+    aiAssistant: "AI Assistant",
     consultation: "Consultation",
     profilingTest: "Profiling Test",
     assessment: "Assessment",
@@ -51,7 +51,7 @@ const translations = {
     agentManagement: "Manajemen Agen",
     globalStudents: "Semua Siswa",
     broadcasts: "Pusat Siaran",
-    aiAssistant: "Asisten AI", // NEW
+    aiAssistant: "Asisten AI",
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
     assessment: "Penilaian",
@@ -107,6 +107,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // --- HOVERING AI ASSISTANT STATE ---
+  const [isAIOpen, setIsAIOpen] = useState(false);
 
   const profileMenuRef = useRef<HTMLDivElement>(null);
   
@@ -690,6 +693,40 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
       )}
+
+      {/* --- GLOBAL HOVERING AI ASSISTANT --- */}
+      <div className="fixed bottom-6 right-6 z-[110]">
+        {isAIOpen && (
+          <div className="mb-4 w-80 h-96 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col animate-in slide-in-from-bottom-4 fade-in duration-200 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-[#282860] text-white">
+              <h3 className="font-bold flex items-center gap-2">
+                <Bot size={18} className="text-[#BAD133]" /> Fortrust AI
+              </h3>
+              <button onClick={() => setIsAIOpen(false)} className="text-slate-300 hover:text-white transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 p-4 overflow-y-auto bg-slate-50 flex flex-col justify-center items-center text-center">
+              <Bot size={40} className="text-slate-300 mb-3" />
+              <p className="text-sm text-slate-500 font-medium px-4">Ask me anything about your students, agents, or institutions.</p>
+            </div>
+            <div className="p-3 border-t border-slate-100 bg-white">
+              <input 
+                type="text" 
+                placeholder="Type your message..." 
+                className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860] focus:ring-1 focus:ring-[#282860]"
+              />
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setIsAIOpen(!isAIOpen)}
+          className="flex items-center justify-center w-14 h-14 bg-[#BAD133] text-[#1b1b42] rounded-full shadow-lg hover:bg-[#a6bd29] transition-all transform hover:scale-105"
+        >
+          {isAIOpen ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6 fill-current" />}
+        </button>
+      </div>
+
     </div>
   );
 }
@@ -711,12 +748,12 @@ type SidebarMenuProps = {
 };
 
 function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
-  const [submenuOpen, setSubmenuOpen] = React.useState(false);
-  const btnRef = React.useRef<HTMLDivElement>(null);
-  const [submenuPos, setSubmenuPos] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const submenuHover = React.useRef(false);
+  const [submenuOpen, setSubmenuOpen] = useState(false);
+  const btnRef = useRef<HTMLDivElement>(null);
+  const [submenuPos, setSubmenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const submenuHover = useRef(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (submenuOpen && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
       let top = rect.top;
@@ -731,7 +768,7 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
     }
   }, [submenuOpen, menuItems.length]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!submenuOpen) return;
     const handle = (e: MouseEvent) => {
       if (

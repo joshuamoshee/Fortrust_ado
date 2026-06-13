@@ -76,6 +76,26 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS agent_cut NUMERIC DEFAULT 0;")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS loss_reason TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS field_interests TEXT DEFAULT '';")
+
+            # Sprint A safety net (idempotent in case migration wasn't run)
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS father_name TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS father_email TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS father_phone TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_name TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_email TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_phone TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS budget_usd NUMERIC;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS career_goal TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS campus_environment TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS other_field_interest TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS ai_report TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS ai_report_generated_at TIMESTAMPTZ;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archive_reason TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archive_notes TEXT;")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archived_by TEXT;")
 
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT '';")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_type TEXT DEFAULT 'Individual Agent';")
@@ -93,8 +113,6 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact TEXT DEFAULT '';")
-            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS field_interests TEXT DEFAULT '';")
-            
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS institutions (
@@ -181,7 +199,7 @@ def log_audit_event(conn, action: str, entity: str, entity_id: str, changed_by: 
 
 
 # =====================================================================
-# --- 🔒 SECURITY CONSTANTS & HELPERS (Document Vault) ---
+# --- SECURITY CONSTANTS & HELPERS ---
 # =====================================================================
 ALLOWED_MIME_TYPES = {
     'application/pdf',
@@ -195,7 +213,6 @@ ALLOWED_MIME_TYPES = {
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
-# File extension whitelist — primary validation method
 ALLOWED_EXTENSIONS = {
     '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
     '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv'
@@ -203,21 +220,14 @@ ALLOWED_EXTENSIONS = {
 
 
 def is_safe_filetype(file) -> tuple:
-    """
-    Returns (is_safe: bool, reason: str).
-    Checks by extension first (reliable), MIME as a sanity check.
-    """
     filename = (file.filename or "").lower().strip()
     if not filename:
         return False, "missing filename"
-
     if '.' not in filename:
         return False, "file has no extension"
-
     ext = '.' + filename.rsplit('.', 1)[-1]
     if ext not in ALLOWED_EXTENSIONS:
         return False, f"extension '{ext}' not allowed (allowed: PDF, images, Word, Excel, text)"
-
     bad_mimes = {
         'application/x-msdownload',
         'application/x-sh',
@@ -226,12 +236,10 @@ def is_safe_filetype(file) -> tuple:
     }
     if file.content_type and file.content_type in bad_mimes:
         return False, f"dangerous MIME type '{file.content_type}'"
-
     return True, "ok"
 
 
 def sanitize_filename(filename: str) -> str:
-    """Strip path separators, null bytes, and dangerous characters."""
     if not filename:
         return "file"
     filename = filename.replace('\\', '_').replace('/', '_').replace('\x00', '')
@@ -241,13 +249,6 @@ def sanitize_filename(filename: str) -> str:
 
 
 def check_student_access(conn, case_id: str, user_data: dict) -> bool:
-    """
-    Returns True if this user can access this student's documents.
-    Rules:
-      - MASTER_ADMIN: always yes
-      - Corporate Agent / Team Manager: yes if any sub-agent is assigned
-      - Anyone else: yes ONLY if they are the assignee
-    """
     role = user_data.get("role")
     user_name = user_data.get("name")
     user_id = user_data.get("id")
@@ -262,19 +263,13 @@ def check_student_access(conn, case_id: str, user_data: dict) -> bool:
             if not row:
                 return False
             assignee = row.get("assignee")
-
             if assignee == user_name:
                 return True
-
             if role in ("Corporate Agent", "Team Manager"):
-                cur.execute(
-                    "SELECT name FROM users WHERE parent_corporate_id = %s",
-                    (user_id,)
-                )
+                cur.execute("SELECT name FROM users WHERE parent_corporate_id = %s", (user_id,))
                 sub_agents = [r['name'] for r in cur.fetchall()]
                 if assignee in sub_agents:
                     return True
-
         return False
     except Exception as e:
         print(f"[access-check] Error: {e}")
@@ -282,45 +277,43 @@ def check_student_access(conn, case_id: str, user_data: dict) -> bool:
 
 
 # =====================================================================
-# --- SECURITY / AUTH HELPERS ---
+# --- AUTH HELPERS ---
 # =====================================================================
 def verify_token(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Access Denied: Missing ID Badge.")
     token = authorization.split(" ")[1]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return payload
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Access Denied: Badge Expired. Please log in again.")
+        raise HTTPException(status_code=401, detail="Access Denied: Badge Expired.")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Access Denied: Fake Badge Detected.")
+        raise HTTPException(status_code=401, detail="Access Denied: Fake Badge.")
 
 
 def get_current_user(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token.")
+        raise HTTPException(status_code=401, detail="Missing token.")
     token = authorization.split(" ")[1]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        return payload
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired. Please log in again.")
+        raise HTTPException(status_code=401, detail="Token expired.")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token.")
 
 
 def get_current_master_admin(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid authentication token.")
+        raise HTTPException(status_code=401, detail="Missing token.")
     token = authorization.split(" ")[1]
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         if payload.get("role") != "MASTER_ADMIN":
-            raise HTTPException(status_code=403, detail="Access Forbidden: Master Admin privileges required.")
+            raise HTTPException(status_code=403, detail="Master Admin required.")
         return payload
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired. Please log in again.")
+        raise HTTPException(status_code=401, detail="Token expired.")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token.")
 
@@ -464,6 +457,24 @@ class StudentUpdate(BaseModel):
     commission_earned: Optional[float] = None
     loss_reason: Optional[str] = None
     field_interests: Optional[str] = None
+    # ----- Sprint A additions ----- #
+    father_name: Optional[str] = None
+    father_email: Optional[str] = None
+    father_phone: Optional[str] = None
+    mother_name: Optional[str] = None
+    mother_email: Optional[str] = None
+    mother_phone: Optional[str] = None
+    budget_usd: Optional[float] = None
+    career_goal: Optional[str] = None
+    campus_environment: Optional[str] = None
+    other_field_interest: Optional[str] = None
+
+
+# ----- Sprint A NEW model ----- #
+class ArchiveStudentRequest(BaseModel):
+    reason: str
+    notes: Optional[str] = None
+    new_agent: Optional[str] = None
 
 
 class InstitutionUpdate(BaseModel):
@@ -515,7 +526,7 @@ def create_emergency_admin():
                 VALUES ('Master Admin', 'admin@fortrust.com', %s, 'MASTER_ADMIN', 'Global')
             """, (fresh_hash,))
             conn.commit()
-            return {"status": "success", "message": "Emergency Admin created successfully!"}
+            return {"status": "success", "message": "Emergency Admin created!"}
     except Exception as e:
         conn.rollback()
         return {"status": "error", "message": str(e)}
@@ -538,21 +549,18 @@ def login_user(req: LoginRequest):
                 FROM users WHERE email=%s
             """, (req.email,))
             user = cur.fetchone()
-
             if not user or not bcrypt.checkpw(req.password.encode('utf-8'), user['password'].encode('utf-8')):
                 raise HTTPException(status_code=401, detail="Invalid email or password.")
             if user['is_active'] is False:
                 raise HTTPException(status_code=403, detail="Account frozen.")
-
             try:
                 cur.execute("""
                     INSERT INTO audit_logs (action, entity, entity_id, changed_by, details)
                     VALUES (%s, %s, %s, %s, %s::jsonb)
-                """, ("LOGIN", "System Access", str(user['id']), user['name'], json.dumps({"action": "Agent logged into Fortrust OS"})))
+                """, ("LOGIN", "System Access", str(user['id']), user['name'], json.dumps({"action": "Agent logged in"})))
                 conn.commit()
             except Exception as e:
                 print(f"CCTV Tracking Error: {e}")
-
             expire_hours = 24 * 30 if req.remember_me else 24
             token_data = {
                 "id": user['id'],
@@ -565,16 +573,10 @@ def login_user(req: LoginRequest):
                 "status": "success",
                 "token": token,
                 "user": {
-                    "id": user['id'],
-                    "name": user['name'],
-                    "email": req.email,
-                    "role": user['role'],
-                    "branch": user['branch'],
-                    "phone": user['phone'],
-                    "corporation_name": user['corporation_name'],
-                    "bank_name": user['bank_name'],
-                    "bank_account": user['bank_account'],
-                    "bank_branch": user['bank_branch'],
+                    "id": user['id'], "name": user['name'], "email": req.email,
+                    "role": user['role'], "branch": user['branch'], "phone": user['phone'],
+                    "corporation_name": user['corporation_name'], "bank_name": user['bank_name'],
+                    "bank_account": user['bank_account'], "bank_branch": user['bank_branch'],
                     "swift_code": user['swift_code']
                 }
             }
@@ -607,7 +609,7 @@ def create_user_legacy(req: NewUserRequest):
                 req.parent_corporate_id, req.emergency_contact
             ))
             conn.commit()
-            return {"status": "success", "message": "User account created securely!"}
+            return {"status": "success", "message": "User account created!"}
     except psycopg2.IntegrityError:
         conn.rollback()
         raise HTTPException(status_code=400, detail="Email already exists.")
@@ -678,15 +680,12 @@ def delete_system_user(user_id: int):
 def award_training_point(user_id: int, user_data: dict = Depends(verify_token)):
     if user_data.get("role") != "MASTER_ADMIN" and user_data.get("id") != user_id:
         raise HTTPException(status_code=403, detail="Unauthorized")
-
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE users 
-                SET training_points = COALESCE(training_points, 0) + 1 
-                WHERE id = %s 
-                RETURNING training_points
+                UPDATE users SET training_points = COALESCE(training_points, 0) + 1 
+                WHERE id = %s RETURNING training_points
             """, (user_id,))
             new_points = cur.fetchone()
             conn.commit()
@@ -719,7 +718,6 @@ def get_dashboard_stats(
 
             base_query = "SELECT assignee, status, applications, commission_earned, lead_temperature, created_at FROM students"
             where_clause = ""
-
             if timeframe == "30days":
                 where_clause = " WHERE created_at >= NOW() - INTERVAL '30 days'"
             elif timeframe == "3months":
@@ -734,17 +732,10 @@ def get_dashboard_stats(
             cur.execute(base_query + where_clause)
             students = cur.fetchall()
 
-            cur.execute("""
-                SELECT lead_temperature, status FROM students
-                WHERE created_at >= NOW() - INTERVAL '30 days'
-            """)
+            cur.execute("SELECT lead_temperature, status FROM students WHERE created_at >= NOW() - INTERVAL '30 days'")
             last_30_days = cur.fetchall()
 
-            cur.execute("""
-                SELECT lead_temperature, status FROM students
-                WHERE created_at >= NOW() - INTERVAL '60 days'
-                AND created_at < NOW() - INTERVAL '30 days'
-            """)
+            cur.execute("SELECT lead_temperature, status FROM students WHERE created_at >= NOW() - INTERVAL '60 days' AND created_at < NOW() - INTERVAL '30 days'")
             prev_30_days = cur.fetchall()
     except Exception as e:
         print(f"Database Query Error in Stats: {e}")
@@ -760,7 +751,6 @@ def get_dashboard_stats(
     active_applications = 0
     estimation_commission = 0.0
     logged_commission = 0.0
-
     agent_volume, agent_revenue = {}, {}
     counsellor_volume, counsellor_revenue = {}, {}
     institution_volume = {}
@@ -773,12 +763,10 @@ def get_dashboard_stats(
         info = users_info.get(assignee, {'role': 'Agent', 'branch': 'Unassigned'})
         role = info['role'] or "Agent"
         branch = info['branch'] or "Unassigned"
-
         try:
             commission = float(s.get("commission_earned") or 0.0)
         except (ValueError, TypeError):
             commission = 0.0
-
         apps = s.get("applications")
         if isinstance(apps, str):
             try:
@@ -787,7 +775,6 @@ def get_dashboard_stats(
                 apps = []
         if not isinstance(apps, list):
             apps = []
-
         if status == "COMPLETED":
             completed += 1
             logged_commission += commission
@@ -796,29 +783,23 @@ def get_dashboard_stats(
         else:
             in_progress += 1
             estimation_commission += commission
-
         if "hot" in temperature or "warm" in temperature:
             qualified_leads += 1
-
         active_apps = [a for a in apps if isinstance(a, dict) and a.get("status") in ("Submitted", "Pending", "Under Review")]
         active_applications += len(active_apps)
-
         if role.upper() == "COUNSELLOR" or "counselor" in role.lower():
             counsellor_volume[assignee] = counsellor_volume.get(assignee, 0) + 1
             counsellor_revenue[assignee] = counsellor_revenue.get(assignee, 0.0) + commission
         else:
             agent_volume[assignee] = agent_volume.get(assignee, 0) + 1
             agent_revenue[assignee] = agent_revenue.get(assignee, 0.0) + commission
-
         for app in active_apps:
             uni = app.get("university", "Unknown")
             institution_volume[uni] = institution_volume.get(uni, 0) + 1
-
         branch_pipeline[branch] = branch_pipeline.get(branch, 0) + 1
 
     current_qualified = sum(1 for s in last_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
     prev_qualified = sum(1 for s in prev_30_days if "hot" in (s.get("lead_temperature") or "").lower() or "warm" in (s.get("lead_temperature") or "").lower())
-
     if prev_qualified > 0:
         qualified_growth = round(((current_qualified - prev_qualified) / prev_qualified) * 100, 1)
     elif current_qualified > 0:
@@ -833,17 +814,13 @@ def get_dashboard_stats(
         "status": "success",
         "data": {
             "metrics": {
-                "total_students": total_students,
-                "in_progress": in_progress,
-                "completed": completed,
-                "dropped": dropped,
-                "qualified_leads": qualified_leads,
-                "qualified_growth": qualified_growth,
+                "total_students": total_students, "in_progress": in_progress,
+                "completed": completed, "dropped": dropped,
+                "qualified_leads": qualified_leads, "qualified_growth": qualified_growth,
                 "active_applications": active_applications,
                 "estimation_commission": estimation_commission,
                 "logged_commission": logged_commission,
-                "total_business": logged_commission,
-                "avg_days_to_close": 24
+                "total_business": logged_commission, "avg_days_to_close": 24
             },
             "performance": {
                 "top_agents_volume": top5(agent_volume),
@@ -860,7 +837,7 @@ def get_dashboard_stats(
 @app.get("/api/admin/audit-logs")
 def get_audit_logs(limit: int = 100, user_data: dict = Depends(verify_token)):
     if user_data.get("role") != "MASTER_ADMIN":
-        raise HTTPException(status_code=403, detail="Not authorized to view audit logs")
+        raise HTTPException(status_code=403, detail="Not authorized")
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -888,12 +865,11 @@ def create_admin_user(user: UserCreate):
             if cur.fetchone():
                 raise HTTPException(status_code=400, detail="Email already registered.")
             hashed = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            cur.execute("""
-                INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, %s) RETURNING id
-            """, (user.name, user.email, hashed, user.role))
+            cur.execute("INSERT INTO users (name, email, password, role) VALUES (%s, %s, %s, %s) RETURNING id",
+                        (user.name, user.email, hashed, user.role))
             new_id = cur.fetchone()[0]
             conn.commit()
-            return {"status": "success", "message": "User created successfully", "user_id": new_id}
+            return {"status": "success", "message": "User created", "user_id": new_id}
     except HTTPException:
         raise
     except Exception as e:
@@ -921,7 +897,7 @@ def update_admin_user(user_id: int, user: UserUpdate):
         with conn.cursor() as cur:
             data = user.dict(exclude_unset=True)
             if not data:
-                raise HTTPException(status_code=400, detail="No data provided to update.")
+                raise HTTPException(status_code=400, detail="No data provided.")
             updates = [f"{k} = %s" for k in data]
             params = list(data.values()) + [user_id]
             cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", tuple(params))
@@ -929,7 +905,7 @@ def update_admin_user(user_id: int, user: UserUpdate):
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="User not found.")
             conn.commit()
-            return {"status": "success", "message": "Agent profile updated successfully."}
+            return {"status": "success", "message": "Agent profile updated."}
     except HTTPException:
         raise
     except Exception as e:
@@ -990,15 +966,22 @@ def ai_program_search(query: str = "Popular business degrees in Australia"):
 # --- 4. PIPELINE ---
 # =====================================================================
 @app.get("/api/pipeline")
-def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(verify_token)):
+def get_pipeline(
+    role: str,
+    agent_code: str = None,
+    include_archived: bool = False,
+    user_data: dict = Depends(verify_token)
+):
+    """Sprint A: filter archived students out by default. Pass ?include_archived=true to see them."""
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            archive_clause = "" if include_archived else "AND (archived IS NULL OR archived = FALSE)"
             if role in ["MASTER_ADMIN", "ADMIN", "TELEMARKETER", "BRANCH_ADMIN"]:
-                cur.execute("SELECT * FROM students ORDER BY created_at DESC")
+                cur.execute(f"SELECT * FROM students WHERE 1=1 {archive_clause} ORDER BY created_at DESC")
             else:
                 cur.execute(
-                    "SELECT * FROM students WHERE assignee = %s ORDER BY created_at DESC",
+                    f"SELECT * FROM students WHERE assignee = %s {archive_clause} ORDER BY created_at DESC",
                     (agent_code,)
                 )
             students = cur.fetchall()
@@ -1009,7 +992,6 @@ def get_pipeline(role: str, agent_code: str = None, user_data: dict = Depends(ve
         conn.close()
 
 
-# 🔒 SECURED create_lead — auth required, file validation, two-phase save
 @app.post("/api/pipeline")
 async def create_lead(
     name: str = Form(...),
@@ -1024,8 +1006,6 @@ async def create_lead(
     conn = None
     try:
         conn = get_db_connection()
-
-        # Phase 1: INSERT student first to get a stable ID for filenames
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO students (name, email, phone, assignee, status, notes, documents, pdf_text)
@@ -1035,7 +1015,6 @@ async def create_lead(
             new_id = cur.fetchone()[0]
             conn.commit()
 
-        # Phase 2: process files with proper S{id}_ prefix
         extracted_pdf_text = ""
         saved_documents = []
         upload_errors = []
@@ -1044,37 +1023,28 @@ async def create_lead(
         for file, title in all_files:
             if not file or not file.filename:
                 continue
-
-            # ✅ MIME check
             is_safe, reason = is_safe_filetype(file)
             if not is_safe:
                 upload_errors.append(f"{file.filename}: {reason}")
                 continue
-
-            # ✅ Sanitize filename
             clean_original = sanitize_filename(file.filename).replace(" ", "_")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             safe_filename = f"S{new_id}_{title.replace(' ', '_')}_{timestamp}_{clean_original}"
-
             try:
                 file_bytes = await file.read()
             except Exception:
                 upload_errors.append(f"{file.filename}: could not read")
                 continue
-
-            # ✅ Size check
             if len(file_bytes) > MAX_FILE_SIZE_BYTES:
                 upload_errors.append(f"{file.filename}: too large (max {MAX_FILE_SIZE_MB}MB)")
                 continue
             if len(file_bytes) == 0:
                 upload_errors.append(f"{file.filename}: empty file")
                 continue
-
             if supabase:
                 try:
                     supabase.storage.from_("student-documents").upload(
-                        path=safe_filename,
-                        file=file_bytes,
+                        path=safe_filename, file=file_bytes,
                         file_options={"content-type": file.content_type or "application/octet-stream"}
                     )
                 except Exception as supa_err:
@@ -1084,7 +1054,6 @@ async def create_lead(
             else:
                 upload_errors.append(f"{file.filename}: cloud storage not configured")
                 continue
-
             saved_documents.append({
                 "title": f"{title} - {file.filename}",
                 "filename": safe_filename,
@@ -1092,7 +1061,6 @@ async def create_lead(
                 "uploaded_at": datetime.now().isoformat(),
                 "size_bytes": len(file_bytes)
             })
-
             if file.filename.lower().endswith('.pdf'):
                 try:
                     reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
@@ -1101,14 +1069,12 @@ async def create_lead(
                 except Exception:
                     pass
 
-        # Phase 3: UPDATE student with documents + pdf_text
         if saved_documents or extracted_pdf_text:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE students SET documents = %s::jsonb, pdf_text = %s WHERE id = %s",
                     (json.dumps(saved_documents), extracted_pdf_text, new_id)
                 )
-
                 log_audit_event(
                     conn=conn, action="CREATE_LEAD", entity="Student",
                     entity_id=str(new_id), changed_by=user_data.get("name", "Unknown"),
@@ -1119,7 +1085,6 @@ async def create_lead(
         msg = "Lead & Documents saved to Cloud!"
         if upload_errors:
             msg += f" (Partial: {len(upload_errors)} file(s) failed.)"
-
         return {
             "status": "success",
             "message": msg,
@@ -1145,18 +1110,15 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
             updates = []
             params = []
             audit_details = {}
-
             if req.status is not None:
                 updates.append("status = %s")
                 params.append(req.status)
                 audit_details["new_status"] = req.status
-
             new_assignee = req.assignee or req.assigned_to
             if new_assignee is not None:
                 updates.append("assignee = %s")
                 params.append(new_assignee)
                 audit_details["new_assignee"] = new_assignee
-
             if req.tuition is not None and req.commission_rate is not None:
                 earned = req.tuition * (req.commission_rate / 100)
                 updates.append("commission_earned = %s")
@@ -1164,18 +1126,14 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 updates.append("currency = %s")
                 params.append(req.currency or "USD")
                 audit_details["commission_logged"] = earned
-
             if req.loss_reason is not None:
                 updates.append("loss_reason = %s")
                 params.append(req.loss_reason)
                 audit_details["loss_reason"] = req.loss_reason
-
             if not updates:
                 return {"status": "success", "message": "Nothing to update."}
-
             params.append(case_id)
             cur.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = %s", tuple(params))
-
             agent_name = user_data.get("name", "Unknown") if user_data else "Unknown"
             log_audit_event(
                 conn=conn, action="UPDATE", entity="Student",
@@ -1205,7 +1163,160 @@ def delete_lead(case_id: str):
         conn.close()
 
 
-# 🔒 SECURED upload_additional_document
+# =====================================================================
+# --- SPRINT A: ARCHIVE / UNARCHIVE ---
+# =====================================================================
+@app.post("/api/pipeline/{case_id}/archive")
+def archive_student(
+    case_id: str,
+    req: ArchiveStudentRequest,
+    user_data: dict = Depends(verify_token)
+):
+    """
+    Archive a student (drop-off) with a reason from Mami's list:
+      - budget_constraint, changed_mind, no_followup, documents_incomplete, other
+    Special case: reason='apply_through_other_agent' triggers REASSIGN flow instead.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+
+        if not check_student_access(conn, case_id, user_data):
+            raise HTTPException(status_code=403, detail="Not authorized for this student.")
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT id, name, assignee FROM students WHERE id = %s", (case_id,))
+            student = cur.fetchone()
+            if not student:
+                raise HTTPException(status_code=404, detail="Student not found.")
+
+        actor_name = user_data.get("name", "Unknown")
+        now_iso = datetime.now().isoformat()
+
+        # Special case: reassign instead of archive
+        if req.reason == "apply_through_other_agent":
+            if not req.new_agent:
+                raise HTTPException(status_code=400, detail="new_agent required when reason is apply_through_other_agent.")
+            old_agent = student.get("assignee") or "Unassigned"
+            timeline_note = {
+                "date": now_iso[:16].replace("T", " "),
+                "author": actor_name,
+                "note": f"Reassigned from {old_agent} to {req.new_agent}. Reason: Applying through other agent.{(' - ' + req.notes) if req.notes else ''}"
+            }
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE students
+                    SET assignee = %s,
+                        timeline = COALESCE(timeline, '[]'::jsonb) || %s::jsonb
+                    WHERE id = %s
+                """, (req.new_agent, json.dumps([timeline_note]), case_id))
+
+            log_audit_event(
+                conn=conn, action="REASSIGN_VIA_ARCHIVE_FLOW", entity="Student",
+                entity_id=case_id, changed_by=actor_name,
+                details={"from": old_agent, "to": req.new_agent, "notes": req.notes}
+            )
+            conn.commit()
+            return {"status": "success", "action": "reassigned", "message": f"Student reassigned to {req.new_agent}."}
+
+        # Standard archive flow
+        reason_pretty = {
+            "budget_constraint": "Budget constraint",
+            "changed_mind": "Changed mind / destination",
+            "no_followup": "No agent follow-up",
+            "documents_incomplete": "Documents incomplete",
+            "other": "Other"
+        }.get(req.reason, req.reason)
+
+        timeline_note = {
+            "date": now_iso[:16].replace("T", " "),
+            "author": actor_name,
+            "note": f"Archived. Reason: {reason_pretty}.{(' - ' + req.notes) if req.notes else ''}"
+        }
+
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE students
+                SET archived = TRUE,
+                    archived_at = NOW(),
+                    archive_reason = %s,
+                    archive_notes = %s,
+                    archived_by = %s,
+                    status = 'ARCHIVED',
+                    timeline = COALESCE(timeline, '[]'::jsonb) || %s::jsonb
+                WHERE id = %s
+            """, (req.reason, req.notes, actor_name, json.dumps([timeline_note]), case_id))
+
+        log_audit_event(
+            conn=conn, action="ARCHIVE_STUDENT", entity="Student",
+            entity_id=case_id, changed_by=actor_name,
+            details={"reason": req.reason, "notes": req.notes}
+        )
+        conn.commit()
+
+        print(f"[archive] {student['name']} archived by {actor_name}, reason: {req.reason}")
+        return {"status": "success", "action": "archived", "message": f"Student archived. Reason: {reason_pretty}."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.post("/api/pipeline/{case_id}/unarchive")
+def unarchive_student(case_id: str, user_data: dict = Depends(verify_token)):
+    """Restore an archived student to the active pipeline."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not check_student_access(conn, case_id, user_data):
+            raise HTTPException(status_code=403, detail="Not authorized.")
+
+        actor_name = user_data.get("name", "Unknown")
+        timeline_note = {
+            "date": datetime.now().isoformat()[:16].replace("T", " "),
+            "author": actor_name,
+            "note": "Student un-archived (restored to active pipeline)."
+        }
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE students
+                SET archived = FALSE,
+                    archived_at = NULL,
+                    archive_reason = NULL,
+                    archive_notes = NULL,
+                    status = 'NEW LEAD',
+                    timeline = COALESCE(timeline, '[]'::jsonb) || %s::jsonb
+                WHERE id = %s
+            """, (json.dumps([timeline_note]), case_id))
+
+        log_audit_event(
+            conn=conn, action="UNARCHIVE_STUDENT", entity="Student",
+            entity_id=case_id, changed_by=actor_name, details={}
+        )
+        conn.commit()
+        return {"status": "success", "message": "Student restored to active pipeline."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+# =====================================================================
+# --- DOCUMENT UPLOAD (existing, secured) ---
+# =====================================================================
 @app.put("/api/pipeline/{case_id}/document")
 async def upload_additional_document(
     case_id: str,
@@ -1218,8 +1329,6 @@ async def upload_additional_document(
     cur = None
     try:
         conn = get_db_connection()
-
-        # ✅ ACCESS CHECK
         if not check_student_access(conn, case_id, user_data):
             log_audit_event(
                 conn=conn, action="DENIED_UPLOAD", entity="Student",
@@ -1227,10 +1336,7 @@ async def upload_additional_document(
                 details={"reason": "not_authorized_for_student"}
             )
             conn.commit()
-            raise HTTPException(
-                status_code=403,
-                detail="You do not have permission to upload documents for this student."
-            )
+            raise HTTPException(status_code=403, detail="No permission to upload documents for this student.")
 
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT documents, pdf_text FROM students WHERE id = %s", (case_id,))
@@ -1261,59 +1367,44 @@ async def upload_additional_document(
             files_to_process.append((psych_test, "PSYCHOLOGY TEST"))
 
         if not files_to_process:
-            raise HTTPException(
-                status_code=400,
-                detail="No file provided. Expected 'report_card' or 'psych_test' form field."
-            )
+            raise HTTPException(status_code=400, detail="No file provided.")
 
         doc_titles = []
         upload_errors = []
 
         for file, title in files_to_process:
-            # ✅ MIME CHECK
             is_safe, reason = is_safe_filetype(file)
             if not is_safe:
                 upload_errors.append(f"{file.filename}: {reason}")
                 continue
-
-            # ✅ SANITIZE FILENAME
             clean_original = sanitize_filename(file.filename or "file").replace(" ", "_")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             safe_filename = f"S{case_id}_{title.replace(' ', '_')}_{timestamp}_{clean_original}"
-
             try:
                 file_bytes = await file.read()
             except Exception as e:
                 print(f"[upload] Failed to read {file.filename}: {e}")
                 upload_errors.append(f"Could not read {file.filename}")
                 continue
-
-            # ✅ SIZE CHECK
             if len(file_bytes) > MAX_FILE_SIZE_BYTES:
-                upload_errors.append(f"{file.filename}: file too large ({len(file_bytes) // 1024 // 1024}MB, max {MAX_FILE_SIZE_MB}MB)")
+                upload_errors.append(f"{file.filename}: file too large")
                 continue
             if len(file_bytes) == 0:
                 upload_errors.append(f"{file.filename}: empty file")
                 continue
-
             if supabase:
                 try:
                     supabase.storage.from_("student-documents").upload(
-                        path=safe_filename,
-                        file=file_bytes,
-                        file_options={
-                            "content-type": file.content_type or "application/octet-stream"
-                        }
+                        path=safe_filename, file=file_bytes,
+                        file_options={"content-type": file.content_type or "application/octet-stream"}
                     )
                 except Exception as supa_err:
-                    print(f"[upload] Supabase error for {safe_filename}: {supa_err}")
+                    print(f"[upload] Supabase error: {supa_err}")
                     upload_errors.append(f"Cloud vault error: {str(supa_err)[:100]}")
                     continue
             else:
-                print("[upload] WARNING: Supabase not configured")
                 upload_errors.append("Cloud storage not configured")
                 continue
-
             current_docs.append({
                 "title": f"{title} - {file.filename}",
                 "filename": safe_filename,
@@ -1322,7 +1413,6 @@ async def upload_additional_document(
                 "size_bytes": len(file_bytes)
             })
             doc_titles.append(f"{title} - {file.filename}")
-
             if file.filename and file.filename.lower().endswith('.pdf'):
                 try:
                     reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
@@ -1351,18 +1441,12 @@ async def upload_additional_document(
         msg = "Documents securely added to vault."
         if upload_errors:
             msg += f" (Partial: {len(upload_errors)} file(s) failed.)"
-
-        return {
-            "status": "success",
-            "message": msg,
-            "uploaded": doc_titles,
-            "errors": upload_errors if upload_errors else None
-        }
+        return {"status": "success", "message": msg, "uploaded": doc_titles,
+                "errors": upload_errors if upload_errors else None}
 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[upload] FATAL error:")
         traceback.print_exc()
         if conn:
             conn.rollback()
@@ -1416,27 +1500,16 @@ def update_applications(case_id: str, req: ApplicationData):
         conn.close()
 
 
-# 🔒 SECURED download_document — ONLY ONE COPY (duplicate removed)
 @app.get("/api/documents/{filename}")
 def download_document(filename: str, user_data: dict = Depends(verify_token)):
-    """
-    SECURE document download:
-      - Requires valid JWT
-      - Extracts case_id from filename pattern "S{id}_..."
-      - Verifies caller has permission for that student
-      - Logs every access/denial in audit_logs
-      - Sets no-cache + nosniff headers
-    """
-    # ✅ Path traversal protection
     if '..' in filename or '/' in filename or '\\' in filename:
         raise HTTPException(status_code=400, detail="Invalid filename.")
 
-    # Extract case_id from filename pattern: "S{id}_TITLE_TIMESTAMP_origname"
     case_id = None
     if filename.startswith('S'):
         try:
             case_id = filename[1:].split('_', 1)[0]
-            int(case_id)  # validate numeric
+            int(case_id)
         except (ValueError, IndexError):
             case_id = None
 
@@ -1444,10 +1517,7 @@ def download_document(filename: str, user_data: dict = Depends(verify_token)):
     try:
         if not supabase:
             raise HTTPException(status_code=503, detail="Cloud storage not configured.")
-
         conn = get_db_connection()
-
-        # ✅ ACCESS CHECK
         if case_id:
             if not check_student_access(conn, case_id, user_data):
                 log_audit_event(
@@ -1456,10 +1526,7 @@ def download_document(filename: str, user_data: dict = Depends(verify_token)):
                     details={"reason": "not_authorized", "case_id": case_id}
                 )
                 conn.commit()
-                raise HTTPException(
-                    status_code=403,
-                    detail="You do not have permission to view this document."
-                )
+                raise HTTPException(status_code=403, detail="No permission to view this document.")
 
         response = supabase.storage.from_("student-documents").download(filename)
 
@@ -1476,7 +1543,6 @@ def download_document(filename: str, user_data: dict = Depends(verify_token)):
         }
         media_type = content_types.get(ext, 'application/octet-stream')
 
-        # ✅ LOG SUCCESSFUL ACCESS (CCTV trail)
         log_audit_event(
             conn=conn, action="VIEW_DOC", entity="Document",
             entity_id=filename, changed_by=user_data.get("name", "Unknown"),
@@ -1485,8 +1551,7 @@ def download_document(filename: str, user_data: dict = Depends(verify_token)):
         conn.commit()
 
         return Response(
-            content=response,
-            media_type=media_type,
+            content=response, media_type=media_type,
             headers={
                 "Content-Disposition": f'inline; filename="{filename}"',
                 "Cache-Control": "private, no-store, max-age=0",
@@ -1497,7 +1562,7 @@ def download_document(filename: str, user_data: dict = Depends(verify_token)):
         raise
     except Exception as e:
         print(f"[download] Error fetching {filename}: {e}")
-        raise HTTPException(status_code=404, detail="Document not found in Cloud Vault.")
+        raise HTTPException(status_code=404, detail="Document not found.")
     finally:
         if conn:
             conn.close()
@@ -1547,74 +1612,69 @@ async def verify_commission(
 
 
 # =====================================================================
-# --- 5. AI FEATURES ---
+# --- 5. AI FEATURES (with persistence — Sprint A) ---
 # =====================================================================
 @app.post("/api/ai-strategy")
 def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
     """
-    Generates a strategic placement report by:
-    1. Fetching the student record
-    2. Re-extracting text from ALL uploaded PDFs in Supabase
-    3. Grouping them by category (Report Card, Profiling Test, Other)
-    4. Combining with student's declared field_interests
-    5. Calling Gemini with all three variables
+    Sprint A: AI report now PERSISTS in students.ai_report column.
+    1. Fetches student incl. budget, career_goal, campus_environment, other_field_interest
+    2. Re-extracts text from ALL uploaded PDFs in Supabase
+    3. Groups by category (Report Card, Profiling Test, Other)
+    4. Combines with field_interests + free-text "Other"
+    5. SAVES the generated report to DB so it doesn't disappear
     """
     conn = None
     try:
         conn = get_db_connection()
- 
-        # Fetch student
+
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, name, notes, documents, field_interests,
-                       program_interest, country_interest
+                       program_interest, country_interest, budget_usd,
+                       career_goal, campus_environment, other_field_interest
                 FROM students WHERE id = %s
             """, (req.case_id,))
             student = cur.fetchone()
- 
+
         if not student:
             return {"status": "error", "report": "Student not found."}
- 
-        # Access check (so agents can't pull each other's students' reports)
+
         if not check_student_access(conn, str(student['id']), user_data):
             raise HTTPException(status_code=403, detail="Not authorized for this student.")
- 
+
         # ---------- Parse documents JSONB ----------
         raw_docs = student.get('documents')
         if raw_docs is None:
             docs = []
         elif isinstance(raw_docs, str):
-            try: docs = json.loads(raw_docs)
-            except: docs = []
+            try:
+                docs = json.loads(raw_docs)
+            except:
+                docs = []
         elif isinstance(raw_docs, list):
             docs = raw_docs
         else:
             docs = []
- 
+
         # ---------- Re-extract text from every PDF in Supabase ----------
-        # This is the key fix: instead of relying on cached pdf_text in the
-        # students table (which can be stale or partial), we pull fresh
-        # text from each file every time the AI report is generated.
         rapot_texts = []
         profiling_texts = []
         other_texts = []
- 
+
         if not supabase:
-            print("[ai-strategy] WARNING: Supabase not configured; cannot extract PDFs.")
- 
+            print("[ai-strategy] WARNING: Supabase not configured")
+
         for doc in docs:
             filename = doc.get('filename')
             if not filename or not filename.lower().endswith('.pdf'):
                 continue
             if not supabase:
                 continue
- 
             try:
                 file_bytes = supabase.storage.from_("student-documents").download(filename)
                 if not file_bytes:
-                    print(f"[ai-strategy] {filename} returned empty from Supabase")
                     continue
- 
                 reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
                 pages = []
                 for page in reader.pages:
@@ -1625,16 +1685,13 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     except Exception:
                         continue
                 pdf_text = "\n".join(pages).strip()
- 
                 if not pdf_text:
-                    print(f"[ai-strategy] {filename} had no extractable text")
                     continue
- 
-                # Classify by title (which we set from doc_type at upload time)
+
                 title = (doc.get('title') or '').upper()
                 fname_upper = filename.upper()
                 doc_label = doc.get('title') or filename
- 
+
                 if ("REPORT CARD" in title or "RAPOT" in title or
                     "REPORT_CARD" in fname_upper or "RAPOT" in fname_upper):
                     rapot_texts.append(f"--- {doc_label} ---\n{pdf_text}")
@@ -1643,12 +1700,11 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     profiling_texts.append(f"--- {doc_label} ---\n{pdf_text}")
                 else:
                     other_texts.append(f"--- {doc_label} ---\n{pdf_text}")
- 
+
             except Exception as e:
                 print(f"[ai-strategy] Extract failed for {filename}: {e}")
                 continue
- 
-        # Combine into structured text
+
         combined_parts = []
         if rapot_texts:
             combined_parts.append("========== REPORT CARDS (RAPOT) ==========\n" + "\n\n".join(rapot_texts))
@@ -1656,42 +1712,65 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
             combined_parts.append("========== PROFILING TEST RESULTS ==========\n" + "\n\n".join(profiling_texts))
         if other_texts:
             combined_parts.append("========== OTHER DOCUMENTS ==========\n" + "\n\n".join(other_texts))
- 
+
         combined_text = "\n\n".join(combined_parts) if combined_parts else "No PDF documents could be extracted."
- 
+
         # ---------- Parse field_interests ----------
-        field_interests_raw = student.get('field_interests')
+        fi_raw = student.get('field_interests')
         field_interests = []
-        if field_interests_raw:
-            if isinstance(field_interests_raw, str):
+        if fi_raw:
+            if isinstance(fi_raw, str):
                 try:
-                    parsed = json.loads(field_interests_raw)
-                    if isinstance(parsed, list):
-                        field_interests = parsed
-                    else:
-                        field_interests = [str(parsed)]
+                    parsed = json.loads(fi_raw)
+                    field_interests = parsed if isinstance(parsed, list) else [str(parsed)]
                 except Exception:
-                    # Fallback: comma-separated
-                    field_interests = [f.strip() for f in field_interests_raw.split(',') if f.strip()]
-            elif isinstance(field_interests_raw, list):
-                field_interests = field_interests_raw
- 
-        print(f"[ai-strategy] Student {student['name']} — "
-              f"rapot files: {len(rapot_texts)}, profiling: {len(profiling_texts)}, "
-              f"other: {len(other_texts)}, interests: {field_interests}")
- 
-        # ---------- Generate report ----------
+                    field_interests = [s.strip() for s in fi_raw.split(',') if s.strip()]
+            elif isinstance(fi_raw, list):
+                field_interests = fi_raw
+
+        # Append free-text other_field_interest as a tagged entry
+        other_fi = student.get('other_field_interest')
+        if other_fi and other_fi.strip():
+            field_interests = list(field_interests) + [f"(Other) {other_fi.strip()}"]
+
+        # Use student's budget if set, default to 30k
+        try:
+            budget = float(student.get('budget_usd') or 30000)
+        except (ValueError, TypeError):
+            budget = 30000.0
+
+        # Build extended notes including career goal + campus env
+        notes_parts = [student.get('notes') or "No notes provided."]
+        if student.get('career_goal'):
+            notes_parts.append(f"Primary Post-Graduation Career Goal: {student['career_goal']}")
+        if student.get('campus_environment'):
+            notes_parts.append(f"Preferred Campus Environment: {student['campus_environment']}")
+        full_notes = "\n\n".join(notes_parts)
+
+        print(f"[ai-strategy] {student['name']} - rapot:{len(rapot_texts)} profiling:{len(profiling_texts)} "
+              f"other:{len(other_texts)} interests:{field_interests} "
+              f"career:{student.get('career_goal')} campus:{student.get('campus_environment')} "
+              f"budget:${budget}")
+
         try:
             premium_report = generate_strategic_report(
                 student_name=student['name'],
                 destination=student.get('country_interest') or "Global (AI Recommended)",
-                budget=30000,
-                notes=student.get('notes') or "No notes provided.",
+                budget=budget,
+                notes=full_notes,
                 pdf_data=combined_text,
                 field_interests=field_interests,
                 program_interest=student.get('program_interest') or ""
             )
- 
+
+            # SAVE to DB so the report persists across sessions
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE students
+                    SET ai_report = %s, ai_report_generated_at = NOW()
+                    WHERE id = %s
+                """, (premium_report, req.case_id))
+
             log_audit_event(
                 conn=conn, action="AI_QUERY", entity="Student",
                 entity_id=str(student['id']),
@@ -1700,14 +1779,16 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     "rapot_files": len(rapot_texts),
                     "profiling_files": len(profiling_texts),
                     "other_files": len(other_texts),
-                    "field_interests": field_interests
+                    "field_interests": field_interests,
+                    "saved": True
                 }
             )
             conn.commit()
- 
+
             return {
                 "status": "success",
                 "report": premium_report,
+                "generated_at": datetime.now().isoformat(),
                 "stats": {
                     "rapot_files": len(rapot_texts),
                     "profiling_files": len(profiling_texts),
@@ -1715,22 +1796,47 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     "field_interests": field_interests
                 }
             }
- 
+
         except Exception as e:
             print(f"[ai-strategy] AI generation error: {e}")
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=str(e))
- 
+
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ai-strategy] FATAL: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
- 
+
+
+@app.get("/api/pipeline/{case_id}/ai-report")
+def get_saved_ai_report(case_id: str, user_data: dict = Depends(verify_token)):
+    """Sprint A: Load the saved AI report for a student (no regeneration)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not check_student_access(conn, case_id, user_data):
+            raise HTTPException(status_code=403, detail="Not authorized.")
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT ai_report, ai_report_generated_at
+                FROM students WHERE id = %s
+            """, (case_id,))
+            row = cur.fetchone()
+        if not row or not row.get("ai_report"):
+            return {"status": "success", "report": None, "generated_at": None}
+        return {
+            "status": "success",
+            "report": row["ai_report"],
+            "generated_at": row["ai_report_generated_at"].isoformat() if row.get("ai_report_generated_at") else None
+        }
+    finally:
+        if conn:
+            conn.close()
+
 
 # =====================================================================
 # --- 6. MARKETING MODULE ---
@@ -1758,11 +1864,7 @@ async def create_marketing_lead(
                 VALUES (%s, %s, %s, %s, %s, %s, 'NEW LEAD', 'Unassigned')
             """, (name, email, wa_number, program_interest, lead_source, temperature))
             conn.commit()
-            return {
-                "status": "success",
-                "message": f"Lead safely stored and auto-filtered as: {temperature}",
-                "temperature": temperature
-            }
+            return {"status": "success", "message": f"Lead stored as: {temperature}", "temperature": temperature}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1771,27 +1873,20 @@ async def create_marketing_lead(
 
 
 @app.post("/api/bulk-upload")
-async def bulk_upload_leads(
-    file: UploadFile = File(...),
-    user_data: dict = Depends(verify_token)
-):
+async def bulk_upload_leads(file: UploadFile = File(...), user_data: dict = Depends(verify_token)):
     if not file.filename.endswith(('.xlsx', '.csv')):
-        raise HTTPException(status_code=400, detail="Invalid format. Please upload a .csv or .xlsx file.")
-
+        raise HTTPException(status_code=400, detail="Invalid format. Upload .csv or .xlsx.")
     conn = get_db_connection()
     try:
         contents = await file.read()
-        
         if file.filename.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(contents))
         else:
             df = pd.read_excel(io.BytesIO(contents))
-
         df = df.fillna("")
         df.columns = [str(c).strip().lower() for c in df.columns]
-
         if 'name' not in df.columns:
-            raise HTTPException(status_code=400, detail="The spreadsheet must contain a column titled 'name'.")
+            raise HTTPException(status_code=400, detail="Spreadsheet must contain a 'name' column.")
 
         success_count = 0
         agent_name = user_data.get("name", "Unknown System")
@@ -1801,34 +1896,28 @@ async def bulk_upload_leads(
                 name = row.get("name", "Unknown Lead")
                 if not name:
                     continue
-
                 email = row.get("email", "")
                 phone = str(row.get("phone", ""))
                 program_interest = row.get("program", "")
-
                 cur.execute("""
-                    INSERT INTO students 
-                    (name, email, phone, program_interest, assignee, status, lead_source)
+                    INSERT INTO students (name, email, phone, program_interest, assignee, status, lead_source)
                     VALUES (%s, %s, %s, %s, %s, 'NEW LEAD', 'Bulk Excel Upload')
                 """, (name, email, phone, program_interest, agent_name))
-
                 success_count += 1
 
             cur.execute("""
                 INSERT INTO audit_logs (entity, action, changed_by, details)
                 VALUES (%s, 'CREATE', %s, %s)
             """, ("Bulk Leads", agent_name, f'{{"amount_imported": {success_count}}}'))
-
             conn.commit()
 
-        return {"status": "success", "message": f"Successfully imported {success_count} new leads."}
+        return {"status": "success", "message": f"Imported {success_count} new leads."}
 
     except Exception as e:
         if conn:
             conn.rollback()
-        print("CRITICAL BULK UPLOAD CRASH:")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to process file. Ensure columns are named correctly. Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
     finally:
         if conn:
             conn.close()
@@ -1843,8 +1932,7 @@ def forgot_password(request: ForgotPasswordRequest):
     expiration = datetime.utcnow() + timedelta(hours=1)
     reset_token = jwt.encode(
         {"sub": request.email, "exp": expiration.timestamp()},
-        secret_key,
-        algorithm="HS256"
+        secret_key, algorithm="HS256"
     )
     frontend_url = "https://fortrust-ado.vercel.app"
     reset_link = f"{frontend_url}/reset-password?token={reset_token}"
@@ -1852,26 +1940,22 @@ def forgot_password(request: ForgotPasswordRequest):
     sg_api_key = os.getenv("SENDGRID_API_KEY")
     sg_from_email = os.getenv("SENDGRID_FROM_EMAIL")
     if not sg_api_key or not sg_from_email:
-        raise HTTPException(status_code=500, detail="SendGrid keys are missing on the server.")
+        raise HTTPException(status_code=500, detail="SendGrid keys missing.")
 
     headers = {"Authorization": f"Bearer {sg_api_key}", "Content-Type": "application/json"}
     payload = {
-        "personalizations": [{
-            "to": [{"email": request.email}],
-            "subject": "Fortrust - Password Reset Request"
-        }],
+        "personalizations": [{"to": [{"email": request.email}], "subject": "Fortrust - Password Reset Request"}],
         "from": {"email": sg_from_email, "name": "Fortrust System"},
         "content": [{
             "type": "text/html",
             "value": f"""
-            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-                <h2 style="color: #282860; margin-bottom: 24px;">Fortrust OS Password Reset</h2>
-                <p style="color: #475569; font-size: 16px;">Hello,</p>
-                <p style="color: #475569; font-size: 16px;">You recently requested to reset your password for your Fortrust account. Click the button below to proceed:</p>
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px;">
+                <h2 style="color: #282860;">Fortrust OS Password Reset</h2>
+                <p>You recently requested to reset your password.</p>
                 <div style="text-align: center; margin: 32px 0;">
                     <a href="{reset_link}" style="display: inline-block; padding: 14px 28px; background-color: #BAD133; color: #282860; font-weight: bold; text-decoration: none; border-radius: 8px;">Reset My Password</a>
                 </div>
-                <p style="margin-top: 32px; font-size: 13px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 16px;">If you did not request this, please ignore this email. This link will expire in 1 hour.</p>
+                <p style="margin-top: 32px; font-size: 13px; color: #94a3b8;">If you did not request this, ignore. Link expires in 1 hour.</p>
             </div>
             """
         }]
@@ -1892,10 +1976,7 @@ def execute_reset_password(request: ResetPasswordRequest):
         if not email:
             raise HTTPException(status_code=400, detail="Invalid security token.")
 
-        hashed_password = bcrypt.hashpw(
-            request.new_password.encode('utf-8'),
-            bcrypt.gensalt()
-        ).decode('utf-8')
+        hashed_password = bcrypt.hashpw(request.new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
         conn = get_db_connection()
         try:
@@ -1903,22 +1984,22 @@ def execute_reset_password(request: ResetPasswordRequest):
                 cur.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_password, email))
                 if cur.rowcount == 0:
                     conn.rollback()
-                    raise HTTPException(status_code=404, detail="User not found in the database.")
+                    raise HTTPException(status_code=404, detail="User not found.")
                 conn.commit()
-                return {"status": "success", "message": "Password updated successfully."}
+                return {"status": "success", "message": "Password updated."}
         except Exception as inner_e:
             conn.rollback()
             raise inner_e
         finally:
             conn.close()
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+        raise HTTPException(status_code=400, detail="Reset link expired.")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=400, detail="Invalid or corrupted security token.")
+        raise HTTPException(status_code=400, detail="Invalid token.")
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Database error while saving new password.")
+        raise HTTPException(status_code=500, detail="Database error.")
 
 
 # =====================================================================
@@ -1938,7 +2019,7 @@ def create_student(student: StudentCreate):
             ))
             new_id = cur.fetchone()[0]
             conn.commit()
-            return {"status": "success", "message": "Student lead created successfully.", "student_id": new_id}
+            return {"status": "success", "message": "Student created.", "student_id": new_id}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -1967,7 +2048,7 @@ def update_student(student_id: int, student: StudentUpdate):
         with conn.cursor() as cur:
             data = student.dict(exclude_unset=True)
             if not data:
-                raise HTTPException(status_code=400, detail="No data provided to update.")
+                raise HTTPException(status_code=400, detail="No data provided.")
             updates = [f"{k} = %s" for k in data]
             params = list(data.values()) + [student_id]
             cur.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = %s", tuple(params))
@@ -1975,7 +2056,7 @@ def update_student(student_id: int, student: StudentUpdate):
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Student not found.")
             conn.commit()
-            return {"status": "success", "message": "Student updated successfully."}
+            return {"status": "success", "message": "Student updated."}
     except HTTPException:
         raise
     except Exception as e:
@@ -2006,7 +2087,7 @@ def delete_student(student_id: int):
 
 
 # =====================================================================
-# --- 9. NETWORK DIRECTORY & INSTITUTIONS ---
+# --- 9. INSTITUTIONS ---
 # =====================================================================
 @app.get("/api/institutions")
 def get_institutions(user_data: dict = Depends(verify_token)):
@@ -2030,14 +2111,10 @@ def create_institution(inst: dict, user_data: dict = Depends(verify_token)):
                 INSERT INTO institutions (name, type, country, city, status, website, base_commission, agreement_type)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
             """, (
-                inst.get('name', 'New Institution'),
-                inst.get('type', ''),
-                inst.get('country', ''),
-                inst.get('city', ''),
-                inst.get('status', 'Active'),
-                inst.get('website', ''),
-                inst.get('base_commission', ''),
-                inst.get('agreement_type', ''),
+                inst.get('name', 'New Institution'), inst.get('type', ''),
+                inst.get('country', ''), inst.get('city', ''),
+                inst.get('status', 'Active'), inst.get('website', ''),
+                inst.get('base_commission', ''), inst.get('agreement_type', ''),
             ))
             new_id = cur.fetchone()[0]
             conn.commit()
@@ -2071,7 +2148,7 @@ def update_institution(inst_id: int, inst: InstitutionUpdate, user_data: dict = 
             params.append(inst_id)
             cur.execute(f"UPDATE institutions SET {', '.join(updates)} WHERE id = %s", tuple(params))
             conn.commit()
-            return {"status": "success", "message": "Institution updated successfully"}
+            return {"status": "success", "message": "Institution updated"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -2102,24 +2179,20 @@ def delete_institution(inst_id: int, user_data: dict = Depends(verify_token)):
 # =====================================================================
 # --- 10. AI CONTRACT EXTRACTOR ---
 # =====================================================================
- 
-MAX_AGREEMENT_CHARS = 80000  # ~80K chars, safe for Gemini 2.5 Flash
- 
- 
+MAX_AGREEMENT_CHARS = 80000
+
+
 @app.post("/api/admin/extract-commission")
 async def extract_commission_agreement(contract: UploadFile = File(...)):
     if not client:
         raise HTTPException(status_code=500, detail="Gemini API key not configured.")
- 
-    # --- 1. Read PDF ---
+
     try:
         if not contract.filename or not contract.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Please upload a PDF file.")
- 
         content = await contract.read()
         if not content:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
- 
         reader = PyPDF2.PdfReader(io.BytesIO(content))
         pages = []
         for i, page in enumerate(reader.pages):
@@ -2130,185 +2203,107 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
             except Exception as pe:
                 print(f"[extract-commission] page {i+1} skipped: {pe}")
                 continue
- 
         extracted_text = "\n".join(pages).strip()
         if not extracted_text:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not extract text. PDF may be scanned/image-only."
-            )
- 
+            raise HTTPException(status_code=400, detail="Could not extract text. PDF may be scanned.")
         if len(extracted_text) > MAX_AGREEMENT_CHARS:
-            print(f"[extract-commission] Truncating from {len(extracted_text)} to {MAX_AGREEMENT_CHARS} chars")
             extracted_text = extracted_text[:MAX_AGREEMENT_CHARS] + "\n\n[...truncated...]"
- 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[extract-commission] PDF read failed: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
- 
-    # --- 2. Build strict extraction prompt ---
+
     prompt = f"""You are a senior contract analyst at Fortrust Education Services.
-You are extracting structured data from a University/College partnership or commission agreement.
- 
+Extract structured data from a University/College partnership or commission agreement.
+
 # DOCUMENT TEXT
 ```
 {extracted_text}
 ```
- 
+
 # FAIL-SAFE CHECK
-If the document is clearly NOT a partnership/commission agreement (e.g., it's a random PDF, invoice, brochure, or transcript), return EXACTLY:
+If the document is clearly NOT a partnership/commission agreement, return EXACTLY:
 {{"is_valid": false, "error_message": "This document does not appear to be a partnership or commission agreement."}}
- 
+
 # IF VALID, RETURN THIS EXACT JSON STRUCTURE
-Every field is required. Use null (not "Unknown", not "N/A", not empty string) when a value cannot be found.
- 
+Every field required. Use null when value not found.
+
 {{
   "is_valid": true,
-  "institution_name": "Full official name as written, e.g. 'The Australian National University'",
-  "institution_type": "One of: University | College | Vocational | Language School | Other",
-  "country": "Country where the institution is based, e.g. 'Australia'",
-  "city": "City where the institution is based, e.g. 'Canberra'",
-  "website": "Official institution website URL if mentioned, else null",
-  "agreement_type": "One of: Commission-based | Fixed Fee | Tiered | Hybrid",
-  "base_commission": "Headline commission as a clear short sentence, e.g. '10% of first 12 months tuition, paid in two parts per semester'",
-  "performance_bonus": "Any bonus/incentive structure, e.g. 'Visa assistance $500 one-off' or null if none",
-  "tiered_levels": "If commission varies by program, summarize the tiers, e.g. 'Bachelors/Masters/PhD: 10%; English Pathway: 20%; MChD: flat $2,500/semester'. If single flat rate, return null.",
-  "duration_start": "Effective date in YYYY-MM-DD. If only a year, use January 1st of that year.",
-  "duration_end": "Expiry date in YYYY-MM-DD, or null if open-ended/perpetual",
-  "terms_conditions": "2-4 sentence summary of the most important terms: invoice deadlines, payment timing, key restrictions, exclusivity, territory, termination notice period. Be specific.",
+  "institution_name": "Full official name",
+  "institution_type": "University | College | Vocational | Language School | Other",
+  "country": "Country",
+  "city": "City",
+  "website": "URL or null",
+  "agreement_type": "Commission-based | Fixed Fee | Tiered | Hybrid",
+  "base_commission": "Headline commission, short sentence",
+  "performance_bonus": "Bonus structure or null",
+  "tiered_levels": "Breakdown by program or null",
+  "duration_start": "YYYY-MM-DD",
+  "duration_end": "YYYY-MM-DD or null",
+  "terms_conditions": "2-4 sentence summary of key terms",
   "contacts": [
-    {{
-      "name": "Full name",
-      "title": "Job title",
-      "department": "Department or division",
-      "email": "Email address or null",
-      "phone": "Phone number or null"
-    }}
+    {{"name": "Full name", "title": "Job title", "department": "Department", "email": "email or null", "phone": "phone or null"}}
   ]
 }}
- 
-# EXTRACTION RULES
-1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01". "30/04/25" → "2025-04-30".
-2. **Amendments / Variation Letters**: If the document is a variation/amendment that MODIFIES a previous agreement, extract the POST-AMENDMENT state. Add a note in `terms_conditions` like "[Variation dated YYYY-MM-DD: ...]".
-3. **Multiple commission rates**: If different programs have different rates, the headline rate goes in `base_commission`, and the full breakdown goes in `tiered_levels`.
-4. **Contacts**: Include the institution's authorized signatory (the person who signed for the university), plus any operational contacts (admissions email, commission payments email). Skip generic info@ addresses.
-5. **Territory**: Mention in `terms_conditions` if the agent is limited to specific countries.
-6. **Currency**: If commissions are in non-USD currency (e.g., AUD, GBP), mention in `terms_conditions`.
- 
-# WORKED EXAMPLE (for an ANU-style Australian agreement)
-This is what good extraction looks like:
-{{
-  "is_valid": true,
-  "institution_name": "The Australian National University",
-  "institution_type": "University",
-  "country": "Australia",
-  "city": "Canberra",
-  "website": null,
-  "agreement_type": "Commission-based",
-  "base_commission": "10% of first 12 months tuition, paid in two parts per semester after each Census Date",
-  "performance_bonus": "Visa assistance only: $500 one-off; Partial service: $1,000 one-off",
-  "tiered_levels": "Bachelors/Honours/Masters/PhD/Diploma: 10% Part 1 + 10% Part 2 of respective semester tuition. Graduate Certificate: 10% (single payment, 6-month program). MChD: $2,500 per semester. UC English Language Pathway: 20%.",
-  "duration_start": "2021-11-01",
-  "duration_end": "2025-04-30",
-  "terms_conditions": "Non-exclusive appointment. Territory: Indonesia, Malaysia, Philippines. All payments in AUD. Commission invoiced within 12 months of relevant Census Date. Either party may terminate with 30 days written notice. Commission not payable for students with Australia Awards Scholarships, US Federal Aid recipients, or diplomatic visa holders. [Variation dated 2024-07-19: Added UC English Language Program pathway with 20% commission.]",
-  "contacts": [
-    {{
-      "name": "Dr Amanda Barry",
-      "title": "Director, Future Students",
-      "department": "International Strategy and Future Students Division",
-      "email": "agent.contract@anu.edu.au",
-      "phone": null
-    }}
-  ]
-}}
- 
-# OUTPUT FORMAT
-Return ONLY the JSON object. No preamble, no markdown fences, no commentary.
-Begin extraction now."""
- 
-    # --- 3. Call Gemini with JSON mode + low temperature ---
+
+# RULES
+1. Dates: ALWAYS YYYY-MM-DD. "01/11/21" -> "2021-11-01".
+2. Amendments: Extract post-amendment state, note in terms_conditions like "[Variation YYYY-MM-DD: ...]".
+3. Multiple rates: headline in base_commission, breakdown in tiered_levels.
+4. Contacts: signatory + operational. Skip generic info@.
+5. Mention non-USD currency or territory restrictions in terms_conditions.
+
+Return ONLY the JSON object."""
+
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1,
-            }
+            model='gemini-2.5-flash', contents=prompt,
+            config={"response_mime_type": "application/json", "temperature": 0.1}
         )
- 
         raw = (response.text or "").strip()
         if not raw:
-            raise Exception("Gemini returned an empty response.")
- 
-        # Strip code fences if the AI added them
+            raise Exception("Gemini returned empty response.")
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
             raw = raw.strip()
- 
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as je:
             print(f"[extract-commission] JSON parse error: {je}")
-            print(f"[extract-commission] Raw response: {raw[:1000]}")
             raise Exception(f"AI returned malformed JSON: {raw[:200]}")
- 
-        # --- 4. Handle invalid doc ---
+
         if not data.get("is_valid"):
-            return {
-                "status": "error",
-                "data": data,
-                "message": data.get("error_message", "Document is not a valid agreement.")
-            }
- 
-        # --- 5. Fill missing keys with null, clean empty strings ---
+            return {"status": "error", "data": data,
+                    "message": data.get("error_message", "Document is not valid agreement.")}
+
         defaults = {
-            "institution_name": None,
-            "institution_type": None,
-            "country": None,
-            "city": None,
-            "website": None,
-            "agreement_type": None,
-            "base_commission": None,
-            "performance_bonus": None,
-            "tiered_levels": None,
-            "duration_start": None,
-            "duration_end": None,
-            "terms_conditions": None,
+            "institution_name": None, "institution_type": None, "country": None,
+            "city": None, "website": None, "agreement_type": None,
+            "base_commission": None, "performance_bonus": None, "tiered_levels": None,
+            "duration_start": None, "duration_end": None, "terms_conditions": None,
             "contacts": [],
         }
         for k, v in defaults.items():
             if k not in data:
                 data[k] = v
- 
-        # Normalize empty/placeholder strings to null
         for k in list(data.keys()):
             if isinstance(data[k], str) and data[k].strip() in ("", "Unknown", "N/A", "null", "None"):
                 data[k] = None
- 
-        # Ensure contacts is always a list
         if not isinstance(data.get("contacts"), list):
             data["contacts"] = []
- 
-        print(f"[extract-commission] Extracted: {data.get('institution_name')} "
-              f"({data.get('country')}) — {len(data.get('contacts', []))} contacts")
- 
+
+        print(f"[extract-commission] {data.get('institution_name')} - {len(data.get('contacts', []))} contacts")
         return {"status": "success", "data": data}
- 
+
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[extract-commission] AI extraction failed: {e}")
         traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"AI extraction failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"AI extraction failed: {str(e)}")
 
 
 # =====================================================================
@@ -2322,17 +2317,11 @@ def create_broadcast(req: BroadcastCreate, user_data: dict = Depends(verify_toke
             cur.execute("""
                 INSERT INTO broadcasts (title, message, target_role, target_branch, send_email, created_by)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-            """, (
-                req.title,
-                req.message,
-                req.target_role,
-                req.target_branch,
-                req.send_email,
-                user_data.get("name", "Master Admin")
-            ))
+            """, (req.title, req.message, req.target_role, req.target_branch,
+                  req.send_email, user_data.get("name", "Master Admin")))
             new_id = cur.fetchone()[0]
             conn.commit()
-            return {"status": "success", "message": "Broadcast sent successfully", "id": new_id}
+            return {"status": "success", "message": "Broadcast sent", "id": new_id}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -2394,18 +2383,15 @@ def get_commissions(user_data: dict = Depends(verify_token)):
                 amount = float(r['amount'] or 0)
                 if status == "PENDING_CENSUS" and amount > 0:
                     status = "CLEARED"
-
                 processed.append({
                     "id": f"INV-{str(r['id']).zfill(4)}",
                     "student": r['student'],
                     "university": "Assigned Institution",
                     "program": r['program'] or "General Program",
                     "tuition": amount * 10 if amount > 0 else 0,
-                    "rate": 10,
-                    "amount": amount,
-                    "status": status,
+                    "rate": 10, "amount": amount, "status": status,
                     "date": r['date'].strftime("%Y-%m-%d") if r['date'] else "TBD",
-                    "notes": "Ready for withdrawal." if status == "CLEARED" else "Awaiting university clearance." if status == "PENDING_CENSUS" else "Payout transferred via SWIFT."
+                    "notes": "Ready for withdrawal." if status == "CLEARED" else "Awaiting clearance." if status == "PENDING_CENSUS" else "Payout transferred."
                 })
             return {"status": "success", "data": processed}
     except Exception as e:
@@ -2423,12 +2409,10 @@ def claim_commissions(user_data: dict = Depends(verify_token)):
                 cur.execute("UPDATE students SET payout_status = 'CLAIMED' WHERE payout_status = 'CLEARED' OR commission_earned > 0")
             else:
                 cur.execute("UPDATE students SET payout_status = 'CLAIMED' WHERE assignee = %s AND (payout_status = 'CLEARED' OR commission_earned > 0)", (user_data.get("name"),))
-
             if cur.rowcount == 0:
-                return {"status": "error", "message": "No cleared funds available to claim."}
-
+                return {"status": "error", "message": "No cleared funds available."}
             conn.commit()
-            return {"status": "success", "message": "Funds claimed and invoice generated to Finance!"}
+            return {"status": "success", "message": "Funds claimed!"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -2463,7 +2447,7 @@ def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verif
         conn.close()
 
     if not institutions:
-        context_text = "EMPTY DATABASE - no institutions have been added yet."
+        context_text = "EMPTY DATABASE."
     else:
         clean_data = []
         for inst in institutions:
@@ -2472,12 +2456,9 @@ def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verif
                 contacts_str = json.dumps(contacts)
             else:
                 contacts_str = contacts or "[]"
-
             clean_data.append({
-                "name": inst.get('name') or '',
-                "type": inst.get('type') or '',
-                "country": inst.get('country') or '',
-                "city": inst.get('city') or '',
+                "name": inst.get('name') or '', "type": inst.get('type') or '',
+                "country": inst.get('country') or '', "city": inst.get('city') or '',
                 "website": inst.get('website') or '',
                 "programs": inst.get('programs_offered') or 'Not specified',
                 "agreement_type": inst.get('agreement_type') or '',
@@ -2500,70 +2481,50 @@ def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verif
             history_text += f"{role}: {content}\n\n"
 
     agent_name = user_data.get("name", "Agent")
-    prompt = f"""You are the **Fortrust Partnership Assistant**, an AI helping {agent_name} (an education agent at Fortrust) instantly answer student questions about which universities Fortrust partners with.
+    prompt = f"""You are the Fortrust Partnership Assistant helping {agent_name} answer student questions about Fortrust's university partnerships.
 
-The goal: make agents self-sufficient so they don't have to ask the Master Admin every time a student asks about a school, program, or country.
-
-## FORTRUST'S OFFICIAL PARTNERSHIP DATABASE (your ONLY source of truth):
+## FORTRUST'S OFFICIAL PARTNERSHIP DATABASE:
 ```json
 {context_text}
 ```
 
-## STRICT RULES:
-1. **NEVER invent data.** Only use universities, programs, commissions, and details from the database above.
-2. If a university is NOT in the database, say: "We don't currently have a formal agreement with [Name]. Our closest options are: [suggest 2-3 from same country/program type]."
-3. For commission questions, always cite the exact `base_commission` and `performance_bonus` from the data.
-4. For country/region queries: list the universities, their cities, types, and base commission.
-5. For program queries: search the `programs` field across institutions and list matches.
-6. For contact/PIC questions: parse the `contacts` JSON and give name, email, phone.
-7. **Format clearly** - use bullet points, bold names, and concise paragraphs.
-8. **Be efficient** - agents are usually mid-conversation with a student. Get to the point fast.
-9. End EVERY response with a helpful follow-up like: "Want me to check programs at [related uni]?" or "Need contact details for any of these?"
-10. Use a friendly, professional tone - like a knowledgeable colleague, not a stiff bot.
-11. If the agent asks something unrelated (weather, jokes, code), politely redirect: "I'm focused on Fortrust's university partnerships - what can I help you find?"
-12. If the database is empty, say: "Our partnership database is empty right now. Please ask the Master Admin to add institutions before I can help with university queries."
+## RULES:
+1. NEVER invent data. Only use the database above.
+2. If a university is NOT in the database, suggest 2-3 alternatives from same country/program.
+3. Format clearly with bullets.
+4. Be efficient - agents are mid-conversation with students.
+5. End EVERY response with a follow-up question.
+6. If database is empty: "Database is empty - ask Master Admin to add institutions."
 
-## PREVIOUS CONVERSATION (for context):
-{history_text if history_text else "(no previous messages)"}
+## PREVIOUS CONVERSATION:
+{history_text if history_text else "(none)"}
 
-## {agent_name.upper()}'S CURRENT QUESTION:
+## {agent_name.upper()}'S QUESTION:
 {req.message}
 
-Answer now (be helpful, accurate, and grounded in the database only):"""
+Answer now:"""
 
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
-        )
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         ai_text = response.text.strip()
-
         try:
             conn = get_db_connection()
             log_audit_event(
-                conn=conn,
-                action="AI_QUERY",
-                entity="Partnership Assistant",
-                entity_id="chat",
-                changed_by=agent_name,
+                conn=conn, action="AI_QUERY", entity="Partnership Assistant",
+                entity_id="chat", changed_by=agent_name,
                 details={"question": req.message[:200], "answered": True}
             )
             conn.commit()
             conn.close()
         except Exception:
             pass
-
-        return {
-            "status": "success",
-            "response": ai_text,
-            "institutions_count": len(institutions)
-        }
+        return {"status": "success", "response": ai_text, "institutions_count": len(institutions)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI processing error: {str(e)}")
 
 
 # =====================================================================
-# --- 14. SECURED GENERIC DOCUMENT UPLOAD ---
+# --- 14. GENERIC DOCUMENT UPLOAD ---
 # =====================================================================
 @app.post("/api/upload-document")
 async def upload_document(
@@ -2575,8 +2536,6 @@ async def upload_document(
     conn = None
     try:
         conn = get_db_connection()
-
-        # Access check - only authorized users can upload to this student
         if not check_student_access(conn, student_id, user_data):
             log_audit_event(
                 conn=conn, action="DENIED_UPLOAD", entity="Student",
@@ -2584,32 +2543,19 @@ async def upload_document(
                 details={"reason": "not_authorized_for_student", "endpoint": "upload-document"}
             )
             conn.commit()
-            raise HTTPException(
-                status_code=403,
-                detail="You do not have permission to upload documents for this student."
-            )
+            raise HTTPException(status_code=403, detail="Not authorized.")
 
-        # MIME check
         if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File type '{file.content_type}' not allowed."
-            )
+            raise HTTPException(status_code=400, detail=f"File type '{file.content_type}' not allowed.")
 
-        # Sanitize
         clean_doc_type = sanitize_filename(document_type).upper().replace(" ", "_")
         clean_original = sanitize_filename(file.filename or "file").replace(" ", "_")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
         safe_filename = f"S{student_id}_{clean_doc_type}_{timestamp}_{clean_original}"
 
         file_bytes = await file.read()
-
-        # Size check
         if len(file_bytes) > MAX_FILE_SIZE_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File too large (max {MAX_FILE_SIZE_MB}MB)"
-            )
+            raise HTTPException(status_code=400, detail=f"File too large (max {MAX_FILE_SIZE_MB}MB)")
         if len(file_bytes) == 0:
             raise HTTPException(status_code=400, detail="Empty file.")
 
@@ -2617,8 +2563,7 @@ async def upload_document(
         if supabase:
             try:
                 supabase.storage.from_("student-documents").upload(
-                    path=safe_filename,
-                    file=file_bytes,
+                    path=safe_filename, file=file_bytes,
                     file_options={"content-type": file.content_type or "application/octet-stream"}
                 )
                 public_url = f"/api/documents/{safe_filename}"
@@ -2626,66 +2571,54 @@ async def upload_document(
                 print(f"[upload-document] Supabase error: {supa_err}")
                 raise HTTPException(status_code=500, detail=f"Cloud storage error: {str(supa_err)[:100]}")
         else:
-            # Local fallback (ephemeral on Render)
             file_location = f"uploads/{safe_filename}"
             with open(file_location, "wb") as buffer:
                 buffer.write(file_bytes)
             public_url = f"/uploads/{safe_filename}"
 
         log_audit_event(
-            conn=conn,
-            action="UPLOAD_DOC",
-            entity="Student",
-            entity_id=str(student_id),
-            changed_by=user_data.get("name", "Unknown"),
-            details={
-                "document_type": document_type,
-                "filename": file.filename,
-                "stored_as": safe_filename,
-                "size_bytes": len(file_bytes)
-            }
+            conn=conn, action="UPLOAD_DOC", entity="Student",
+            entity_id=str(student_id), changed_by=user_data.get("name", "Unknown"),
+            details={"document_type": document_type, "filename": file.filename,
+                     "stored_as": safe_filename, "size_bytes": len(file_bytes)}
         )
         conn.commit()
 
-        return {
-            "status": "success",
-            "filename": safe_filename,
-            "url": public_url,
-            "storage": "supabase" if supabase else "local-ephemeral"
-        }
+        return {"status": "success", "filename": safe_filename, "url": public_url,
+                "storage": "supabase" if supabase else "local-ephemeral"}
 
     except HTTPException:
         raise
     except Exception as e:
         if conn:
             conn.rollback()
-        print("[upload-document] FATAL:")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:
             conn.close()
 
+
+# =====================================================================
+# --- 15. ADMIN UTILITIES & DOCUMENT DELETE ---
+# =====================================================================
 @app.post("/api/admin/cleanup-orphan-docs")
-def cleanup_orphan_docs(
-    fix: bool = False,
-    user_data: dict = Depends(verify_token)
-):
+def cleanup_orphan_docs(fix: bool = False, user_data: dict = Depends(verify_token)):
     if user_data.get("role") != "MASTER_ADMIN":
         raise HTTPException(status_code=403, detail="Only Master Admin can run this.")
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not configured.")
- 
+
     conn = get_db_connection()
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT id, name, documents FROM students WHERE documents IS NOT NULL")
         students = cur.fetchall()
- 
+
         report = []
         total_orphans = 0
         total_cleaned = 0
- 
+
         for student in students:
             raw_docs = student.get('documents')
             if raw_docs is None:
@@ -2699,23 +2632,20 @@ def cleanup_orphan_docs(
                 docs = raw_docs
             else:
                 continue
- 
             if not isinstance(docs, list):
                 continue
- 
+
             valid_docs = []
             orphan_docs = []
- 
+
             for doc in docs:
                 filename = doc.get('filename')
                 if not filename:
                     orphan_docs.append({"reason": "no filename", "doc": doc})
                     continue
                 try:
-                    # Try to get file info from Supabase
                     files = supabase.storage.from_("student-documents").list(
-                        path="",
-                        options={"search": filename}
+                        path="", options={"search": filename}
                     )
                     exists = any(f.get('name') == filename for f in (files or []))
                     if exists:
@@ -2725,8 +2655,8 @@ def cleanup_orphan_docs(
                         total_orphans += 1
                 except Exception as e:
                     print(f"[cleanup] Could not check {filename}: {e}")
-                    valid_docs.append(doc)  # Keep it if we can't verify (safer)
- 
+                    valid_docs.append(doc)
+
             if orphan_docs:
                 report.append({
                     "student_id": student['id'],
@@ -2734,14 +2664,13 @@ def cleanup_orphan_docs(
                     "orphan_count": len(orphan_docs),
                     "orphans": [o['doc'].get('title') or o['doc'].get('filename') for o in orphan_docs]
                 })
- 
                 if fix:
                     cur.execute(
                         "UPDATE students SET documents = %s::jsonb WHERE id = %s",
                         (json.dumps(valid_docs), student['id'])
                     )
                     total_cleaned += len(orphan_docs)
- 
+
         if fix:
             conn.commit()
             log_audit_event(
@@ -2750,7 +2679,7 @@ def cleanup_orphan_docs(
                 details={"orphans_removed": total_cleaned}
             )
             conn.commit()
- 
+
         return {
             "status": "success",
             "fix_applied": fix,
@@ -2760,7 +2689,7 @@ def cleanup_orphan_docs(
             "report": report,
             "next_step": "Call again with ?fix=true to remove orphans" if not fix and total_orphans > 0 else None
         }
- 
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2772,18 +2701,14 @@ def cleanup_orphan_docs(
         if conn:
             conn.close()
 
+
 @app.delete("/api/pipeline/{case_id}/document/{filename}")
-async def delete_document(
-    case_id: str,
-    filename: str,
-    user_data: dict = Depends(verify_token)
-):
+async def delete_document(case_id: str, filename: str, user_data: dict = Depends(verify_token)):
     conn = None
     cur = None
     try:
         conn = get_db_connection()
- 
-        # Access check
+
         if not check_student_access(conn, case_id, user_data):
             log_audit_event(
                 conn=conn, action="DENIED_DELETE_DOC", entity="Student",
@@ -2792,77 +2717,63 @@ async def delete_document(
             )
             conn.commit()
             raise HTTPException(status_code=403, detail="Not authorized to delete this file.")
- 
-        # Path traversal protection
+
         if "/" in filename or "\\" in filename or ".." in filename:
             raise HTTPException(status_code=400, detail="Invalid filename.")
- 
-        # The filename must start with S{case_id}_ — proves it belongs to this student
         if not filename.startswith(f"S{case_id}_"):
-            raise HTTPException(status_code=403, detail="This file doesn't belong to this student.")
- 
+            raise HTTPException(status_code=403, detail="File doesn't belong to this student.")
+
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT documents FROM students WHERE id = %s", (case_id,))
         student = cur.fetchone()
         if not student:
             raise HTTPException(status_code=404, detail="Student not found.")
- 
-        # Parse existing docs
+
         raw_docs = student.get('documents')
         if raw_docs is None:
             docs = []
         elif isinstance(raw_docs, str):
-            try: docs = json.loads(raw_docs)
-            except: docs = []
+            try:
+                docs = json.loads(raw_docs)
+            except:
+                docs = []
         elif isinstance(raw_docs, list):
             docs = raw_docs
         else:
             docs = []
- 
-        # Find the doc
+
         doc_to_delete = next((d for d in docs if d.get('filename') == filename), None)
         if not doc_to_delete:
             raise HTTPException(status_code=404, detail="Document not found in vault.")
- 
-        # Remove from Supabase (best-effort; continue even if it fails)
+
         supabase_removed = False
         if supabase:
             try:
                 supabase.storage.from_("student-documents").remove([filename])
                 supabase_removed = True
             except Exception as supa_err:
-                print(f"[delete-doc] Supabase remove error for {filename}: {supa_err}")
- 
-        # Remove from documents JSONB
+                print(f"[delete-doc] Supabase remove error: {supa_err}")
+
         new_docs = [d for d in docs if d.get('filename') != filename]
         cur.execute(
             "UPDATE students SET documents = %s::jsonb WHERE id = %s",
             (json.dumps(new_docs), case_id)
         )
- 
-        # Audit log
+
         log_audit_event(
             conn=conn, action="DELETE_DOC", entity="Student",
             entity_id=case_id, changed_by=user_data.get("name", "Unknown"),
-            details={
-                "filename": filename,
-                "title": doc_to_delete.get('title'),
-                "supabase_removed": supabase_removed
-            }
+            details={"filename": filename, "title": doc_to_delete.get('title'),
+                     "supabase_removed": supabase_removed}
         )
         conn.commit()
- 
+
         print(f"[delete-doc] {filename} removed by {user_data.get('name')} (supabase: {supabase_removed})")
-        return {
-            "status": "success",
-            "message": "Document deleted.",
-            "supabase_removed": supabase_removed
-        }
- 
+        return {"status": "success", "message": "Document deleted.", "supabase_removed": supabase_removed}
+
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[delete-doc] FATAL: {e}")
         traceback.print_exc()
         if conn:
             conn.rollback()
