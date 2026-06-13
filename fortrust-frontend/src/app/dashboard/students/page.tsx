@@ -87,6 +87,7 @@ export default function GlobalStudentDatabase() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [agentFilter, setAgentFilter] = useState("ALL");
+  const [showArchived, setShowArchived] = useState(false);
   
   // Reassignment & Archiving States
   const [editingAgentForId, setEditingAgentForId] = useState<string | null>(null);
@@ -135,26 +136,29 @@ export default function GlobalStudentDatabase() {
 
   // Load field_interests and profile from the student record when dossier opens
   useEffect(() => {
-    if (editingStudent) {
-      // Parse Field Interests
-      const rawField = editingStudent.field_interests;
-      if (!rawField) setFieldInterests([]);
-      else if (Array.isArray(rawField)) setFieldInterests(rawField);
-      else {
-        try { setFieldInterests(JSON.parse(rawField)); } 
-        catch { setFieldInterests(rawField.split(',').map((s: string) => s.trim()).filter(Boolean)); }
-      }
-
-      setCareerGoal(editingStudent.career_goal || "");
-      setCampusEnv(editingStudent.campus_env || "");
-    } else {
-      setFieldInterests([]);
-      setCareerGoal("");
-      setCampusEnv("");
-      setCustomFieldInterest("");
-      setCustomCareerGoal("");
-      setCustomCampusEnv("");
+    if (!editingStudent?.id) {
+      setAiReport("");
+      return;
     }
+    const loadSavedReport = async () => {
+      try {
+        const token = localStorage.getItem("fortrust_token");
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/ai-report`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === "success" && data.report) {
+            setAiReport(data.report);
+          } else {
+            setAiReport("");
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load saved AI report", e);
+      }
+    };
+    loadSavedReport();
   }, [editingStudent?.id]);
 
   const fetchData = async () => {
@@ -522,9 +526,11 @@ export default function GlobalStudentDatabase() {
                           (student.email || "").toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "ALL" || (student.status || "NEW LEAD").toUpperCase() === statusFilter;
     const matchesAgent = agentFilter === "ALL" || 
-                         (agentFilter === "UNASSIGNED" && (!student.assignee || student.assignee === "Unassigned")) ||
-                         student.assignee === agentFilter;
-    return matchesSearch && matchesStatus && matchesAgent && (student.status !== "ARCHIVED"); // hide archived by default
+                        (agentFilter === "UNASSIGNED" && (!student.assignee || student.assignee === "Unassigned")) ||
+                        student.assignee === agentFilter;
+    // Sprint A: hide archived students unless toggle is on
+    const matchesArchive = showArchived || (student.status || "").toUpperCase() !== "ARCHIVED";
+    return matchesSearch && matchesStatus && matchesAgent && matchesArchive;
   });
 
   const totalStudents = allStudents.length;
@@ -616,9 +622,20 @@ export default function GlobalStudentDatabase() {
             <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}
               className="bg-white border border-slate-200 text-slate-700 rounded-xl px-4 py-2.5 text-sm font-bold outline-none focus:border-[#BAD133] shadow-sm cursor-pointer">
               <option value="ALL">All Agents</option>
-              <option value="UNASSIGNED">Unassigned Only</option>
               {agents.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
             </select>
+            <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer transition-all shadow-sm border ${
+              showArchived ? "bg-red-50 border-red-200 text-red-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}>
+              <input 
+                type="checkbox" 
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+              />
+              <Archive size={14} className={showArchived ? "text-red-500" : "text-slate-400"} />
+              <span className="text-xs font-bold whitespace-nowrap">Include archived</span>
+            </label>
           </div>
         </div>
 

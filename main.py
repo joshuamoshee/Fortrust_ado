@@ -2077,7 +2077,18 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                 field_interests=field_interests,
                 program_interest=student.get('program_interest') or ""
             )
- 
+
+            # Sprint A: persist report to DB so it survives dossier close/reopen
+            try:
+                with conn.cursor() as save_cur:
+                    save_cur.execute("""
+                        UPDATE students
+                        SET ai_report = %s, ai_report_generated_at = NOW()
+                        WHERE id = %s
+                    """, (premium_report, req.case_id))
+            except Exception as save_err:
+                print(f"[ai-strategy] Could not save report: {save_err}")
+
             log_audit_event(
                 conn=conn, action="AI_QUERY", entity="Student",
                 entity_id=str(student['id']),
@@ -2113,6 +2124,31 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
         print(f"[ai-strategy] FATAL: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@app.get("/api/pipeline/{case_id}/ai-report")
+def get_saved_ai_report(case_id: str, user_data: dict = Depends(verify_token)):
+    """Sprint A: Load the saved AI report for a student (no regeneration)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not check_student_access(conn, case_id, user_data):
+            raise HTTPException(status_code=403, detail="Not authorized.")
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT ai_report, ai_report_generated_at
+                FROM students WHERE id = %s
+            """, (case_id,))
+            row = cur.fetchone()
+        if not row or not row.get("ai_report"):
+            return {"status": "success", "report": None, "generated_at": None}
+        return {
+            "status": "success",
+            "report": row["ai_report"],
+            "generated_at": row["ai_report_generated_at"].isoformat() if row.get("ai_report_generated_at") else None
+        }
     finally:
         if conn:
             conn.close()
