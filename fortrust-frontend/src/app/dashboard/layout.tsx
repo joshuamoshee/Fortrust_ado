@@ -151,20 +151,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       const token = localStorage.getItem("fortrust_token");
       if (!token) return;
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs?limit=5`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/notifications`, {
           headers: { "Authorization": `Bearer ${token}` }
         });
         const data = await res.json();
         if (data.status === "success") {
           setNotifications(data.data);
-          setUnreadCount(data.data.length > 5 ? 5 : data.data.length);
+          setUnreadCount(data.data.length);
         }
       } catch (error) {}
     };
 
-    if (isLoaded && user && user.role === "MASTER_ADMIN") {
+    if (isLoaded && user) {
       fetchNotifications();
-      const interval = setInterval(fetchNotifications, 30000);
+      const interval = setInterval(fetchNotifications, 10000);
       return () => clearInterval(interval);
     }
   }, [isLoaded, user]);
@@ -421,21 +421,32 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               {showNotifications && (
                 <div className="absolute right-0 mt-2 w-72 lg:w-96 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
                   <div className="p-4 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
-                    <h3 className="font-bold text-[#282860]">{t.recentActivity}</h3>
+                    <h3 className="font-bold text-[#282860]">Notifications</h3>
                     {unreadCount > 0 && <span className="text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full">{unreadCount} New</span>}
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <p className="text-center text-sm text-slate-500 py-6">No recent activity.</p>
+                      <p className="text-center text-sm text-slate-500 py-6">No new notifications.</p>
                     ) : (
                       notifications.map((note) => (
-                        <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors flex gap-3">
-                          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${note.action === 'CREATE' ? 'bg-green-500' : note.action === 'DELETE' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
-                          <div>
-                            <p className="text-sm font-bold text-slate-700">
-                              {note.changed_by} <span className="font-medium text-slate-500">{note.action.toLowerCase()}d</span> {note.entity}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-1">{new Date(note.created_at).toLocaleString()}</p>
+                        <div key={note.id} 
+                          onClick={async () => {
+                            const token = localStorage.getItem("fortrust_token");
+                            try {
+                              await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/notifications/${note.id}/read`, {
+                                method: "POST",
+                                headers: { "Authorization": `Bearer ${token}` }
+                              });
+                              setNotifications(prev => prev.filter(n => n.id !== note.id));
+                              setUnreadCount(c => Math.max(0, c - 1));
+                            } catch (e) {}
+                          }}
+                          className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer"
+                        >
+                          <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-blue-500"></div>
+                          <div className="flex-1">
+                            <p className="text-xs font-bold text-slate-800">{note.message}</p>
+                            <p className="text-[10px] text-slate-400 mt-1">{new Date(note.created_at).toLocaleString()}</p>
                           </div>
                         </div>
                       ))

@@ -96,6 +96,39 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS field_interests TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS budget TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archive_reason TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS father_name TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS father_email TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS father_whatsapp TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_name TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_email TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_whatsapp TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS academic_field TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS career_goal TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS campus_env TEXT DEFAULT '';")
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                    sender TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    mentioned_users JSONB DEFAULT '[]'::jsonb,
+                    read_by JSONB DEFAULT '[]'::jsonb,
+                    is_system BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id SERIAL PRIMARY KEY,
+                    recipient_username TEXT NOT NULL,
+                    sender TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    is_read BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+            """)
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS institutions (
@@ -418,6 +451,19 @@ class UpdateLeadRequest(BaseModel):
     loss_reason: Optional[str] = None
     archive_reason: Optional[str] = None
     budget: Optional[str] = None
+    father_name: Optional[str] = None
+    father_email: Optional[str] = None
+    father_whatsapp: Optional[str] = None
+    mother_name: Optional[str] = None
+    mother_email: Optional[str] = None
+    mother_whatsapp: Optional[str] = None
+    academic_field: Optional[str] = None
+    career_goal: Optional[str] = None
+    campus_env: Optional[str] = None
+
+
+class ChatMessageCreate(BaseModel):
+    message: str
 
 
 class TimelineNote(BaseModel):
@@ -453,6 +499,15 @@ class StudentCreate(BaseModel):
     lead_source: Optional[str] = None
     lead_temperature: Optional[str] = None
     budget: Optional[str] = None
+    father_name: Optional[str] = None
+    father_email: Optional[str] = None
+    father_whatsapp: Optional[str] = None
+    mother_name: Optional[str] = None
+    mother_email: Optional[str] = None
+    mother_whatsapp: Optional[str] = None
+    academic_field: Optional[str] = None
+    career_goal: Optional[str] = None
+    campus_env: Optional[str] = None
 
 
 class StudentUpdate(BaseModel):
@@ -469,6 +524,15 @@ class StudentUpdate(BaseModel):
     loss_reason: Optional[str] = None
     field_interests: Optional[str] = None
     budget: Optional[str] = None
+    father_name: Optional[str] = None
+    father_email: Optional[str] = None
+    father_whatsapp: Optional[str] = None
+    mother_name: Optional[str] = None
+    mother_email: Optional[str] = None
+    mother_whatsapp: Optional[str] = None
+    academic_field: Optional[str] = None
+    career_goal: Optional[str] = None
+    campus_env: Optional[str] = None
 
 
 class InstitutionUpdate(BaseModel):
@@ -1370,6 +1434,11 @@ async def upload_additional_document(
         )
 
         agent_name = user_data.get("name", "Unknown")
+        for doc_title in doc_titles:
+            cur.execute("""
+                INSERT INTO chat_messages (student_id, sender, message, is_system)
+                VALUES (%s, 'System', %s, TRUE)
+            """, (int(case_id), f"{agent_name} uploaded {doc_title}"))
         if doc_titles:
             log_audit_event(
                 conn=conn, action="UPLOAD_DOC", entity="Student",
@@ -1424,6 +1493,172 @@ def add_timeline_note(case_id: str, req: TimelineNote):
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail="Database update error.")
+    finally:
+        conn.close()
+
+
+def extract_mentions(message_text: str, conn):
+    import re
+    # Extract @username patterns. Matches alphanumeric, space, dot, hyphen.
+    tokens = re.findall(r'@([a-zA-Z0-9_\s\-\.]+)', message_text)
+    mentioned_users = []
+    
+    with conn.cursor() as cur:
+        # Fetch active users in system
+        cur.execute("SELECT name FROM users WHERE is_active = TRUE")
+        users = [r[0] for r in cur.fetchall()]
+        
+    for token in tokens:
+        token_clean = token.strip().lower()
+        if not token_clean:
+            continue
+        for u in users:
+            words = u.lower().split()
+            # If token matches any prefix of word in user name, or token is exact username
+            if any(w.startswith(token_clean) for w in words) or token_clean == u.lower():
+                if u not in mentioned_users:
+                    mentioned_users.append(u)
+    return mentioned_users
+
+
+@app.get("/api/pipeline/{case_id}/chat")
+def get_chat_messages(case_id: int, user_data: dict = Depends(verify_token)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, student_id, sender, message, mentioned_users, read_by, is_system, 
+                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
+                FROM chat_messages 
+                WHERE student_id = %s 
+                ORDER BY created_at ASC
+            """, (case_id,))
+            return {"status": "success", "data": cur.fetchall()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        conn.close()
+
+
+@app.post("/api/pipeline/{case_id}/chat")
+def create_chat_message(case_id: int, req: ChatMessageCreate, user_data: dict = Depends(verify_token)):
+    sender_name = user_data.get("name", "Unknown")
+    conn = get_db_connection()
+    try:
+        # Parse mentions
+        mentions = extract_mentions(req.message, conn)
+        
+        with conn.cursor() as cur:
+            # Insert message
+            cur.execute("""
+                INSERT INTO chat_messages (student_id, sender, message, mentioned_users, read_by, is_system)
+                VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, FALSE)
+                RETURNING id, created_at
+            """, (
+                case_id, sender_name, req.message, 
+                json.dumps(mentions), json.dumps([{"user": sender_name, "read_at": datetime.now().strftime("%Y-%m-%d %H:%M")}])
+            ))
+            row = cur.fetchone()
+            msg_id = row[0]
+            created_at = row[1]
+            
+            # Create notifications for mentioned users
+            for user in mentions:
+                if user != sender_name:
+                    cur.execute("""
+                        INSERT INTO notifications (recipient_username, sender, message)
+                        VALUES (%s, %s, %s)
+                    """, (user, sender_name, f"You were mentioned by {sender_name} in chat: \"{req.message[:50]}...\""))
+            
+            conn.commit()
+            return {
+                "status": "success",
+                "data": {
+                    "id": msg_id,
+                    "student_id": case_id,
+                    "sender": sender_name,
+                    "message": req.message,
+                    "mentioned_users": mentions,
+                    "read_by": [{"user": sender_name, "read_at": datetime.now().strftime("%Y-%m-%d %H:%M")}],
+                    "is_system": False,
+                    "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S")
+                }
+            }
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        conn.close()
+
+
+@app.post("/api/pipeline/{case_id}/chat/read")
+def mark_chat_as_read(case_id: int, user_data: dict = Depends(verify_token)):
+    user_name = user_data.get("name", "Unknown")
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Fetch unread messages
+            cur.execute("SELECT id, read_by FROM chat_messages WHERE student_id = %s", (case_id,))
+            messages = cur.fetchall()
+            
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            for msg in messages:
+                read_by_list = msg["read_by"] or []
+                if not isinstance(read_by_list, list):
+                    read_by_list = []
+                
+                # Check if this user already read it
+                if not any(r.get("user") == user_name for r in read_by_list):
+                    read_by_list.append({"user": user_name, "read_at": now_str})
+                    cur.execute(
+                        "UPDATE chat_messages SET read_by = %s::jsonb WHERE id = %s",
+                        (json.dumps(read_by_list), msg["id"])
+                    )
+            conn.commit()
+            return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        conn.close()
+
+
+@app.get("/api/notifications")
+def get_user_notifications(user_data: dict = Depends(verify_token)):
+    username = user_data.get("name")
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, recipient_username, sender, message, is_read, 
+                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
+                FROM notifications 
+                WHERE recipient_username = %s AND is_read = FALSE 
+                ORDER BY created_at DESC
+            """, (username,))
+            return {"status": "success", "data": cur.fetchall()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        conn.close()
+
+
+@app.post("/api/notifications/{id}/read")
+def mark_notification_read(id: int, user_data: dict = Depends(verify_token)):
+    username = user_data.get("name")
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE notifications 
+                SET is_read = TRUE 
+                WHERE id = %s AND recipient_username = %s
+            """, (id, username))
+            conn.commit()
+            return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         conn.close()
 
@@ -1990,11 +2225,21 @@ def get_all_students():
         conn.close()
 
 
-@app.put("/api/students/{student_id}", dependencies=[Depends(get_current_user)])
-def update_student(student_id: int, student: StudentUpdate):
+@app.put("/api/students/{student_id}")
+def update_student(student_id: int, student: StudentUpdate, current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            # 1. Fetch old values for comparison
+            cur.execute("""
+                SELECT academic_field, career_goal, campus_env,
+                       father_name, father_email, father_whatsapp,
+                       mother_name, mother_email, mother_whatsapp
+                FROM students WHERE id = %s
+            """, (student_id,))
+            old_profile = cur.fetchone()
+
+            # 2. Process updates
             data = student.dict(exclude_unset=True)
             if not data:
                 raise HTTPException(status_code=400, detail="No data provided to update.")
@@ -2004,6 +2249,56 @@ def update_student(student_id: int, student: StudentUpdate):
             if cur.rowcount == 0:
                 conn.rollback()
                 raise HTTPException(status_code=404, detail="Student not found.")
+
+            # 3. Log system activity messages to chat
+            user_name = current_user.get("name", "Unknown")
+            academic_profile_updated = False
+            parent_profile_updated = False
+            campus_env_changed = False
+            new_campus_env = ""
+
+            if old_profile:
+                old_acad_field, old_career_goal, old_campus_env, \
+                old_f_name, old_f_email, old_f_whatsapp, \
+                old_m_name, old_m_email, old_m_whatsapp = old_profile
+
+                # Check if academic profile changed
+                if (student.academic_field is not None and student.academic_field != old_acad_field) or \
+                   (student.career_goal is not None and student.career_goal != old_career_goal):
+                    academic_profile_updated = True
+
+                # Check if campus environment changed
+                if student.campus_env is not None and student.campus_env != old_campus_env:
+                    campus_env_changed = True
+                    new_campus_env = student.campus_env
+
+                # Check if parent profile changed
+                if (student.father_name is not None and student.father_name != old_f_name) or \
+                   (student.father_email is not None and student.father_email != old_f_email) or \
+                   (student.father_whatsapp is not None and student.father_whatsapp != old_f_whatsapp) or \
+                   (student.mother_name is not None and student.mother_name != old_m_name) or \
+                   (student.mother_email is not None and student.mother_email != old_m_email) or \
+                   (student.mother_whatsapp is not None and student.mother_whatsapp != old_m_whatsapp):
+                    parent_profile_updated = True
+
+            if academic_profile_updated:
+                cur.execute("""
+                    INSERT INTO chat_messages (student_id, sender, message, is_system)
+                    VALUES (%s, 'System', %s, TRUE)
+                """, (student_id, f"{user_name} updated Academic Profile"))
+
+            if campus_env_changed:
+                cur.execute("""
+                    INSERT INTO chat_messages (student_id, sender, message, is_system)
+                    VALUES (%s, 'System', %s, TRUE)
+                """, (student_id, f"{user_name} changed Preferred Campus Environment to {new_campus_env}"))
+
+            if parent_profile_updated:
+                cur.execute("""
+                    INSERT INTO chat_messages (student_id, sender, message, is_system)
+                    VALUES (%s, 'System', %s, TRUE)
+                """, (student_id, f"{user_name} updated Parent Profile"))
+
             conn.commit()
             return {"status": "success", "message": "Student updated successfully."}
     except HTTPException:

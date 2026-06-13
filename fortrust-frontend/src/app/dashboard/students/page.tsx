@@ -16,7 +16,7 @@ const DOC_TYPES = [
   "English Test",
   "SOP",
   "Profiling Test",
-  "Other"
+  "Custom (Specify below)"
 ];
 
 // Standard categories shown in the checklist (each can hold multiple files).
@@ -45,7 +45,6 @@ const ACADEMIC_FIELDS = [
   { label: "Architecture", emoji: "🏛️" },
   { label: "Education & Teaching", emoji: "📚" },
   { label: "Hospitality & Tourism", emoji: "🏨" },
-  { label: "Other", emoji: "✨" },
 ];
 
 const MAX_FIELD_INTERESTS = 3;
@@ -113,7 +112,12 @@ export default function GlobalStudentDatabase() {
   const [isArchiving, setIsArchiving] = useState<boolean>(false);
 
   const [editingStudent, setEditingStudent] = useState<any>(null);
-  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "profiling_test" | "assessment" | "program_finder" | "notes">("profile");
+  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "profiling_test" | "assessment" | "program_finder" | "notes" | "team_collab">("profile");
+  
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatInput, setChatInput] = useState<string>("");
+  const [isSendingChat, setIsSendingChat] = useState<boolean>(false);
+  const [customDocType, setCustomDocType] = useState<string>("");
   const [isSavingStudent, setIsSavingStudent] = useState(false);
   
   const [aiReport, setAiReport] = useState("");
@@ -323,6 +327,108 @@ export default function GlobalStudentDatabase() {
     }
   };
 
+  const downloadSampleSOP = () => {
+    const templateText = `STATEMENT OF PURPOSE TEMPLATE
+
+1. INTRODUCTION & ACADEMIC BACKGROUND
+Identify yourself, the program you are applying for, and your current academic qualifications.
+Explain what motivated you to choose this field of study.
+
+2. WHY THIS PROGRAM & UNIVERSITY?
+Detail your interest in the specific course curriculum and why this institution stands out (professors, facilities, reputation).
+Relate this to your academic interests.
+
+3. WORK EXPERIENCE & PROJECTS (IF APPLICABLE)
+Mention any relevant internships, projects, or professional roles that support your application.
+Highlight key skills gained.
+
+4. CAREER GOALS & FUTURE PLANS
+Clearly define your short-term and long-term career aspirations.
+Explain how this degree will help you achieve those objectives.
+
+5. CONCLUSION
+Summarize your intent and express your enthusiasm to join the university.
+
+---
+Prepared by Fortrust Education Consultant Services
+`;
+    const blob = new Blob([templateText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "Sample_SOP_Template.txt");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const fetchChatMessages = async (studentId: number) => {
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentId}/chat`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setChatMessages(data.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch chat messages", error);
+    }
+  };
+
+  const sendChatMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !editingStudent) return;
+    setIsSendingChat(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/chat`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ message: chatInput })
+      });
+      if (res.ok) {
+        setChatInput("");
+        await fetchChatMessages(editingStudent.id);
+      } else {
+        setNotification({ type: 'error', message: "Failed to send message." });
+      }
+    } catch (error) {
+      setNotification({ type: 'error', message: "Network error." });
+    } finally {
+      setIsSendingChat(false);
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const markChatAsRead = async (studentId: number) => {
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentId}/chat/read`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+    } catch (error) {
+      console.error("Failed to mark chat as read", error);
+    }
+  };
+
+  useEffect(() => {
+    if (editingStudent && dossierTab === 'team_collab') {
+      fetchChatMessages(editingStudent.id);
+      markChatAsRead(editingStudent.id);
+      const interval = setInterval(() => {
+        fetchChatMessages(editingStudent.id);
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [editingStudent?.id, dossierTab]);
+
   const handleEditStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStudent) return;
@@ -339,7 +445,16 @@ export default function GlobalStudentDatabase() {
           program_interest: editingStudent.program_interest,
           status: editingStudent.status,
           lead_temperature: editingStudent.lead_temperature,
-          field_interests: JSON.stringify(fieldInterests)
+          field_interests: JSON.stringify(fieldInterests),
+          father_name: editingStudent.father_name || "",
+          father_email: editingStudent.father_email || "",
+          father_whatsapp: editingStudent.father_whatsapp || "",
+          mother_name: editingStudent.mother_name || "",
+          mother_email: editingStudent.mother_email || "",
+          mother_whatsapp: editingStudent.mother_whatsapp || "",
+          academic_field: editingStudent.academic_field || "",
+          career_goal: editingStudent.career_goal || "",
+          campus_env: editingStudent.campus_env || ""
         })
       });
       if (res.ok) {
@@ -993,8 +1108,11 @@ export default function GlobalStudentDatabase() {
               <button onClick={() => setDossierTab('program_finder')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'program_finder' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
                 <FileText size={16} /> Program Finder
               </button>
-              <button onClick={() => setDossierTab('notes')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'notes' ? 'border-b-2 border-blue-600 text-blue-700 bg-white' : 'text-slate-400 hover:text-blue-600'}`}>
+              <button onClick={() => setDossierTab('team_collab')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'team_collab' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
                 <MessageSquare size={16} /> Team Collab
+              </button>
+              <button onClick={() => setDossierTab('notes')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'notes' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
+                <FileText size={16} /> Internal Notes
               </button>
             </div>
 
@@ -1107,6 +1225,148 @@ export default function GlobalStudentDatabase() {
                         )}
                       </div>
                     </div>
+
+                    {/* PARENT DETAILS SECTION */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+                      <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                        <User size={16} className="text-blue-500"/> Parent Contact Information
+                      </h4>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Father Info */}
+                        <div className="space-y-4">
+                          <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100/50 pb-1">Father Details</h5>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Father Name</label>
+                            <input type="text" placeholder="Father's full name" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all" value={editingStudent.father_name || ""} onChange={e => setEditingStudent({...editingStudent, father_name: e.target.value})} />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Father Email</label>
+                            <input type="email" placeholder="father@example.com" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all" value={editingStudent.father_email || ""} onChange={e => setEditingStudent({...editingStudent, father_email: e.target.value})} />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Father WA Number</label>
+                            <input type="text" placeholder="+62 812..." className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all" value={editingStudent.father_whatsapp || ""} onChange={e => setEditingStudent({...editingStudent, father_whatsapp: e.target.value})} />
+                          </div>
+                        </div>
+
+                        {/* Mother Info */}
+                        <div className="space-y-4">
+                          <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100/50 pb-1">Mother Details</h5>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Mother Name</label>
+                            <input type="text" placeholder="Mother's full name" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all" value={editingStudent.mother_name || ""} onChange={e => setEditingStudent({...editingStudent, mother_name: e.target.value})} />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Mother Email</label>
+                            <input type="email" placeholder="mother@example.com" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all" value={editingStudent.mother_email || ""} onChange={e => setEditingStudent({...editingStudent, mother_email: e.target.value})} />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Mother WA Number</label>
+                            <input type="text" placeholder="+62 812..." className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all" value={editingStudent.mother_whatsapp || ""} onChange={e => setEditingStudent({...editingStudent, mother_whatsapp: e.target.value})} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ACADEMIC PROFILE VARIABLES */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                      <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                        <GraduationCap size={16} className="text-[#BAD133]"/> Academic Profile Variables
+                      </h4>
+                      
+                      <div className="space-y-4">
+                        {/* Academic Field */}
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Academic Field of Interest</label>
+                          <select
+                            value={["Business & Management", "STEM", "Arts & Humanities", "Healthcare & Medicine"].includes(editingStudent.academic_field || "") ? editingStudent.academic_field : (editingStudent.academic_field ? "custom" : "")}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditingStudent({
+                                ...editingStudent,
+                                academic_field: val === "custom" ? "" : val
+                              });
+                            }}
+                            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all cursor-pointer font-bold text-[#282860]"
+                          >
+                            <option value="">-- Choose standard academic field --</option>
+                            <option value="Business & Management">Business & Management</option>
+                            <option value="STEM">STEM</option>
+                            <option value="Arts & Humanities">Arts & Humanities</option>
+                            <option value="Healthcare & Medicine">Healthcare & Medicine</option>
+                            <option value="custom">Custom (Type below)</option>
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="Custom Academic Field / Specification"
+                            className="w-full mt-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all"
+                            value={editingStudent.academic_field || ""}
+                            onChange={(e) => setEditingStudent({ ...editingStudent, academic_field: e.target.value })}
+                          />
+                        </div>
+
+                        {/* Career Goal */}
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Primary Post-Graduation Career Goal</label>
+                          <select
+                            value={["Corporate Leadership", "Startup Founder", "Research & Academia", "Creative Freelance"].includes(editingStudent.career_goal || "") ? editingStudent.career_goal : (editingStudent.career_goal ? "custom" : "")}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditingStudent({
+                                ...editingStudent,
+                                career_goal: val === "custom" ? "" : val
+                              });
+                            }}
+                            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all cursor-pointer font-bold text-[#282860]"
+                          >
+                            <option value="">-- Choose standard career goal --</option>
+                            <option value="Corporate Leadership">Corporate Leadership</option>
+                            <option value="Startup Founder">Startup Founder</option>
+                            <option value="Research & Academia">Research & Academia</option>
+                            <option value="Creative Freelance">Creative Freelance</option>
+                            <option value="custom">Custom (Type below)</option>
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="Custom Career Goal / Specification"
+                            className="w-full mt-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all"
+                            value={editingStudent.career_goal || ""}
+                            onChange={(e) => setEditingStudent({ ...editingStudent, career_goal: e.target.value })}
+                          />
+                        </div>
+
+                        {/* Preferred Campus Environment */}
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Preferred Campus Environment</label>
+                          <select
+                            value={["Bustling Metropolis", "Traditional College Town", "Tech & Innovation Hub", "Quiet & Nature-Focused"].includes(editingStudent.campus_env || "") ? editingStudent.campus_env : (editingStudent.campus_env ? "custom" : "")}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditingStudent({
+                                ...editingStudent,
+                                campus_env: val === "custom" ? "" : val
+                              });
+                            }}
+                            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all cursor-pointer font-bold text-[#282860]"
+                          >
+                            <option value="">-- Choose standard campus environment --</option>
+                            <option value="Bustling Metropolis">Bustling Metropolis</option>
+                            <option value="Traditional College Town">Traditional College Town</option>
+                            <option value="Tech & Innovation Hub">Tech & Innovation Hub</option>
+                            <option value="Quiet & Nature-Focused">Quiet & Nature-Focused</option>
+                            <option value="custom">Custom (Type below)</option>
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="Custom Campus Environment / Specification"
+                            className="w-full mt-2 px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] transition-all"
+                            value={editingStudent.campus_env || ""}
+                            onChange={(e) => setEditingStudent({ ...editingStudent, campus_env: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </form>
                 </div>
               )}
@@ -1139,11 +1399,26 @@ export default function GlobalStudentDatabase() {
                           {isUploadingDoc ? "Uploading..." : "Browse"}
                           <input type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden" disabled={isUploadingDoc}
                             onChange={(e) => {
-                              if(e.target.files && e.target.files[0]) handleDocumentUpload(e.target.files[0], selectedDocType);
+                              if(e.target.files && e.target.files[0]) {
+                                const finalDocType = selectedDocType === "Custom (Specify below)" ? (customDocType || "Custom Doc") : selectedDocType;
+                                handleDocumentUpload(e.target.files[0], finalDocType);
+                              }
                               e.target.value = "";
                             }} />
                         </label>
                       </div>
+                    </div>
+                    {/* Permanent Custom Input underneath selector */}
+                    <div className="max-w-xl mx-auto mt-4">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 block">Custom Document Specification (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Recommendation Letter, Academic Certificate"
+                        className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-blue-400 transition-all"
+                        value={customDocType}
+                        onChange={(e) => setCustomDocType(e.target.value)}
+                        disabled={isUploadingDoc}
+                      />
                     </div>
                     <p className="text-[10px] text-slate-400 text-center mt-4">Accepted: PDF, images, Word, Excel, text (max 10MB)</p>
                   </div>
@@ -1190,6 +1465,15 @@ export default function GlobalStudentDatabase() {
                                   )}
                                 </div>
                                 <p className="text-xs text-slate-500 mt-0.5">{cat.description}</p>
+                                {cat.type === "SOP" && (
+                                  <button
+                                    type="button"
+                                    onClick={downloadSampleSOP}
+                                    className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline mt-1.5 flex items-center gap-1"
+                                  >
+                                    <FileText size={12}/> Download Sample of SOP
+                                  </button>
+                                )}
                               </div>
                             </div>
 
@@ -1704,6 +1988,98 @@ export default function GlobalStudentDatabase() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {dossierTab === 'team_collab' && (() => {
+                let currentUserName = "Master Admin";
+                try {
+                  const token = localStorage.getItem("fortrust_token");
+                  if (token) {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    currentUserName = payload.name || "Master Admin";
+                  }
+                } catch (e) {}
+
+                return (
+                  <div className="flex flex-col h-full animate-in fade-in">
+                    <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6 bg-slate-50/50">
+                      {chatMessages.length === 0 ? (
+                        <div className="text-center py-16 text-slate-400 flex flex-col items-center">
+                          <MessageSquare size={40} className="mb-3 text-slate-200 animate-bounce" />
+                          <p className="font-bold">Team Discussion Thread</p>
+                          <p className="text-xs mt-1">Start collaborating with other agents by typing below.</p>
+                        </div>
+                      ) : (
+                        chatMessages.map((msg: any) => {
+                          if (msg.is_system) {
+                            return (
+                              <div key={msg.id} className="flex justify-center my-3">
+                                <div className="bg-slate-100/80 border border-slate-200/50 text-slate-500 text-xs px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm font-medium">
+                                  <Activity size={12} className="text-[#BAD133] animate-pulse"/>
+                                  <span>{msg.message}</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">({new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})</span>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          const isMe = msg.sender === currentUserName;
+                          let readUsers: any[] = [];
+                          try {
+                            readUsers = typeof msg.read_by === 'string' ? JSON.parse(msg.read_by || "[]") : (msg.read_by || []);
+                          } catch (e) {
+                            readUsers = [];
+                          }
+                          const seenBy = readUsers.filter((u: any) => u.user !== msg.sender).map((u: any) => u.user.split(" ")[0]);
+
+                          return (
+                            <div key={msg.id} className={`flex gap-3 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                              {!isMe && (
+                                <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 font-bold border-2 border-white shadow-sm text-xs">
+                                  {(msg.sender || "U").charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <div className="max-w-[70%]">
+                                <div className={`flex items-baseline gap-2 mb-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                  <span className="font-bold text-slate-800 text-xs">{msg.sender}</span>
+                                  <span className="text-[9px] text-slate-400 font-semibold">{new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                </div>
+                                <div className={`p-4 rounded-2xl shadow-sm text-sm whitespace-pre-wrap ${
+                                  isMe ? 'bg-[#282860] text-white rounded-tr-none' : 'bg-white text-slate-700 border border-slate-200 rounded-tl-none'
+                                }`}>
+                                  {msg.message}
+                                </div>
+                                {seenBy.length > 0 && (
+                                  <p className="text-[9px] text-slate-400 mt-1 text-right italic font-medium">
+                                    Seen by {seenBy.join(", ")}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    <div className="p-5 bg-white border-t border-slate-200 shrink-0">
+                      <form onSubmit={sendChatMessage} className="relative">
+                        <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+                          placeholder="Type a message... Use @Name to tag team members."
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 pr-16 text-sm outline-none focus:bg-white focus:border-[#282860] focus:ring-4 focus:ring-[#282860]/10 transition-all resize-none" rows={2}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              sendChatMessage(e);
+                            }
+                          }} />
+                        <button type="submit" disabled={!chatInput.trim() || isSendingChat}
+                          className="absolute right-3 bottom-3 w-10 h-10 rounded-xl bg-[#282860] hover:bg-[#1b1b42] text-white flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md">
+                          {isSendingChat ? <Loader2 size={16} className="animate-spin"/> : <Send size={16} className="-ml-0.5 mt-0.5" />}
+                        </button>
+                      </form>
+                      <p className="text-[10px] text-slate-400 mt-2 font-medium text-center">Press Enter to send, @Mention active agents.</p>
                     </div>
                   </div>
                 );
