@@ -94,7 +94,8 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS field_interests TEXT DEFAULT '';")
-            
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS budget TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archive_reason TEXT DEFAULT '';")
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS institutions (
@@ -415,6 +416,8 @@ class UpdateLeadRequest(BaseModel):
     commission_rate: Optional[float] = None
     currency: Optional[str] = None
     loss_reason: Optional[str] = None
+    archive_reason: Optional[str] = None
+    budget: Optional[str] = None
 
 
 class TimelineNote(BaseModel):
@@ -449,6 +452,7 @@ class StudentCreate(BaseModel):
     program_interest: Optional[str] = None
     lead_source: Optional[str] = None
     lead_temperature: Optional[str] = None
+    budget: Optional[str] = None
 
 
 class StudentUpdate(BaseModel):
@@ -464,6 +468,7 @@ class StudentUpdate(BaseModel):
     commission_earned: Optional[float] = None
     loss_reason: Optional[str] = None
     field_interests: Optional[str] = None
+    budget: Optional[str] = None
 
 
 class InstitutionUpdate(BaseModel):
@@ -1017,6 +1022,7 @@ async def create_lead(
     phone: str = Form(""),
     notes: str = Form(""),
     assignee: str = Form("Unassigned"),
+    budget: str = Form(""),
     report_cards: List[UploadFile] = File(default=[]),
     psych_tests: List[UploadFile] = File(default=[]),
     user_data: dict = Depends(verify_token)
@@ -1028,10 +1034,10 @@ async def create_lead(
         # Phase 1: INSERT student first to get a stable ID for filenames
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO students (name, email, phone, assignee, status, notes, documents, pdf_text)
-                VALUES (%s, %s, %s, %s, 'NEW LEAD', %s, '[]'::jsonb, '')
+                INSERT INTO students (name, email, phone, assignee, status, notes, documents, pdf_text, budget)
+                VALUES (%s, %s, %s, %s, 'NEW LEAD', %s, '[]'::jsonb, '', %s)
                 RETURNING id
-            """, (name, email, phone, assignee, notes))
+            """, (name, email, phone, assignee, notes, budget))
             new_id = cur.fetchone()[0]
             conn.commit()
 
@@ -1170,11 +1176,35 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
                 params.append(req.loss_reason)
                 audit_details["loss_reason"] = req.loss_reason
 
+            if req.archive_reason is not None:
+                updates.append("archive_reason = %s")
+                params.append(req.archive_reason)
+                audit_details["archive_reason"] = req.archive_reason
+
+            if req.budget is not None:
+                updates.append("budget = %s")
+                params.append(req.budget)
+                audit_details["budget"] = req.budget
+
             if not updates:
                 return {"status": "success", "message": "Nothing to update."}
 
             params.append(case_id)
             cur.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = %s", tuple(params))
+
+            if req.status and req.status.lower() == "archived":
+                agent_name = user_data.get("name", "Admin") if user_data else "Admin"
+                reason = req.archive_reason or "No reason specified"
+                new_entry = {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "author": agent_name,
+                    "note": f"{agent_name} archived student.\nReason: {reason}.",
+                    "reminder_date": None
+                }
+                cur.execute(
+                    "UPDATE students SET timeline = timeline || %s::jsonb WHERE id = %s",
+                    (json.dumps([new_entry]), case_id)
+                )
 
             agent_name = user_data.get("name", "Unknown") if user_data else "Unknown"
             log_audit_event(
@@ -1930,11 +1960,11 @@ def create_student(student: StudentCreate):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO students (name, email, phone, assignee, status, program_interest, lead_source, lead_temperature)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                INSERT INTO students (name, email, phone, assignee, status, program_interest, lead_source, lead_temperature, budget)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
             """, (
                 student.name, student.email, student.phone, student.assignee,
-                student.status, student.program_interest, student.lead_source, student.lead_temperature
+                student.status, student.program_interest, student.lead_source, student.lead_temperature, student.budget
             ))
             new_id = cur.fetchone()[0]
             conn.commit()
@@ -1952,7 +1982,7 @@ def get_all_students():
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, name, email, phone, assignee, status, lead_temperature, program_interest, created_at
+                SELECT id, name, email, phone, assignee, status, lead_temperature, program_interest, budget, created_at
                 FROM students ORDER BY created_at DESC
             """)
             return {"status": "success", "data": cur.fetchall()}

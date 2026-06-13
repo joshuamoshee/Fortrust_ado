@@ -7,7 +7,7 @@ import {
   X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
   Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
   Eye, Trash2, Plus, MessageSquare, Send, Clock, User, Circle,
-  ChevronRight, ChevronLeft, CheckCircle, Award, Briefcase, Sparkles, Target
+  ChevronRight, ChevronLeft, CheckCircle, Award, Briefcase, Sparkles, Target, ChevronDown, Archive
 } from "lucide-react";
 
 const DOC_TYPES = [
@@ -49,6 +49,15 @@ const ACADEMIC_FIELDS = [
 ];
 
 const MAX_FIELD_INTERESTS = 3;
+
+const ARCHIVE_REASONS = [
+  "Not Interested",
+  "No Response",
+  "Budget Issue",
+  "Incomplete Documents",
+  "Apply through other agent",
+  "Other"
+];
 
 // Category matchers - used to group existing docs into the right buckets.
 const CATEGORY_MATCHERS: Record<string, (t: string, f: string) => boolean> = {
@@ -96,6 +105,13 @@ export default function GlobalStudentDatabase() {
   const [selectedNewAgent, setSelectedNewAgent] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
 
+  const [openDropdownStudentId, setOpenDropdownStudentId] = useState<string | null>(null);
+  
+  const [archiveStudent, setArchiveStudent] = useState<any | null>(null);
+  const [archiveStep, setArchiveStep] = useState<number>(0);
+  const [archiveReason, setArchiveReason] = useState<string>("");
+  const [isArchiving, setIsArchiving] = useState<boolean>(false);
+
   const [editingStudent, setEditingStudent] = useState<any>(null);
   const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "profiling_test" | "assessment" | "program_finder" | "notes">("profile");
   const [isSavingStudent, setIsSavingStudent] = useState(false);
@@ -139,7 +155,7 @@ export default function GlobalStudentDatabase() {
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newStudent, setNewStudent] = useState({
-    name: "", email: "", phone: "", assignee: "", program_interest: "", lead_source: "", lead_temperature: "Cold Leads", status: "NEW LEAD"
+    name: "", email: "", phone: "", assignee: "", program_interest: "", lead_source: "", lead_temperature: "Cold Leads", status: "NEW LEAD", budget: ""
   });
   const [isCreatingStudent, setIsCreatingStudent] = useState(false);
 
@@ -213,7 +229,7 @@ export default function GlobalStudentDatabase() {
       if (res.ok) {
         setNotification({type: 'success', message: 'Student successfully added to the global pipeline.'});
         setIsAddModalOpen(false);
-        setNewStudent({ name: "", email: "", phone: "", assignee: "", program_interest: "", lead_source: "", lead_temperature: "Cold Leads", status: "NEW LEAD" });
+        setNewStudent({ name: "", email: "", phone: "", assignee: "", program_interest: "", lead_source: "", lead_temperature: "Cold Leads", status: "NEW LEAD", budget: "" });
         fetchData();
       } else {
         setNotification({type: 'error', message: data.detail || "Failed to create student."});
@@ -249,6 +265,60 @@ export default function GlobalStudentDatabase() {
       setNotification({type: 'error', message: "Network error."});
     } finally {
       setIsAssigning(false);
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const handleDirectReassign = async (studentId: string, newAgentName: string) => {
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentId}`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ assignee: newAgentName })
+      });
+      if (res.ok) {
+        setNotification({type: 'success', message: `Student reassigned to ${newAgentName}.`});
+        fetchData();
+      } else {
+        setNotification({type: 'error', message: "Failed to reassign student."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error."});
+    } finally {
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const handleStartArchive = (student: any) => {
+    setArchiveStudent(student);
+    setArchiveReason("");
+    setArchiveStep(1);
+  };
+
+  const handleConfirmArchive = async () => {
+    if (!archiveStudent || !archiveReason) return;
+    setIsArchiving(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${archiveStudent.id}`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "archived", archive_reason: archiveReason })
+      });
+      if (res.ok) {
+        setNotification({type: 'success', message: `${archiveStudent.name} has been archived successfully.`});
+        setArchiveStep(0);
+        setArchiveStudent(null);
+        setArchiveReason("");
+        fetchData();
+      } else {
+        setNotification({type: 'error', message: "Failed to archive student."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error."});
+    } finally {
+      setIsArchiving(false);
       setTimeout(() => setNotification(null), 3000);
     }
   };
@@ -633,17 +703,18 @@ export default function GlobalStudentDatabase() {
             <thead className="bg-[#f8fafc] border-b border-slate-200 text-[10px] font-black text-slate-400 tracking-widest uppercase sticky top-0 z-10">
               <tr>
                 <th className="px-6 py-5">Student Identity</th>
-                <th className="px-6 py-5">Pipeline Stage</th>
                 <th className="px-6 py-5">Target Destination</th>
+                <th className="px-6 py-5">Budget</th>
                 <th className="px-6 py-5">Assigned Agent</th>
+                <th className="px-6 py-5">Pipeline Stage</th>
                 <th className="px-6 py-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={5} className="p-16 text-center"><Loader2 size={32} className="animate-spin text-[#BAD133] mx-auto mb-4"/> Syncing Global Database...</td></tr>
+                <tr><td colSpan={6} className="p-16 text-center"><Loader2 size={32} className="animate-spin text-[#BAD133] mx-auto mb-4"/> Syncing Global Database...</td></tr>
               ) : filteredStudents.length === 0 ? (
-                <tr><td colSpan={5} className="p-16 text-center text-slate-400 font-medium">No students match your criteria.</td></tr>
+                <tr><td colSpan={6} className="p-16 text-center text-slate-400 font-medium">No students match your criteria.</td></tr>
               ) : (
                 filteredStudents.map((student) => (
                   <tr key={student.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => { setEditingStudent(student); setDossierTab("profile"); }}>
@@ -660,12 +731,6 @@ export default function GlobalStudentDatabase() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider ${getStatusColor(student.status)}`}>
-                        {student.status || "NEW LEAD"}
-                      </span>
-                      <p className="text-[10px] text-slate-400 font-medium mt-1">Last Update: {new Date(student.updated_at || student.created_at).toLocaleDateString()}</p>
-                    </td>
-                    <td className="px-6 py-4">
                       <div className="flex items-center gap-1.5 font-bold text-slate-700 text-sm">
                         <MapPin size={14} className="text-slate-400"/> {student.country_interest || "Not Specified"}
                       </div>
@@ -674,27 +739,63 @@ export default function GlobalStudentDatabase() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {!student.assignee || student.assignee === "Unassigned" ? (
-                        <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold">
-                          <UserMinus size={14}/> Unassigned
-                        </span>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-[10px]">
-                            {student.assignee.charAt(0).toUpperCase()}
+                      <span className="font-bold text-slate-700 text-sm">
+                        {student.budget || "—"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                      <div className="relative">
+                        <button onClick={() => setOpenDropdownStudentId(openDropdownStudentId === student.id ? null : student.id)}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200 shadow-sm bg-white">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] ${
+                            !student.assignee || student.assignee === "Unassigned" ? "bg-red-50 text-red-600" : "bg-blue-100 text-blue-700"
+                          }`}>
+                            {(student.assignee || "U").charAt(0).toUpperCase()}
                           </div>
-                          <span className="font-bold text-slate-700 text-sm">{student.assignee}</span>
-                        </div>
-                      )}
+                          <span className="font-bold text-slate-700 text-sm">{student.assignee || "Unassigned"}</span>
+                          <ChevronDown size={14} className="text-slate-400" />
+                        </button>
+                        
+                        {openDropdownStudentId === student.id && (
+                          <>
+                            <div className="fixed inset-0 z-20" onClick={() => setOpenDropdownStudentId(null)} />
+                            <div className="absolute left-0 mt-2 w-52 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1.5 max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-top-2 duration-100">
+                              <button onClick={() => { handleDirectReassign(student.id, "Unassigned"); setOpenDropdownStudentId(null); }}
+                                className="w-full text-left px-4 py-2 hover:bg-slate-50 text-red-600 text-sm font-bold flex items-center gap-2">
+                                <UserMinus size={14} /> Unassigned
+                              </button>
+                              <div className="border-t border-slate-100 my-1"></div>
+                              {agents.map((agent) => (
+                                <button key={agent.id}
+                                  onClick={() => { handleDirectReassign(student.id, agent.name); setOpenDropdownStudentId(null); }}
+                                  className={`w-full text-left px-4 py-2 text-sm font-medium hover:bg-slate-50 flex items-center gap-2 ${
+                                    student.assignee === agent.name ? 'text-blue-600 font-bold bg-blue-50/50' : 'text-slate-700'
+                                  }`}>
+                                  <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[9px] font-black shrink-0">
+                                    {agent.name.charAt(0).toUpperCase()}
+                                  </div>
+                                  <span className="truncate">{agent.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider ${getStatusColor(student.status)}`}>
+                        {student.status || "NEW LEAD"}
+                      </span>
+                      <p className="text-[10px] text-slate-400 font-medium mt-1">Last Update: {new Date(student.updated_at || student.created_at).toLocaleDateString()}</p>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                         <button onClick={() => { setEditingStudent(student); setDossierTab("profile"); }} className="p-2 bg-white text-slate-400 hover:text-[#282860] hover:bg-slate-100 border border-slate-200 rounded-lg shadow-sm transition-colors" title="View Student Dossier">
                           <FileText size={16} />
                         </button>
-                        <button onClick={() => { setStudentToReassign(student); setIsReassignModalOpen(true); }}
-                          className="px-3 py-2 bg-slate-50 text-blue-600 hover:bg-blue-600 hover:text-white border border-blue-200 hover:border-blue-600 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5">
-                          <RefreshCcw size={14}/> Reassign
+                        <button onClick={() => handleStartArchive(student)}
+                          className="px-3 py-2 bg-slate-50 text-red-600 hover:bg-red-600 hover:text-white border border-red-200 hover:border-red-600 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5">
+                          <Archive size={14}/> Archive
                         </button>
                       </div>
                     </td>
@@ -758,9 +859,15 @@ export default function GlobalStudentDatabase() {
                       <input type="text" placeholder="e.g. Master of Data Science" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.program_interest} onChange={e => setNewStudent({...newStudent, program_interest: e.target.value})} />
                     </div>
                   </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Lead Source</label>
-                    <input type="text" placeholder="e.g. Instagram Ads, Education Fair" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.lead_source} onChange={e => setNewStudent({...newStudent, lead_source: e.target.value})} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Lead Source</label>
+                      <input type="text" placeholder="e.g. Instagram Ads, Education Fair" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.lead_source} onChange={e => setNewStudent({...newStudent, lead_source: e.target.value})} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Budget</label>
+                      <input type="text" placeholder="e.g. $25,000 / year" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.budget} onChange={e => setNewStudent({...newStudent, budget: e.target.value})} />
+                    </div>
                   </div>
                 </div>
               </form>
@@ -775,35 +882,73 @@ export default function GlobalStudentDatabase() {
         </div>
       )}
 
-      {/* REASSIGN MODAL */}
-      {isReassignModalOpen && (
+      {/* ARCHIVE MODAL - STEP 1 (CONFIRMATION) */}
+      {archiveStep === 1 && archiveStudent && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
-              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2"><RefreshCcw size={22} className="text-blue-500" /> Reassign Pipeline</h2>
-              <button onClick={() => { setIsReassignModalOpen(false); setSelectedNewAgent(""); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2">
+                <AlertCircle size={22} className="text-red-500" /> Archive Student?
+              </h2>
+              <button onClick={() => { setArchiveStep(0); setArchiveStudent(null); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
+                <X size={20} />
+              </button>
             </div>
             <div className="p-8 space-y-6">
-              <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl">
-                <p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-1">Student Selected</p>
-                <p className="font-bold text-[#282860] text-lg">{studentToReassign?.name}</p>
-                <p className="text-sm text-slate-500 mt-1">Currently assigned to: <span className="font-bold text-slate-700">{studentToReassign?.assignee || "Unassigned"}</span></p>
+              <p className="text-slate-600 text-sm leading-relaxed">
+                Are you sure you want to archive <span className="font-bold text-slate-900">{archiveStudent.name}</span>? This action will remove the student from the active pipeline.
+              </p>
+              <div className="pt-2 flex justify-end gap-3">
+                <button onClick={() => { setArchiveStep(0); setArchiveStudent(null); }} className="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-800 font-bold rounded-xl text-sm transition-colors">
+                  Cancel
+                </button>
+                <button onClick={() => setArchiveStep(2)} className="bg-[#282860] hover:bg-[#1b1b42] text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-md">
+                  Continue
+                </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ARCHIVE MODAL - STEP 2 (REASON SELECTION) */}
+      {archiveStep === 2 && archiveStudent && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
+              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2">
+                <AlertCircle size={22} className="text-red-500" /> Reason for Archive
+              </h2>
+              <button onClick={() => { setArchiveStep(0); setArchiveStudent(null); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Select New Agent</label>
-                <select value={selectedNewAgent} onChange={(e) => setSelectedNewAgent(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 bg-slate-50 focus:bg-white cursor-pointer transition-all">
-                  <option value="" disabled>-- Choose Agent --</option>
-                  {agents.filter(a => a.name !== studentToReassign?.assignee).map(agent => (
-                    <option key={agent.id} value={agent.name}>{agent.name} ({agent.branch})</option>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2 block">
+                  Select Reason <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={archiveReason}
+                  onChange={(e) => setArchiveReason(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 bg-slate-50 focus:bg-white cursor-pointer transition-all"
+                >
+                  <option value="" disabled>▼ Select reason</option>
+                  {ARCHIVE_REASONS.map((reason, idx) => (
+                    <option key={idx} value={reason}>{reason}</option>
                   ))}
                 </select>
               </div>
-              <div className="pt-2 flex justify-end gap-3">
-                <button onClick={() => setIsReassignModalOpen(false)} className="px-5 py-3 text-slate-500 hover:text-slate-800 font-bold text-sm transition-colors">Cancel</button>
-                <button disabled={!selectedNewAgent || isAssigning} onClick={handleReassign} 
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-3 rounded-xl transition-all disabled:opacity-50 shadow-md flex items-center justify-center gap-2">
-                  {isAssigning ? <><Loader2 size={16} className="animate-spin"/> Moving...</> : "Confirm Transfer"}
+              <div className="pt-2 flex justify-end gap-3 border-t border-slate-100 mt-6">
+                <button onClick={() => setArchiveStep(1)} className="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-800 font-bold rounded-xl text-sm transition-colors">
+                  Cancel
+                </button>
+                <button
+                  disabled={!archiveReason || isArchiving}
+                  onClick={handleConfirmArchive}
+                  className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold px-6 py-2.5 rounded-xl text-sm transition-all shadow-md flex items-center gap-2"
+                >
+                  {isArchiving ? <><Loader2 size={16} className="animate-spin" /> Archiving...</> : "Confirm Archive"}
                 </button>
               </div>
             </div>
