@@ -16,3 +16,4 @@ PyJWT
 supabase
 email-validator
 passlib
+requests
