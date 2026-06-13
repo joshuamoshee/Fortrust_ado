@@ -19,8 +19,8 @@ const translations = {
     programFinder: "Program Finder",
     adminTools: "Admin Tools",
     mainDashboard: "Main Dashboard",
-    agentManagement: "Agent Management",
-    globalStudents: "Global Students",
+    agentManagement: "Agent",
+    globalStudents: "Student Management",
     broadcasts: "Broadcast Hub",
     aiAssistant: "AI Assistant", // NEW
     consultation: "Consultation",
@@ -29,8 +29,8 @@ const translations = {
     marketing: "Marketing",
     leads: "Leads",
     budgetRoi: "Budget & ROI",
-    aiStrategist: "AI Strategist",
-    institutionPartners: "Institution Partners",
+    aiStrategist: "Strategy Intelligence",
+    institutionPartners: "Institution",
     agreement: "Agreement",
     contactPerson: "Contact Person",
     commissionStructure: "Commission Structure",
@@ -40,7 +40,9 @@ const translations = {
     platformTutorial: "Platform Tutorial",
     accountSettings: "Account Settings",
     secureSignOut: "Secure Sign Out",
-    recentActivity: "Recent Activity"
+    recentActivity: "Recent Activity",
+    management: "Management",
+    account: "Account"
   },
   ID: {
     agentWorkspace: "Ruang Kerja Agen",
@@ -48,9 +50,9 @@ const translations = {
     programFinder: "Pencari Program",
     adminTools: "Alat Admin",
     mainDashboard: "Dasbor Utama",
-    agentManagement: "Manajemen Agen",
-    globalStudents: "Semua Siswa",
-    broadcasts: "Pusat Siaran",
+    agentManagement: "Agen",
+    globalStudents: "Manajemen Siswa",
+    broadcasts: "Broadcast Hub",
     aiAssistant: "Asisten AI", // NEW
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
@@ -58,8 +60,8 @@ const translations = {
     marketing: "Pemasaran",
     leads: "Prospek",
     budgetRoi: "Anggaran & ROI",
-    aiStrategist: "Strategi AI",
-    institutionPartners: "Mitra Institusi",
+    aiStrategist: "Strategy Intelligence",
+    institutionPartners: "Institusi",
     agreement: "Perjanjian",
     contactPerson: "Kontak Personal",
     commissionStructure: "Struktur Komisi",
@@ -69,7 +71,9 @@ const translations = {
     platformTutorial: "Panduan Sistem",
     accountSettings: "Pengaturan Akun",
     secureSignOut: "Keluar Aman",
-    recentActivity: "Aktivitas Terbaru"
+    recentActivity: "Aktivitas Terbaru",
+    management: "Manajemen",
+    account: "Akun"
   }
 };
 
@@ -334,13 +338,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
           {user.role === "MASTER_ADMIN" && (
             <>
-              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">{t.adminTools}</p>
-              
+              {/* Top Level Pages */}
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.mainDashboard}
               </Link>
 
+              <Link href="/dashboard/ai-assistant" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/ai-assistant' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Bot size={18} className={pathname === '/dashboard/ai-assistant' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.aiAssistant}
+              </Link>
+
+              {/* Management Group */}
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.management}</p>
+              
               <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.agentManagement}
@@ -351,27 +362,38 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 {t.globalStudents}
               </Link>
 
+              <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
+
               <Link href="/dashboard/broadcasts" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/broadcasts' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <BellRing size={18} className={pathname === '/dashboard/broadcasts' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.broadcasts}
               </Link>
 
-              {/* NEW AI ASSISTANT LINK */}
-              <Link href="/dashboard/ai-assistant" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/ai-assistant' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                <Bot size={18} className={pathname === '/dashboard/ai-assistant' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                {t.aiAssistant}
+              {/* Marketing Group */}
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.marketing}</p>
+
+              <Link href="/dashboard/marketing" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.leads}
               </Link>
 
-              <SidebarMenu label={t.consultation} icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: t.profilingTest, href: '/dashboard/profiling' }, { label: t.assessment, href: '/dashboard/assessment' }, { label: t.programFinder, href: '/dashboard/programs' } ]} />
-              
-              <SidebarMenu label={t.marketing} icon={<Megaphone size={18} />} activePath={pathname} menuItems={[ 
-                { label: t.leads, href: '/dashboard/marketing' },
-                { label: t.budgetRoi, href: '/dashboard/marketing/budget' },
-                { label: t.aiStrategist, href: '/dashboard/marketing/strategist' }
-              ]} />
-              
-              <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
-              <SidebarMenu label={t.commissions} icon={<DollarSign size={18} />} activePath={pathname} menuItems={[ { label: t.reports, href: '/dashboard/claimed' } ]} />
+              <Link href="/dashboard/marketing/budget" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing/budget' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <DollarSign size={18} className={pathname === '/dashboard/marketing/budget' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.budgetRoi}
+              </Link>
+
+              <Link href="/dashboard/marketing/strategist" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing/strategist' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <BrainCircuit size={18} className={pathname === '/dashboard/marketing/strategist' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.aiStrategist}
+              </Link>
+
+              {/* Account Group */}
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.account}</p>
+
+              <Link href="/dashboard/claimed" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/claimed' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <DollarSign size={18} className={pathname === '/dashboard/claimed' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.commissions}
+              </Link>
             </>
           )}
 

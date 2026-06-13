@@ -6,7 +6,8 @@ import {
   FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
   X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
   Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
-  Eye, Trash2, Plus, MessageSquare, Send, Clock, User, Circle
+  Eye, Trash2, Plus, MessageSquare, Send, Clock, User, Circle,
+  ChevronRight, ChevronLeft, CheckCircle, Award, Briefcase, Sparkles, Target
 } from "lucide-react";
 
 const DOC_TYPES = [
@@ -96,7 +97,7 @@ export default function GlobalStudentDatabase() {
   const [isAssigning, setIsAssigning] = useState(false);
 
   const [editingStudent, setEditingStudent] = useState<any>(null);
-  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai" | "notes">("profile");
+  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "profiling_test" | "assessment" | "program_finder" | "notes">("profile");
   const [isSavingStudent, setIsSavingStudent] = useState(false);
   
   const [aiReport, setAiReport] = useState("");
@@ -106,6 +107,29 @@ export default function GlobalStudentDatabase() {
   const [selectedDocType, setSelectedDocType] = useState("Report Card");
   const [loadingDocFilename, setLoadingDocFilename] = useState<string | null>(null);
   const [deletingDocFilename, setDeletingDocFilename] = useState<string | null>(null);
+
+  // States for relocated Profiling Test tab
+  const [isUploadingPsych, setIsUploadingPsych] = useState(false);
+
+  // States for relocated Assessment tab
+  const [assessmentSubTab, setAssessmentSubTab] = useState<"profiling" | "document">("profiling");
+  const [profilingStep, setProfilingStep] = useState(0);
+  const [profilingAnswers, setProfilingAnswers] = useState<Record<string, string>>({});
+  const [isProfilingAnalyzing, setIsProfilingAnalyzing] = useState(false);
+  const [showProfilingResult, setShowProfilingResult] = useState(false);
+  const [ocrFile, setOcrFile] = useState<File | null>(null);
+  const [isOcrExtracting, setIsOcrExtracting] = useState(false);
+  const [showOcrResult, setShowOcrResult] = useState(false);
+
+  // States for relocated Program Finder tab
+  const [programDocs, setProgramDocs] = useState<any[]>([
+    { id: "doc1", documentName: "Official Academic Transcript (Last 1 Year)", category: "Academic", isRequired: true, status: "APPROVED", uploadedFile: { name: "Transcript_Final_Year.pdf", size: "2.4 MB", date: "2026-05-28" } },
+    { id: "doc2", documentName: "Human Care Consulting (HCC) Test Results", category: "Profile", isRequired: true, status: "PENDING_REVIEW", uploadedFile: { name: "HCC_Psychology_Report.pdf", size: "1.1 MB", date: "2026-06-01" }, feedback: "AI Core analysis running. Awaiting manual admin confirmation." },
+    { id: "doc3", documentName: "Valid International Passport (Bio Page)", category: "Identity", isRequired: true, status: "MISSING" },
+    { id: "doc4", documentName: "Statement of Purpose (SOP)", category: "Profile", isRequired: false, status: "MISSING" },
+    { id: "doc5", documentName: "Proof of Financial Solvency / Bank Statement", category: "Visa", isRequired: true, status: "MISSING" }
+  ]);
+  const [programFilter, setProgramFilter] = useState<"ALL" | "MISSING" | "PENDING" | "APPROVED">("ALL");
 
   const [fieldInterests, setFieldInterests] = useState<string[]>([]);
 
@@ -261,6 +285,64 @@ export default function GlobalStudentDatabase() {
       setIsSavingStudent(false);
       setTimeout(() => setNotification(null), 3000);
     }
+  };
+
+  const handleUploadPsychTest = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingStudent) return;
+
+    setIsUploadingPsych(true);
+    const formData = new FormData();
+    formData.append("psych_test", file); 
+
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/document`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: formData 
+      });
+      
+      if (res.ok) {
+        setNotification({type: 'success', message: "Test uploaded! AI is ready to analyze."});
+        fetchData(); 
+      } else {
+        const errorData = await res.json();
+        setNotification({type: 'error', message: errorData.detail || "Upload failed."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error during upload."});
+    } finally {
+      setIsUploadingPsych(false);
+      e.target.value = ''; 
+    }
+  };
+
+  const handleFakeProgramUpload = (id: string, fileName: string) => {
+    setProgramDocs(prev => prev.map(doc => {
+      if (doc.id === id) {
+        return {
+          ...doc,
+          status: "PENDING_REVIEW",
+          uploadedFile: {
+            name: fileName,
+            size: "1.8 MB",
+            date: new Date().toISOString().split('T')[0]
+          },
+          feedback: "Document uploaded by agent. System routing to Master Admin queue."
+        };
+      }
+      return doc;
+    }));
+  };
+
+  const handleRemoveProgramFile = (id: string) => {
+    setProgramDocs(prev => prev.map(doc => {
+      if (doc.id === id) {
+        return { ...doc, status: "MISSING", uploadedFile: undefined, feedback: undefined };
+      }
+      return doc;
+    }));
   };
 
   const generateAIReport = async () => {
@@ -487,7 +569,7 @@ export default function GlobalStudentDatabase() {
             <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
               <GraduationCap className="text-[#BAD133]" size={28} />
             </div>
-            Global Student Database
+            Student Management
           </h1>
           <p className="text-slate-500 mt-2 font-medium text-sm">
             View, search, and manage all student applications across the entire network.
@@ -757,8 +839,14 @@ export default function GlobalStudentDatabase() {
               <button onClick={() => setDossierTab('documents')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'documents' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
                 <UploadCloud size={16} /> Application Vault {totalDocCount > 0 && <span className="bg-[#BAD133] text-[#1b1b42] text-[10px] px-2 py-0.5 rounded-full font-black">{totalDocCount}</span>}
               </button>
-              <button onClick={() => setDossierTab('ai')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'ai' ? 'border-b-2 border-[#BAD133] text-[#1b1b42] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
-                <BrainCircuit size={16} /> AI Intelligence
+              <button onClick={() => setDossierTab('profiling_test')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'profiling_test' ? 'border-b-2 border-[#BAD133] text-[#1b1b42] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
+                <BrainCircuit size={16} /> Profiling Test
+              </button>
+              <button onClick={() => setDossierTab('assessment')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'assessment' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
+                <Activity size={16} /> Assessment
+              </button>
+              <button onClick={() => setDossierTab('program_finder')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'program_finder' ? 'border-b-2 border-[#282860] text-[#282860] bg-white' : 'text-slate-400 hover:text-[#282860]'}`}>
+                <FileText size={16} /> Program Finder
               </button>
               <button onClick={() => setDossierTab('notes')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'notes' ? 'border-b-2 border-blue-600 text-blue-700 bg-white' : 'text-slate-400 hover:text-blue-600'}`}>
                 <MessageSquare size={16} /> Team Collab
@@ -1056,52 +1144,425 @@ export default function GlobalStudentDatabase() {
                 </div>
               )}
 
-              {dossierTab === 'ai' && (
-                <div className="p-6 h-full flex flex-col animate-in fade-in">
-                  {!aiReport && !isGeneratingAI && (
-                    <div className="bg-[#1b1b42] rounded-3xl p-8 shadow-xl text-center flex flex-col items-center justify-center relative overflow-hidden border border-[#282860] mt-10">
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#BAD133] to-[#282860]"></div>
-                      <BrainCircuit size={64} className="text-[#BAD133] mb-6 drop-shadow-[0_0_15px_rgba(186,209,51,0.3)]" />
-                      <h3 className="text-2xl font-black text-white mb-2">Generate Strategic Profile</h3>
-                      <p className="text-slate-300 text-sm mb-8 max-w-md mx-auto leading-relaxed">
-                        Fortrust AI will cross-reference {editingStudent.name}'s report cards, profiling tests, and selected academic interests to generate a comprehensive placement strategy.
-                      </p>
-                      {fieldInterests.length === 0 && (
-                        <p className="text-amber-300 text-xs mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg px-4 py-2">
-                          ⚠️ Tip: Select Field of Interest in Profile tab for richer AI analysis.
-                        </p>
-                      )}
-                      <button onClick={generateAIReport} className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] font-black px-8 py-4 rounded-xl shadow-lg transition-transform active:scale-95 flex items-center gap-3">
-                        <Activity size={20} /> Run AI Analysis
+              {dossierTab === 'profiling_test' && (() => {
+                const checkTestStatus = (docsString: string) => {
+                  if (!docsString) return false;
+                  try {
+                    const docs = typeof docsString === 'string' ? JSON.parse(docsString) : docsString;
+                    return docs.some((d: any) => (d.title || "").toUpperCase().includes("PSYCHOLOGY") || (d.title || "").toUpperCase().includes("HCC"));
+                  } catch (e) {
+                    return false;
+                  }
+                };
+                const hasTest = checkTestStatus(editingStudent.documents);
+
+                return (
+                  <div className="p-6 space-y-6 animate-in fade-in">
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0 border border-blue-100">
+                          <BrainCircuit size={24}/>
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-[#282860] text-lg">Profiling Test Status</h4>
+                          <p className="text-slate-500 text-xs mt-0.5">Track and analyze psychological profiling tests.</p>
+                        </div>
+                      </div>
+                      <div>
+                        {hasTest ? (
+                          <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-emerald-200">
+                            <CheckCircle2 size={14}/> Test Submitted
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-600 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold">
+                            <AlertCircle size={14}/> Awaiting Test
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {!hasTest ? (
+                      <div className="bg-white border border-slate-200 p-8 rounded-2xl shadow-sm text-center flex flex-col items-center justify-center">
+                        <AlertCircle size={48} className="text-slate-300 mb-4" />
+                        <h4 className="text-lg font-black text-[#282860]">No test has been uploaded yet</h4>
+                        <p className="text-slate-500 text-sm max-w-sm mt-1 mb-6">Send the test link to the student or upload their psychology report here.</p>
+                        <div className="flex gap-3">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(`Hi ${editingStudent.name}, please complete your Fortrust HCC Profiling Test here: https://fortrust.com/hcc-test`);
+                              setNotification({type: 'success', message: `Test link copied to clipboard!`});
+                              setTimeout(() => setNotification(null), 3000);
+                            }} 
+                            className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2"
+                          >
+                            <Send size={14} className="text-blue-500"/> Copy Test Link
+                          </button>
+                          <label className={`cursor-pointer bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 ${isUploadingPsych ? 'opacity-50 pointer-events-none' : ''}`}>
+                            {isUploadingPsych ? <Loader2 size={14} className="animate-spin"/> : <UploadCloud size={14}/>}
+                            {isUploadingPsych ? 'Uploading...' : 'Upload Test'}
+                            <input 
+                              type="file" 
+                              className="hidden" 
+                              accept=".pdf,.png,.jpg,.jpeg"
+                              onChange={handleUploadPsychTest}
+                              disabled={isUploadingPsych}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="flex justify-end">
+                          <button 
+                            type="button"
+                            onClick={generateAIReport}
+                            disabled={isGeneratingAI}
+                            className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
+                          >
+                            <BrainCircuit size={14} className="text-[#BAD133]"/> 
+                            {isGeneratingAI ? "Running Analysis..." : "Run AI Analysis"}
+                          </button>
+                        </div>
+
+                        {isGeneratingAI && (
+                          <div className="flex flex-col items-center justify-center py-12 bg-white border border-slate-200 rounded-2xl">
+                            <Loader2 size={36} className="animate-spin text-[#BAD133] mb-4" />
+                            <h4 className="font-bold text-[#282860]">Analyzing Profile...</h4>
+                            <p className="text-slate-500 text-xs mt-1">Gemini AI is reading transcript and psychology test documents...</p>
+                          </div>
+                        )}
+
+                        {aiReport && !isGeneratingAI && (
+                          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-[350px]">
+                            <div className="bg-slate-50 border-b border-slate-100 p-4 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 size={18} className="text-emerald-500"/>
+                                <span className="font-bold text-[#282860]">AI Strategic Report</span>
+                              </div>
+                              <button type="button" onClick={generateAIReport} className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"><RefreshCcw size={12}/> Regenerate</button>
+                            </div>
+                            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                              {aiReport}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {dossierTab === 'assessment' && (
+                <div className="p-6 space-y-6 animate-in fade-in">
+                  <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <h4 className="font-bold text-[#282860] text-lg">AI Assessment Engine</h4>
+                    <div className="bg-slate-200/50 p-1 rounded-xl flex items-center shrink-0">
+                      <button type="button" onClick={() => setAssessmentSubTab("profiling")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${assessmentSubTab === "profiling" ? "bg-white text-[#282860] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                        Career Profiling
+                      </button>
+                      <button type="button" onClick={() => setAssessmentSubTab("document")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${assessmentSubTab === "document" ? "bg-white text-[#282860] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                        Document OCR
                       </button>
                     </div>
-                  )}
-                  {isGeneratingAI && (
-                    <div className="flex flex-col items-center justify-center py-20 flex-1">
-                      <div className="relative mb-6">
-                        <div className="absolute inset-0 bg-[#BAD133] rounded-full blur-xl opacity-20 animate-pulse"></div>
-                        <Loader2 size={48} className="animate-spin text-[#BAD133] relative z-10" />
-                      </div>
-                      <h3 className="text-xl font-black text-[#282860] mb-2">Analyzing Dossier...</h3>
-                      <p className="text-sm text-slate-500 font-medium">Cross-referencing grades, profiling results, and student aspirations.</p>
+                  </div>
+
+                  {assessmentSubTab === "profiling" && (
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-6">
+                      {isProfilingAnalyzing ? (
+                        <div className="p-12 flex flex-col items-center justify-center text-center">
+                          <Loader2 size={48} className="text-[#282860] animate-spin mb-4" />
+                          <h4 className="text-lg font-black text-[#282860]">Gemini AI is analyzing profile...</h4>
+                          <p className="text-slate-500 text-xs mt-1">Cross-referencing preferences with global university programs...</p>
+                        </div>
+                      ) : showProfilingResult ? (
+                        <div>
+                          <div className="flex items-center gap-3 mb-6">
+                            <div className="bg-green-100 text-green-600 p-2 rounded-full"><CheckCircle size={24} /></div>
+                            <div>
+                              <h4 className="text-lg font-black text-[#282860]">AI Match Complete</h4>
+                              <p className="text-slate-500 text-xs">Top recommendations based on preference.</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-[#BAD133] mb-1.5 block">Match #1 (98% Fit)</span>
+                              <h5 className="font-bold text-[#282860] text-sm">University of Melbourne</h5>
+                              <p className="text-xs text-slate-500 mt-0.5">Bachelor of Commerce</p>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-[#BAD133] mb-1.5 block">Match #2 (94% Fit)</span>
+                              <h5 className="font-bold text-[#282860] text-sm">Monash University</h5>
+                              <p className="text-xs text-slate-500 mt-0.5">Bachelor of Business</p>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-[#BAD133] mb-1.5 block">Match #3 (89% Fit)</span>
+                              <h5 className="font-bold text-[#282860] text-sm">UNSW Sydney</h5>
+                              <p className="text-xs text-slate-500 mt-0.5">Bachelor of Economics</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <button type="button" className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md">Generate PDF Report</button>
+                            <button type="button" onClick={() => { setShowProfilingResult(false); setProfilingStep(0); setProfilingAnswers({}); }} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-5 py-2.5 rounded-xl text-xs font-bold">Start New Test</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+                            <span className="text-xs font-black uppercase tracking-widest text-slate-400">Step {profilingStep + 1} of {PROFILING_QUESTIONS.length}</span>
+                            <div className="flex gap-1.5">
+                              {PROFILING_QUESTIONS.map((_, idx) => (
+                                <div key={idx} className={`h-1.5 rounded-full transition-all duration-300 ${idx <= profilingStep ? "w-6 bg-[#BAD133]" : "w-2 bg-slate-200"}`}></div>
+                              ))}
+                            </div>
+                          </div>
+                          <h4 className="text-lg font-black text-[#282860] mb-6 leading-tight">
+                            {PROFILING_QUESTIONS[profilingStep].question}
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
+                            {PROFILING_QUESTIONS[profilingStep].options.map((opt) => {
+                              const isSelected = profilingAnswers[PROFILING_QUESTIONS[profilingStep].id] === opt.label;
+                              return (
+                                <div 
+                                  key={opt.label} 
+                                  onClick={() => setProfilingAnswers(prev => ({ ...prev, [PROFILING_QUESTIONS[profilingStep].id]: opt.label }))}
+                                  className={`cursor-pointer p-4 rounded-xl border-2 transition-all flex items-start gap-3
+                                    ${isSelected ? "border-[#282860] bg-[#282860]/5 shadow-sm" : "border-slate-100 hover:border-[#BAD133] hover:bg-slate-50"}`}
+                                >
+                                  <div className={`p-2 rounded-lg shrink-0 ${isSelected ? "bg-[#282860] text-white" : "bg-white text-slate-400 border border-slate-200"}`}>
+                                    {opt.icon}
+                                  </div>
+                                  <div>
+                                    <h5 className={`font-bold text-sm mb-0.5 ${isSelected ? "text-[#282860]" : "text-slate-700"}`}>{opt.label}</h5>
+                                    <p className={`text-xs ${isSelected ? "text-slate-600 font-medium" : "text-slate-500"}`}>{opt.desc}</p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                            <button type="button" onClick={() => setProfilingStep(p => Math.max(0, p - 1))} disabled={profilingStep === 0} className="flex items-center gap-1.5 px-4 py-2 font-bold text-xs text-slate-500 hover:bg-slate-100 rounded-lg disabled:opacity-0">
+                              <ChevronLeft size={14} /> Back
+                            </button>
+                            <button 
+                              type="button"
+                              disabled={!profilingAnswers[PROFILING_QUESTIONS[profilingStep].id]}
+                              onClick={() => {
+                                if (profilingStep < PROFILING_QUESTIONS.length - 1) {
+                                  setProfilingStep(p => p + 1);
+                                } else {
+                                  setIsProfilingAnalyzing(true);
+                                  setTimeout(() => {
+                                    setIsProfilingAnalyzing(false);
+                                    setShowProfilingResult(true);
+                                  }, 2000);
+                                }
+                              }}
+                              className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md"
+                            >
+                              {profilingStep === PROFILING_QUESTIONS.length - 1 ? "Analyze with AI" : "Next"} <ChevronRight size={14}/>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
-                  {aiReport && !isGeneratingAI && (
-                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
-                      <div className="bg-slate-50 border-b border-slate-100 p-4 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 size={18} className="text-emerald-500"/>
-                          <span className="font-bold text-[#282860]">AI Strategic Report</span>
+
+                  {assessmentSubTab === "document" && (
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                      <div className="mb-6">
+                        <h4 className="text-lg font-black text-[#282860]">Academic Document OCR</h4>
+                        <p className="text-slate-500 text-xs mt-1">Upload the student's report cards or transcripts. The AI will extract their grades, calculate their global GPA equivalent, and check eligibility.</p>
+                      </div>
+
+                      {!ocrFile ? (
+                        <label className="border-2 border-dashed border-slate-300 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer hover:border-[#BAD133] hover:bg-[#BAD133]/5 transition-all group">
+                          <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => {
+                            if (e.target.files && e.target.files.length > 0) setOcrFile(e.target.files[0]);
+                          }} />
+                          <div className="w-12 h-12 bg-slate-50 text-slate-400 group-hover:bg-white group-hover:text-[#BAD133] rounded-full flex items-center justify-center shadow-sm mb-4 transition-all">
+                            <UploadCloud size={24} />
+                          </div>
+                          <h5 className="font-bold text-[#282860] text-sm mb-1">Drag & Drop Transcripts Here</h5>
+                          <p className="text-slate-400 text-[10px]">Supports PDF, JPG, and PNG up to 15MB</p>
+                        </label>
+                      ) : isOcrExtracting ? (
+                        <div className="border-2 border-slate-100 rounded-2xl p-8 flex flex-col items-center justify-center text-center">
+                          <Loader2 size={36} className="text-[#BAD133] animate-spin mb-4" />
+                          <h5 className="font-black text-[#282860] text-sm">Extracting Academic Data...</h5>
+                          <p className="text-slate-500 text-xs mt-1">Running OCR on {ocrFile.name}</p>
                         </div>
-                        <button onClick={generateAIReport} className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"><RefreshCcw size={12}/> Regenerate</button>
-                      </div>
-                      <div className="p-6 overflow-y-auto custom-scrollbar flex-1 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                        {aiReport}
-                      </div>
+                      ) : showOcrResult ? (
+                        <div className="border border-green-100 bg-green-50/20 rounded-2xl p-6">
+                          <div className="flex items-center gap-3 mb-6">
+                            <div className="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center shrink-0 shadow-sm"><CheckCircle size={16} /></div>
+                            <div>
+                              <h5 className="font-black text-sm text-[#282860]">Extraction Successful</h5>
+                              <p className="text-slate-500 text-xs">Parsed data from {ocrFile.name}</p>
+                            </div>
+                          </div>
+                          <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">Calculated GPA</span>
+                              <span className="text-xl font-black text-[#282860]">3.8<span className="text-xs text-slate-400">/4.0</span></span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">Math Average</span>
+                              <span className="text-xl font-black text-[#282860]">A-</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">English Average</span>
+                              <span className="text-xl font-black text-[#282860]">B+</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-0.5">Eligibility</span>
+                              <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold">Highly Eligible</span>
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <button type="button" onClick={() => { setOcrFile(null); setShowOcrResult(false); }} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold">Upload Another</button>
+                            <button type="button" className="bg-[#282860] hover:bg-[#1b1b42] text-white px-4 py-2 rounded-xl text-xs font-bold">Save to Student</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-slate-200 rounded-2xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0"><FileText size={24} /></div>
+                            <div>
+                              <h5 className="font-bold text-[#282860] text-sm truncate max-w-[200px]" title={ocrFile.name}>{ocrFile.name}</h5>
+                              <p className="text-slate-500 text-xs">{(ocrFile.size/1024/1024).toFixed(2)} MB • Ready</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 w-full sm:w-auto">
+                            <button type="button" onClick={() => setOcrFile(null)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl shrink-0"><X size={16} /></button>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setIsOcrExtracting(true);
+                                setTimeout(() => {
+                                  setIsOcrExtracting(false);
+                                  setShowOcrResult(true);
+                                }, 2000);
+                              }}
+                              className="bg-[#282860] hover:bg-[#1b1b42] text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 w-full sm:w-auto shadow-sm"
+                            >
+                              <Sparkles size={14} className="text-[#BAD133]"/> Run OCR
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               )}
+
+              {dossierTab === 'program_finder' && (() => {
+                const filteredProgramDocs = programDocs.filter(doc => {
+                  if (programFilter === "MISSING") return doc.status === "MISSING";
+                  if (programFilter === "PENDING") return doc.status === "PENDING_REVIEW";
+                  if (programFilter === "APPROVED") return doc.status === "APPROVED";
+                  return true;
+                });
+                const missingCount = programDocs.filter(d => d.isRequired && d.status === "MISSING").length;
+
+                return (
+                  <div className="p-6 space-y-6 animate-in fade-in">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <div>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-[#BAD133] bg-[#282860]/5 border border-[#282860]/10 px-2 py-0.5 rounded mb-1.5 inline-block">ApplyBoard Standard</span>
+                        <h4 className="text-lg font-black text-[#282860] flex items-center gap-2">Required Document Matrix</h4>
+                        <p className="text-slate-500 text-xs mt-0.5">
+                          Student: <span className="font-bold text-slate-800">{editingStudent.name}</span> • Target: <span className="font-bold text-slate-800">{editingStudent.program_interest || "BSc in Artificial Intelligence"}</span>
+                        </p>
+                      </div>
+                      {missingCount > 0 ? (
+                        <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-2.5 shrink-0">
+                          <AlertCircle className="text-red-500" size={20} />
+                          <div>
+                            <p className="text-xs font-black text-red-700 uppercase tracking-wide">{missingCount} Missing Requirements</p>
+                            <p className="text-[10px] text-red-500 font-medium">Pipeline assignment locked until uploaded.</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl flex items-center gap-2.5 shrink-0">
+                          <CheckCircle2 className="text-emerald-500" size={20} />
+                          <div>
+                            <p className="text-xs font-black text-emerald-700 uppercase tracking-wide">Ready for Submission</p>
+                            <p className="text-[10px] text-emerald-500 font-medium">All mandatory files verified.</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex bg-slate-200/50 p-1 rounded-xl w-fit shadow-sm items-center gap-1.5">
+                      <button type="button" onClick={() => setProgramFilter("ALL")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${programFilter === "ALL" ? "bg-[#282860] text-white shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>All ({programDocs.length})</button>
+                      <button type="button" onClick={() => setProgramFilter("MISSING")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${programFilter === "MISSING" ? "bg-red-500 text-white shadow-sm" : "text-slate-500 hover:text-red-500"}`}>Missing</button>
+                      <button type="button" onClick={() => setProgramFilter("PENDING")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${programFilter === "PENDING" ? "bg-amber-500 text-white shadow-sm" : "text-slate-500 hover:text-amber-500"}`}>In Review</button>
+                      <button type="button" onClick={() => setProgramFilter("APPROVED")} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${programFilter === "APPROVED" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-500 hover:text-emerald-600"}`}>Approved</button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {filteredProgramDocs.map((doc) => (
+                        <div key={doc.id} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="flex items-start gap-3 max-w-md">
+                            <div className={`p-2.5 rounded-lg border shrink-0 mt-0.5
+                              ${doc.status === "APPROVED" ? "bg-emerald-50 border-emerald-100 text-emerald-600" :
+                                doc.status === "PENDING_REVIEW" ? "bg-amber-50 border-amber-100 text-amber-600" :
+                                "bg-slate-50 border-slate-100 text-slate-400"}`}>
+                              <FileText size={20} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h5 className="font-bold text-[#282860] text-sm leading-tight">{doc.documentName}</h5>
+                                {doc.isRequired && <span className="bg-red-50 text-red-600 border border-red-100 font-black text-[8px] px-1.5 py-0.5 rounded uppercase">Mandatory</span>}
+                              </div>
+                              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-1">Category: {doc.category}</p>
+                              {doc.feedback && (
+                                <div className="mt-2 bg-slate-50 border border-slate-200/60 p-2 rounded-lg text-xs font-medium text-slate-600 flex items-start gap-1.5">
+                                  <Sparkles size={12} className="text-[#BAD133] shrink-0 mt-0.5" />
+                                  <span>{doc.feedback}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="min-w-[200px]">
+                            {doc.status === "MISSING" ? (
+                              <label className="border-2 border-dashed border-slate-200 hover:border-[#BAD133] hover:bg-[#BAD133]/5 rounded-xl px-3 py-2 flex items-center justify-center gap-2 cursor-pointer transition-all bg-slate-50/50 group">
+                                <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => {
+                                  if (e.target.files && e.target.files[0]) handleFakeProgramUpload(doc.id, e.target.files[0].name);
+                                }} />
+                                <UploadCloud size={14} className="text-slate-400 group-hover:text-[#BAD133]" />
+                                <span className="text-xs font-bold text-slate-600 group-hover:text-slate-800">Upload Required File</span>
+                              </label>
+                            ) : (
+                              <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-3">
+                                <div className="overflow-hidden">
+                                  <p className="text-xs font-bold text-slate-700 truncate pr-1" title={doc.uploadedFile?.name}>{doc.uploadedFile?.name}</p>
+                                  <div className="flex items-center gap-1.5 text-[9px] text-slate-400 font-semibold mt-0.5">
+                                    <span>{doc.uploadedFile?.size}</span>
+                                    <span>•</span>
+                                    <span>{doc.uploadedFile?.date}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border
+                                    ${doc.status === "APPROVED" ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
+                                    {doc.status === "APPROVED" ? "Approved" : "In Review"}
+                                  </span>
+                                  <button type="button" onClick={() => handleRemoveProgramFile(doc.id)} className="p-1 bg-white text-slate-400 hover:text-red-500 border border-slate-200 rounded-lg" title="Remove">
+                                    <Trash2 size={12}/>
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {dossierTab === 'notes' && (
                 <div className="flex flex-col h-full animate-in fade-in">
@@ -1168,3 +1629,45 @@ export default function GlobalStudentDatabase() {
     </div>
   );
 }
+
+// Custom Icons and Questions for the assessment page
+const PROFILING_QUESTIONS = [
+  {
+    id: "q1",
+    question: "Which core academic field interests the student the most?",
+    options: [
+      { label: "Business & Management", icon: <Briefcase size={24} />, desc: "Finance, Marketing, Entrepreneurship" },
+      { label: "STEM", icon: <BrainCircuit size={24} />, desc: "Engineering, Computer Science, Math" },
+      { label: "Arts & Humanities", icon: <Award size={24} />, desc: "Design, Literature, Social Sciences" },
+      { label: "Healthcare & Medicine", icon: <Target size={24} />, desc: "Nursing, Pre-Med, Psychology" }
+    ]
+  },
+  {
+    id: "q2",
+    question: "What is their primary post-graduation career goal?",
+    options: [
+      { label: "Corporate Leadership", icon: <BuildingIcon />, desc: "Climbing the ladder at a Fortune 500" },
+      { label: "Startup Founder", icon: <RocketIcon />, desc: "Building their own company" },
+      { label: "Research & Academia", icon: <GraduationCap size={24} />, desc: "Pursuing PhDs and innovations" },
+      { label: "Creative Freelance", icon: <PaletteIcon />, desc: "Independent design or consulting" }
+    ]
+  },
+  {
+    id: "q3",
+    question: "What is their preferred campus environment?",
+    options: [
+      { label: "Bustling Metropolis", icon: <CityIcon />, desc: "Downtown in a major global city" },
+      { label: "Traditional College Town", icon: <TownIcon />, desc: "Classic campus, strong community" },
+      { label: "Tech & Innovation Hub", icon: <CpuIcon />, desc: "Surrounded by startups and labs" },
+      { label: "Quiet & Nature-Focused", icon: <TreeIcon />, desc: "Scenic, peaceful, focused study" }
+    ]
+  }
+];
+
+function BuildingIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M12 6h.01"></path><path d="M12 10h.01"></path><path d="M12 14h.01"></path><path d="M16 10h.01"></path><path d="M16 14h.01"></path><path d="M8 10h.01"></path><path d="M8 14h.01"></path></svg> }
+function RocketIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path></svg> }
+function PaletteIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg> }
+function CityIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="10" width="6" height="12"></rect><rect x="8" y="2" width="8" height="20"></rect><rect x="16" y="14" width="6" height="8"></rect><path d="M12 6h.01"></path><path d="M12 10h.01"></path><path d="M12 14h.01"></path><path d="M12 18h.01"></path><path d="M4 14h.01"></path><path d="M4 18h.01"></path><path d="M20 18h.01"></path></svg> }
+function TownIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"></path><path d="M9 8h1"></path><path d="M9 12h1"></path><path d="M9 16h1"></path><path d="M14 8h1"></path><path d="M14 12h1"></path><path d="M14 16h1"></path><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"></path></svg> }
+function CpuIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg> }
+function TreeIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20"></path><path d="M12 2a5 5 0 0 0-5 5c0 1.5.5 2.5 1.5 3.5-.5 1-1.5 2.5-1.5 4 0 2 1.5 3 4 3s4-1 4-3c0-1.5-1-3-1.5-4 1-1 1.5-2 1.5-3.5a5 5 0 0 0-5-5z"></path></svg> }
