@@ -1,17 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, PhoneCall,
   Search, Cctv, AlertTriangle, TrendingUp, Briefcase,
-  Archive, RefreshCcw, Phone, Landmark, Percent, Building, FileText, LogIn, Network, Loader2, ArrowRight, Timer
+  Archive, RefreshCcw, Phone, Landmark, Percent, Building, FileText, LogIn, Network, Loader2, ArrowRight, Timer,
+  Megaphone
 } from "lucide-react";
 
 const BRANCH_OPTIONS = ["Jakarta", "Surabaya", "Bandung", "Bali", "Medan", "Headquarters"];
 const ROLE_OPTIONS = ["Corporate Agent", "Individual Agent", "Student Counselor", "MASTER_ADMIN", "Team Manager"];
 
 export default function AgentManagement() {
+  const router = useRouter();
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -347,6 +350,9 @@ const handleEditUser = async (e: React.FormEvent) => {
           </button>
           <button onClick={() => setViewTab('archived')} className={`px-6 py-3.5 text-sm font-bold tracking-wide transition-all rounded-t-xl flex items-center gap-2 ${viewTab === 'archived' ? 'bg-white text-red-600 border-t border-x border-slate-200 shadow-[0_-4px_6px_-2px_rgba(0,0,0,0.02)]' : 'text-slate-400 hover:text-red-400'}`}>
             <Archive size={16}/> Archived Data
+          </button>
+          <button onClick={() => router.push('/dashboard/broadcasts')} className="px-6 py-3.5 text-sm font-bold tracking-wide transition-all rounded-t-xl flex items-center gap-2 text-slate-400 hover:text-[#282860]">
+            <Megaphone size={16}/> Broadcast Hub
           </button>
         </div>
 

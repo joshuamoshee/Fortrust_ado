@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
   Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe, BellRing, Bot, MessageSquare
+  GraduationCap, Globe, BellRing, Bot
 } from "lucide-react";
 
 // --- TRANSLATION DICTIONARY ---
@@ -19,18 +19,18 @@ const translations = {
     programFinder: "Program Finder",
     adminTools: "Admin Tools",
     mainDashboard: "Main Dashboard",
-    agentManagement: "Agent Management",
-    globalStudents: "Global Students",
+    agentManagement: "Agent",
+    globalStudents: "Student Management",
     broadcasts: "Broadcast Hub",
-    aiAssistant: "AI Assistant",
+    aiAssistant: "AI Assistant", // NEW
     consultation: "Consultation",
     profilingTest: "Profiling Test",
     assessment: "Assessment",
     marketing: "Marketing",
     leads: "Leads",
     budgetRoi: "Budget & ROI",
-    aiStrategist: "AI Strategist",
-    institutionPartners: "Institution Partners",
+    aiStrategist: "Strategy Intelligence",
+    institutionPartners: "Institution",
     agreement: "Agreement",
     contactPerson: "Contact Person",
     commissionStructure: "Commission Structure",
@@ -40,7 +40,9 @@ const translations = {
     platformTutorial: "Platform Tutorial",
     accountSettings: "Account Settings",
     secureSignOut: "Secure Sign Out",
-    recentActivity: "Recent Activity"
+    recentActivity: "Recent Activity",
+    management: "Management",
+    account: "Account"
   },
   ID: {
     agentWorkspace: "Ruang Kerja Agen",
@@ -48,18 +50,18 @@ const translations = {
     programFinder: "Pencari Program",
     adminTools: "Alat Admin",
     mainDashboard: "Dasbor Utama",
-    agentManagement: "Manajemen Agen",
-    globalStudents: "Semua Siswa",
-    broadcasts: "Pusat Siaran",
-    aiAssistant: "Asisten AI",
+    agentManagement: "Agen",
+    globalStudents: "Manajemen Siswa",
+    broadcasts: "Broadcast Hub",
+    aiAssistant: "Asisten AI", // NEW
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
     assessment: "Penilaian",
     marketing: "Pemasaran",
     leads: "Prospek",
     budgetRoi: "Anggaran & ROI",
-    aiStrategist: "Strategi AI",
-    institutionPartners: "Mitra Institusi",
+    aiStrategist: "Strategy Intelligence",
+    institutionPartners: "Institusi",
     agreement: "Perjanjian",
     contactPerson: "Kontak Personal",
     commissionStructure: "Struktur Komisi",
@@ -69,7 +71,9 @@ const translations = {
     platformTutorial: "Panduan Sistem",
     accountSettings: "Pengaturan Akun",
     secureSignOut: "Keluar Aman",
-    recentActivity: "Aktivitas Terbaru"
+    recentActivity: "Aktivitas Terbaru",
+    management: "Manajemen",
+    account: "Akun"
   }
 };
 
@@ -107,9 +111,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-
-  // --- HOVERING AI ASSISTANT STATE ---
-  const [isAIOpen, setIsAIOpen] = useState(false);
 
   const profileMenuRef = useRef<HTMLDivElement>(null);
   
@@ -150,20 +151,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       const token = localStorage.getItem("fortrust_token");
       if (!token) return;
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs?limit=5`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/notifications`, {
           headers: { "Authorization": `Bearer ${token}` }
         });
         const data = await res.json();
         if (data.status === "success") {
           setNotifications(data.data);
-          setUnreadCount(data.data.length > 5 ? 5 : data.data.length);
+          setUnreadCount(data.data.length);
         }
       } catch (error) {}
     };
 
-    if (isLoaded && user && user.role === "MASTER_ADMIN") {
+    if (isLoaded && user) {
       fetchNotifications();
-      const interval = setInterval(fetchNotifications, 30000);
+      const interval = setInterval(fetchNotifications, 10000);
       return () => clearInterval(interval);
     }
   }, [isLoaded, user]);
@@ -337,13 +338,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
           {user.role === "MASTER_ADMIN" && (
             <>
-              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">{t.adminTools}</p>
-              
+              {/* Top Level Pages */}
               <Link href="/dashboard/admin" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/admin' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.mainDashboard}
               </Link>
 
+              <Link href="/dashboard/ai-assistant" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/ai-assistant' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Bot size={18} className={pathname === '/dashboard/ai-assistant' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.aiAssistant}
+              </Link>
+
+              {/* Management Group */}
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.management}</p>
+              
               <Link href="/dashboard/agent-pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/agent-pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.agentManagement}
@@ -354,27 +362,38 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 {t.globalStudents}
               </Link>
 
+              <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
+
               <Link href="/dashboard/broadcasts" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/broadcasts' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <BellRing size={18} className={pathname === '/dashboard/broadcasts' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.broadcasts}
               </Link>
 
-              {/* NEW AI ASSISTANT LINK */}
-              <Link href="/dashboard/ai-assistant" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/ai-assistant' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                <Bot size={18} className={pathname === '/dashboard/ai-assistant' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                {t.aiAssistant}
+              {/* Marketing Group */}
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.marketing}</p>
+
+              <Link href="/dashboard/marketing" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.leads}
               </Link>
 
-              <SidebarMenu label={t.consultation} icon={<LayoutDashboard size={18} />} activePath={pathname} menuItems={[ { label: t.profilingTest, href: '/dashboard/profiling' }, { label: t.assessment, href: '/dashboard/assessment' }, { label: t.programFinder, href: '/dashboard/programs' } ]} />
-              
-              <SidebarMenu label={t.marketing} icon={<Megaphone size={18} />} activePath={pathname} menuItems={[ 
-                { label: t.leads, href: '/dashboard/marketing' },
-                { label: t.budgetRoi, href: '/dashboard/marketing/budget' },
-                { label: t.aiStrategist, href: '/dashboard/marketing/strategist' }
-              ]} />
-              
-              <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
-              <SidebarMenu label={t.commissions} icon={<DollarSign size={18} />} activePath={pathname} menuItems={[ { label: t.reports, href: '/dashboard/claimed' } ]} />
+              <Link href="/dashboard/marketing/budget" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing/budget' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <DollarSign size={18} className={pathname === '/dashboard/marketing/budget' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.budgetRoi}
+              </Link>
+
+              <Link href="/dashboard/marketing/strategist" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing/strategist' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <BrainCircuit size={18} className={pathname === '/dashboard/marketing/strategist' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.aiStrategist}
+              </Link>
+
+              {/* Account Group */}
+              <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.account}</p>
+
+              <Link href="/dashboard/claimed" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/claimed' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <DollarSign size={18} className={pathname === '/dashboard/claimed' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.commissions}
+              </Link>
             </>
           )}
 
@@ -402,21 +421,32 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               {showNotifications && (
                 <div className="absolute right-0 mt-2 w-72 lg:w-96 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
                   <div className="p-4 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
-                    <h3 className="font-bold text-[#282860]">{t.recentActivity}</h3>
+                    <h3 className="font-bold text-[#282860]">Notifications</h3>
                     {unreadCount > 0 && <span className="text-[10px] font-bold text-white bg-red-500 px-2 py-0.5 rounded-full">{unreadCount} New</span>}
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <p className="text-center text-sm text-slate-500 py-6">No recent activity.</p>
+                      <p className="text-center text-sm text-slate-500 py-6">No new notifications.</p>
                     ) : (
                       notifications.map((note) => (
-                        <div key={note.id} className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors flex gap-3">
-                          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${note.action === 'CREATE' ? 'bg-green-500' : note.action === 'DELETE' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
-                          <div>
-                            <p className="text-sm font-bold text-slate-700">
-                              {note.changed_by} <span className="font-medium text-slate-500">{note.action.toLowerCase()}d</span> {note.entity}
-                            </p>
-                            <p className="text-xs text-slate-400 mt-1">{new Date(note.created_at).toLocaleString()}</p>
+                        <div key={note.id} 
+                          onClick={async () => {
+                            const token = localStorage.getItem("fortrust_token");
+                            try {
+                              await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/notifications/${note.id}/read`, {
+                                method: "POST",
+                                headers: { "Authorization": `Bearer ${token}` }
+                              });
+                              setNotifications(prev => prev.filter(n => n.id !== note.id));
+                              setUnreadCount(c => Math.max(0, c - 1));
+                            } catch (e) {}
+                          }}
+                          className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors flex gap-3 cursor-pointer"
+                        >
+                          <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-blue-500"></div>
+                          <div className="flex-1">
+                            <p className="text-xs font-bold text-slate-800">{note.message}</p>
+                            <p className="text-[10px] text-slate-400 mt-1">{new Date(note.created_at).toLocaleString()}</p>
                           </div>
                         </div>
                       ))
@@ -693,40 +723,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
       )}
-
-      {/* --- GLOBAL HOVERING AI ASSISTANT --- */}
-      <div className="fixed bottom-6 right-6 z-[110]">
-        {isAIOpen && (
-          <div className="mb-4 w-80 h-96 bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col animate-in slide-in-from-bottom-4 fade-in duration-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-[#282860] text-white">
-              <h3 className="font-bold flex items-center gap-2">
-                <Bot size={18} className="text-[#BAD133]" /> Fortrust AI
-              </h3>
-              <button onClick={() => setIsAIOpen(false)} className="text-slate-300 hover:text-white transition-colors">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="flex-1 p-4 overflow-y-auto bg-slate-50 flex flex-col justify-center items-center text-center">
-              <Bot size={40} className="text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500 font-medium px-4">Ask me anything about your students, agents, or institutions.</p>
-            </div>
-            <div className="p-3 border-t border-slate-100 bg-white">
-              <input 
-                type="text" 
-                placeholder="Type your message..." 
-                className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860] focus:ring-1 focus:ring-[#282860]"
-              />
-            </div>
-          </div>
-        )}
-        <button
-          onClick={() => setIsAIOpen(!isAIOpen)}
-          className="flex items-center justify-center w-14 h-14 bg-[#BAD133] text-[#1b1b42] rounded-full shadow-lg hover:bg-[#a6bd29] transition-all transform hover:scale-105"
-        >
-          {isAIOpen ? <X className="h-6 w-6" /> : <MessageSquare className="h-6 w-6 fill-current" />}
-        </button>
-      </div>
-
     </div>
   );
 }
@@ -748,12 +744,12 @@ type SidebarMenuProps = {
 };
 
 function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
-  const [submenuOpen, setSubmenuOpen] = useState(false);
-  const btnRef = useRef<HTMLDivElement>(null);
-  const [submenuPos, setSubmenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  const submenuHover = useRef(false);
+  const [submenuOpen, setSubmenuOpen] = React.useState(false);
+  const btnRef = React.useRef<HTMLDivElement>(null);
+  const [submenuPos, setSubmenuPos] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const submenuHover = React.useRef(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (submenuOpen && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
       let top = rect.top;
@@ -768,7 +764,7 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
     }
   }, [submenuOpen, menuItems.length]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!submenuOpen) return;
     const handle = (e: MouseEvent) => {
       if (
