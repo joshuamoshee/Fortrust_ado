@@ -105,6 +105,7 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS academic_field TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS career_goal TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS campus_env TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS country_interest TEXT DEFAULT '';")
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
