@@ -2129,31 +2129,288 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
         if conn:
             conn.close()
 
-@app.get("/api/pipeline/{case_id}/ai-report")
-def get_saved_ai_report(case_id: str, user_data: dict = Depends(verify_token)):
-    """Sprint A: Load the saved AI report for a student (no regeneration)."""
+@app.get("/api/pipeline/{case_id}/ai-report/pdf")
+def download_ai_report_pdf(case_id: str, user_data: dict = Depends(verify_token)):
+    """Sprint A.1: Generate a Fortrust-branded PDF of the saved AI report."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    )
+    from reportlab.lib.enums import TA_JUSTIFY
+    from fastapi.responses import StreamingResponse
+    import io, os, re
+    from datetime import datetime
+ 
     conn = None
     try:
         conn = get_db_connection()
         if not check_student_access(conn, case_id, user_data):
             raise HTTPException(status_code=403, detail="Not authorized.")
+ 
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT ai_report, ai_report_generated_at
+                SELECT id, name, email, program_interest, country_interest,
+                       ai_report, ai_report_generated_at
                 FROM students WHERE id = %s
             """, (case_id,))
-            row = cur.fetchone()
-        if not row or not row.get("ai_report"):
-            return {"status": "success", "report": None, "generated_at": None}
-        return {
-            "status": "success",
-            "report": row["ai_report"],
-            "generated_at": row["ai_report_generated_at"].isoformat() if row.get("ai_report_generated_at") else None
-        }
+            student = cur.fetchone()
+ 
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found.")
+        if not student.get("ai_report"):
+            raise HTTPException(
+                status_code=404,
+                detail="No AI report generated yet. Click 'Run AI Analysis' first."
+            )
+ 
+        # Fortrust brand palette
+        NAVY = colors.HexColor("#282860")
+        DARK_NAVY = colors.HexColor("#1b1b42")
+        LIME = colors.HexColor("#BAD133")
+        SLATE_500 = colors.HexColor("#64748b")
+        SLATE_400 = colors.HexColor("#94a3b8")
+        SLATE_100 = colors.HexColor("#f1f5f9")
+        SLATE_BORDER = colors.HexColor("#e2e8f0")
+        BODY_DARK = colors.HexColor("#1e293b")
+ 
+        # Locate logo - try a few common paths
+        logo_path = None
+        here = os.path.dirname(os.path.abspath(__file__))
+        for candidate in [
+            "fortrust_logo.png",
+            "fortrust_logo.jpg",
+            "assets/fortrust_logo.png",
+            "static/fortrust_logo.png",
+        ]:
+            full = os.path.join(here, candidate)
+            if os.path.exists(full):
+                logo_path = full
+                break
+ 
+        def add_page_decorations(canv, doc):
+            """Header + footer on every page."""
+            canv.saveState()
+            page_w, page_h = A4
+ 
+            # Logo (top-left)
+            if logo_path:
+                try:
+                    canv.drawImage(
+                        logo_path,
+                        0.75 * inch, page_h - 1.0 * inch,
+                        width=1.7 * inch, height=0.6 * inch,
+                        preserveAspectRatio=True, mask='auto'
+                    )
+                except Exception as logo_err:
+                    print(f"[pdf] could not draw logo: {logo_err}")
+ 
+            # Right-side title in header
+            canv.setFont("Helvetica-Bold", 12)
+            canv.setFillColor(NAVY)
+            canv.drawRightString(
+                page_w - 0.75 * inch,
+                page_h - 0.65 * inch,
+                "STRATEGIC ASSESSMENT REPORT"
+            )
+            canv.setFont("Helvetica", 8)
+            canv.setFillColor(SLATE_500)
+            canv.drawRightString(
+                page_w - 0.75 * inch,
+                page_h - 0.82 * inch,
+                "Fortrust Education Services"
+            )
+ 
+            # Lime accent line under header
+            canv.setStrokeColor(LIME)
+            canv.setLineWidth(2)
+            canv.line(
+                0.75 * inch, page_h - 1.1 * inch,
+                page_w - 0.75 * inch, page_h - 1.1 * inch
+            )
+ 
+            # Footer
+            canv.setFont("Helvetica", 8)
+            canv.setFillColor(SLATE_400)
+            canv.drawString(0.75 * inch, 0.5 * inch, "Confidential - For Internal Use Only")
+            canv.drawRightString(
+                page_w - 0.75 * inch, 0.5 * inch,
+                f"Page {doc.page}"
+            )
+ 
+            canv.restoreState()
+ 
+        # Build the PDF in memory
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            leftMargin=0.75 * inch, rightMargin=0.75 * inch,
+            topMargin=1.35 * inch, bottomMargin=0.75 * inch,
+            title=f"Fortrust Assessment - {student['name']}",
+            author="Fortrust Education Services"
+        )
+ 
+        styles = getSampleStyleSheet()
+        h1_style = ParagraphStyle(
+            'H1Style', parent=styles['Heading1'],
+            fontSize=15, textColor=NAVY, spaceAfter=8, spaceBefore=18,
+            fontName='Helvetica-Bold'
+        )
+        h2_style = ParagraphStyle(
+            'H2Style', parent=styles['Heading2'],
+            fontSize=12, textColor=DARK_NAVY, spaceAfter=6, spaceBefore=12,
+            fontName='Helvetica-Bold'
+        )
+        body_style = ParagraphStyle(
+            'BodyStyle', parent=styles['Normal'],
+            fontSize=10, textColor=BODY_DARK,
+            spaceAfter=6, leading=15, fontName='Helvetica',
+            alignment=TA_JUSTIFY
+        )
+        bullet_style = ParagraphStyle(
+            'BulletStyle', parent=body_style,
+            leftIndent=20, bulletIndent=8, spaceAfter=4, alignment=0
+        )
+ 
+        story = []
+ 
+        # Student info card
+        gen_dt = student.get('ai_report_generated_at')
+        gen_str = gen_dt.strftime('%d %B %Y, %H:%M') if gen_dt else datetime.now().strftime('%d %B %Y, %H:%M')
+ 
+        info_data = [
+            ["NAME", student['name'] or "Unknown Student"],
+            ["REPORT SOURCE", "Fortrust AI Strategic Engine"],
+            ["GENERATED", gen_str],
+            ["PROGRAM INTEREST", student.get('program_interest') or "Not specified"],
+            ["TARGET DESTINATION", student.get('country_interest') or "Global (AI Recommended)"],
+        ]
+        info_table = Table(info_data, colWidths=[1.9 * inch, 4.3 * inch])
+        info_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), SLATE_100),
+            ('TEXTCOLOR', (0, 0), (0, -1), NAVY),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('TEXTCOLOR', (1, 0), (1, -1), BODY_DARK),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 0.5, SLATE_BORDER),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        story.append(info_table)
+        story.append(Spacer(1, 0.25 * inch))
+ 
+        # --- Render the AI report text (lightweight markdown parser) ---
+        def process_inline(text):
+            """Convert **bold**, *italic*, `code` to reportlab markup. Escapes XML."""
+            text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            text = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', text)
+            text = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<i>\1</i>', text)
+            text = re.sub(r'`([^`]+)`', r'<font face="Courier" color="#1b1b42">\1</font>', text)
+            return text
+ 
+        def render_markdown(text):
+            elements = []
+            lines = (text or "").split("\n")
+            current_bullets = []
+ 
+            def flush_bullets():
+                if current_bullets:
+                    for b in current_bullets:
+                        elements.append(Paragraph(f"&bull;&nbsp;&nbsp;{b}", bullet_style))
+                    current_bullets.clear()
+ 
+            for raw in lines:
+                line = raw.rstrip()
+                if not line.strip():
+                    flush_bullets()
+                    elements.append(Spacer(1, 4))
+                    continue
+ 
+                # Headings
+                if line.startswith("### "):
+                    flush_bullets()
+                    elements.append(Paragraph(process_inline(line[4:]), h2_style))
+                    continue
+                if line.startswith("## "):
+                    flush_bullets()
+                    elements.append(Paragraph(process_inline(line[3:]), h1_style))
+                    continue
+                if line.startswith("# "):
+                    flush_bullets()
+                    elements.append(Paragraph(process_inline(line[2:]), h1_style))
+                    continue
+                if re.match(r'^\*\*[^*]+\*\*\s*$', line):
+                    flush_bullets()
+                    heading_text = line.strip("* ").strip()
+                    elements.append(Paragraph(heading_text, h2_style))
+                    continue
+ 
+                # Bullets
+                stripped = line.lstrip()
+                if stripped.startswith(("- ", "* ", "• ")):
+                    current_bullets.append(process_inline(stripped[2:].strip()))
+                    continue
+ 
+                # Numbered list
+                num_match = re.match(r'^\s*(\d+)\.\s+(.+)', line)
+                if num_match:
+                    flush_bullets()
+                    elements.append(Paragraph(
+                        f"{num_match.group(1)}.&nbsp;&nbsp;{process_inline(num_match.group(2))}",
+                        bullet_style
+                    ))
+                    continue
+ 
+                # Default paragraph
+                flush_bullets()
+                elements.append(Paragraph(process_inline(line), body_style))
+ 
+            flush_bullets()
+            return elements
+ 
+        story.extend(render_markdown(student['ai_report']))
+ 
+        # Build PDF with header/footer on every page
+        doc.build(story, onFirstPage=add_page_decorations, onLaterPages=add_page_decorations)
+        buffer.seek(0)
+ 
+        # Sanitize filename
+        safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', student['name'] or 'student')
+        filename = f"Fortrust_Report_{safe_name}.pdf"
+ 
+        # Audit log
+        try:
+            log_audit_event(
+                conn=conn, action="DOWNLOAD_AI_PDF", entity="Student",
+                entity_id=case_id, changed_by=user_data.get("name", "Unknown"),
+                details={"filename": filename}
+            )
+            conn.commit()
+        except Exception:
+            pass
+ 
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+ 
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
     finally:
         if conn:
             conn.close()
- 
 
 # =====================================================================
 # --- 6. MARKETING MODULE ---

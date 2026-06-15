@@ -7,7 +7,8 @@ import {
   X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
   Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
   Eye, Trash2, Plus, MessageSquare, Send, Clock, User, Circle,
-  Archive, DollarSign, Download
+  ChevronRight, ChevronLeft, CheckCircle, Award, Briefcase, Sparkles, Target, ChevronDown, Archive,
+  Download,DollarSign
 } from "lucide-react";
 
 const DOC_TYPES = [
@@ -102,6 +103,7 @@ export default function GlobalStudentDatabase() {
   
   const [aiReport, setAiReport] = useState("");
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState("Report Card");
@@ -303,10 +305,10 @@ export default function GlobalStudentDatabase() {
           budget: editingStudent.budget,
           father_name: editingStudent.father_name,
           father_email: editingStudent.father_email,
-          father_phone: editingStudent.father_phone,
+          father_whatsapp: editingStudent.father_whatsapp,
           mother_name: editingStudent.mother_name,
           mother_email: editingStudent.mother_email,
-          mother_phone: editingStudent.mother_phone,
+          mother_whatsapp: editingStudent.mother_whatsapp,
           field_interests: JSON.stringify(finalFields),
           career_goal: finalCareer,
           campus_env: finalCampus
@@ -336,7 +338,38 @@ export default function GlobalStudentDatabase() {
       setTimeout(() => setNotification(null), 3000);
     }
   };
-
+  const handleDownloadPdf = async () => {
+    if (!editingStudent) return;
+    setIsDownloadingPdf(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/ai-report/pdf`,
+        { headers: { "Authorization": `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setNotification({ type: 'error', message: errData.detail || "PDF download failed." });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeName = (editingStudent.name || 'student').replace(/[^a-zA-Z0-9]/g, '_');
+      link.download = `Fortrust_Report_${safeName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification({ type: 'success', message: "PDF downloaded successfully." });
+    } catch (e) {
+      setNotification({ type: 'error', message: "Network error while downloading PDF." });
+    } finally {
+      setIsDownloadingPdf(false);
+      setTimeout(() => setNotification(null), 3000);
+    }
+  };
   const generateAIReport = async () => {
     if (!editingStudent) return;
     setIsGeneratingAI(true);
@@ -924,7 +957,7 @@ export default function GlobalStudentDatabase() {
                           </div>
                           <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Phone / WA</label>
-                            <input type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:border-orange-300" value={editingStudent.father_phone || ""} onChange={e => setEditingStudent({...editingStudent, father_phone: e.target.value})} />
+                            <input type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:border-orange-300" value={editingStudent.father_whatsapp || ""} onChange={e => setEditingStudent({...editingStudent, father_whatsapp: e.target.value})} />
                           </div>
                         </div>
                       </div>
@@ -943,7 +976,7 @@ export default function GlobalStudentDatabase() {
                           </div>
                           <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Phone / WA</label>
-                            <input type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:border-orange-300" value={editingStudent.mother_phone || ""} onChange={e => setEditingStudent({...editingStudent, mother_phone: e.target.value})} />
+                            <input type="text" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:border-orange-300" value={editingStudent.mother_whatsapp || ""} onChange={e => setEditingStudent({...editingStudent, mother_whatsapp: e.target.value})} />
                           </div>
                         </div>
                       </div>
@@ -1290,10 +1323,21 @@ export default function GlobalStudentDatabase() {
                           <CheckCircle2 size={18} className="text-emerald-500"/>
                           <span className="font-bold text-[#282860]">AI Strategic Report</span>
                         </div>
-                        <button onClick={generateAIReport} className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"><RefreshCcw size={12}/> Regenerate</button>
+                        
                       </div>
-                      <div className="p-6 overflow-y-auto custom-scrollbar flex-1 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                        {aiReport}
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleDownloadPdf}
+                          disabled={isDownloadingPdf || isGeneratingAI}
+                          className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          {isDownloadingPdf ? <Loader2 size={12} className="animate-spin"/> : <Download size={12}/>}
+                          {isDownloadingPdf ? "Generating..." : "Download PDF"}
+                        </button>
+                        <button type="button" onClick={generateAIReport} className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1">
+                          <RefreshCcw size={12}/> Regenerate
+                        </button>
                       </div>
                     </div>
                   )}

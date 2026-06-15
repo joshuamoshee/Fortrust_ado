@@ -17,3 +17,4 @@ supabase
 email-validator
 passlib
 requests
+reportlab>=4.0.0
