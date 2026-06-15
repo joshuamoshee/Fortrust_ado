@@ -93,6 +93,7 @@ def verify_schema():
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS training_points INTEGER DEFAULT 0;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;")
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact TEXT DEFAULT '';")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS field_interests TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS budget TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS archive_reason TEXT DEFAULT '';")
@@ -106,6 +107,7 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS career_goal TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS campus_env TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS country_interest TEXT DEFAULT '';")
+            
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -461,6 +463,7 @@ class UpdateLeadRequest(BaseModel):
     academic_field: Optional[str] = None
     career_goal: Optional[str] = None
     campus_env: Optional[str] = None
+    country_interest: Optional[str] = None
 
 class ArchiveStudentRequest(BaseModel):
     reason: str
@@ -513,6 +516,7 @@ class StudentCreate(BaseModel):
     academic_field: Optional[str] = None
     career_goal: Optional[str] = None
     campus_env: Optional[str] = None
+    country_interest: Optional[str] = None
 
 
 class StudentUpdate(BaseModel):
@@ -538,6 +542,7 @@ class StudentUpdate(BaseModel):
     academic_field: Optional[str] = None
     career_goal: Optional[str] = None
     campus_env: Optional[str] = None
+    country_interest: Optional[str] = None
 
 
 class InstitutionUpdate(BaseModel):
@@ -2647,13 +2652,13 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
         with conn.cursor() as cur:
             # 1. Fetch old values for comparison
             cur.execute("""
-                SELECT academic_field, career_goal, campus_env,
+                SELECT academic_field, career_goal, campus_env, country_interest,
                        father_name, father_email, father_whatsapp,
                        mother_name, mother_email, mother_whatsapp
                 FROM students WHERE id = %s
             """, (student_id,))
             old_profile = cur.fetchone()
-
+            
             # 2. Process updates
             data = student.dict(exclude_unset=True)
             if not data:
@@ -2670,10 +2675,12 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
             academic_profile_updated = False
             parent_profile_updated = False
             campus_env_changed = False
+            country_interest_changed = False
             new_campus_env = ""
+            new_country_interest = ""
 
             if old_profile:
-                old_acad_field, old_career_goal, old_campus_env, \
+                old_acad_field, old_career_goal, old_campus_env, old_country_interest, \
                 old_f_name, old_f_email, old_f_whatsapp, \
                 old_m_name, old_m_email, old_m_whatsapp = old_profile
 
@@ -2686,6 +2693,11 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
                 if student.campus_env is not None and student.campus_env != old_campus_env:
                     campus_env_changed = True
                     new_campus_env = student.campus_env
+
+                # Check if country interest changed
+                if student.country_interest is not None and student.country_interest != old_country_interest:
+                    country_interest_changed = True
+                    new_country_interest = student.country_interest
 
                 # Check if parent profile changed
                 if (student.father_name is not None and student.father_name != old_f_name) or \
@@ -2707,6 +2719,12 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
                     INSERT INTO chat_messages (student_id, sender, message, is_system)
                     VALUES (%s, 'System', %s, TRUE)
                 """, (student_id, f"{user_name} changed Preferred Campus Environment to {new_campus_env}"))
+
+            if country_interest_changed:
+                cur.execute("""
+                    INSERT INTO chat_messages (student_id, sender, message, is_system)
+                    VALUES (%s, 'System', %s, TRUE)
+                """, (student_id, f"{user_name} set Preferred Study Destination to {new_country_interest}"))
 
             if parent_profile_updated:
                 cur.execute("""
@@ -3059,6 +3077,7 @@ def create_broadcast(req: BroadcastCreate, user_data: dict = Depends(verify_toke
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            # 1. Save to DB
             cur.execute("""
                 INSERT INTO broadcasts (title, message, target_role, target_branch, send_email, created_by)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
@@ -3071,8 +3090,96 @@ def create_broadcast(req: BroadcastCreate, user_data: dict = Depends(verify_toke
                 user_data.get("name", "Master Admin")
             ))
             new_id = cur.fetchone()[0]
+
+            # 2. If send_email, fetch matching agents and email them
+            emails_sent = 0
+            emails_failed = []
+
+            if req.send_email:
+                # Build agent filter query
+                query = "SELECT name, email FROM users WHERE COALESCE(is_active, true) = true AND COALESCE(is_archived, false) = false AND email IS NOT NULL AND email != ''"
+                params = []
+
+                if req.target_role != "ALL":
+                    query += " AND agent_type = %s"
+                    params.append(req.target_role)
+
+                if req.target_branch != "ALL":
+                    query += " AND branch = %s"
+                    params.append(req.target_branch)
+
+                cur.execute(query, tuple(params))
+                agents = cur.fetchall()  # list of (name, email) tuples
+
+                sg_api_key = os.getenv("SENDGRID_API_KEY")
+                sg_from_email = os.getenv("SENDGRID_FROM_EMAIL")
+
+                if sg_api_key and sg_from_email and agents:
+                    for agent_name, agent_email in agents:
+                        if not agent_email or "@" not in agent_email:
+                            continue
+                        try:
+                            html_body = f"""
+                            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                                <div style="background: #1b1b42; padding: 24px 32px; display: flex; align-items: center; gap: 12px;">
+                                    <span style="color: #BAD133; font-size: 22px; font-weight: 900; letter-spacing: -0.5px;">FORTRUST</span>
+                                    <span style="color: #ffffff; font-size: 13px; opacity: 0.6; margin-left: 4px;">education services</span>
+                                </div>
+                                <div style="padding: 32px;">
+                                    <p style="color: #64748b; font-size: 13px; margin-bottom: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">System Broadcast</p>
+                                    <h2 style="color: #282860; font-size: 22px; font-weight: 900; margin: 0 0 16px 0;">{req.title}</h2>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+                                        <p style="color: #334155; font-size: 15px; line-height: 1.7; margin: 0; white-space: pre-wrap;">{req.message}</p>
+                                    </div>
+                                    <p style="color: #94a3b8; font-size: 12px;">Hi {agent_name}, this message was sent to you by the Fortrust Master Admin team. Please log in to Fortrust OS for more details.</p>
+                                </div>
+                                <div style="background: #f8fafc; padding: 16px 32px; border-top: 1px solid #e2e8f0;">
+                                    <p style="color: #94a3b8; font-size: 11px; margin: 0;">Fortrust Education Services · Global Network · <a href="https://fortrust-ado.vercel.app" style="color: #BAD133;">Login to Fortrust OS</a></p>
+                                </div>
+                            </div>
+                            """
+                            sg_headers = {
+                                "Authorization": f"Bearer {sg_api_key}",
+                                "Content-Type": "application/json"
+                            }
+                            sg_payload = {
+                                "personalizations": [{
+                                    "to": [{"email": agent_email, "name": agent_name}],
+                                    "subject": f"[Fortrust Broadcast] {req.title}"
+                                }],
+                                "from": {"email": sg_from_email, "name": "Fortrust OS"},
+                                "content": [{"type": "text/html", "value": html_body}]
+                            }
+                            resp = requests.post(
+                                "https://api.sendgrid.com/v3/mail/send",
+                                json=sg_payload,
+                                headers=sg_headers
+                            )
+                            if resp.status_code < 400:
+                                emails_sent += 1
+                            else:
+                                emails_failed.append(agent_email)
+                                print(f"[broadcast] SendGrid error for {agent_email}: {resp.text}")
+                        except Exception as email_err:
+                            emails_failed.append(agent_email)
+                            print(f"[broadcast] Failed to email {agent_email}: {email_err}")
+
             conn.commit()
-            return {"status": "success", "message": "Broadcast sent successfully", "id": new_id}
+
+            msg = f"Broadcast sent successfully."
+            if req.send_email:
+                msg += f" Emails dispatched: {emails_sent}."
+                if emails_failed:
+                    msg += f" Failed: {len(emails_failed)}."
+
+            return {
+                "status": "success",
+                "message": msg,
+                "id": new_id,
+                "emails_sent": emails_sent,
+                "emails_failed": emails_failed
+            }
+
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

@@ -31,20 +31,51 @@ const STANDARD_CATEGORIES = [
 
 // Academic fields for the "Field of Interest" selector - 3rd AI variable
 const ACADEMIC_FIELDS = [
-  { label: "Business & Management", emoji: "💼" },
-  { label: "Economics & Finance", emoji: "📈" },
-  { label: "Marketing & Communication", emoji: "📣" },
-  { label: "Computer Science & IT", emoji: "💻" },
-  { label: "Engineering", emoji: "⚙️" },
-  { label: "Medicine & Health Sciences", emoji: "🩺" },
-  { label: "Sciences (Bio/Chem/Physics)", emoji: "🔬" },
-  { label: "Design & Creative Arts", emoji: "🎨" },
-  { label: "Hospitality & Tourism", emoji: "🏨" },
-  { label: "Other", emoji: "✨" },
+  { label: "Business & Management", emoji: "\uD83D\uDCBC" },
+  { label: "Economics & Finance", emoji: "\uD83D\uDCC8" },
+  { label: "Marketing & Communication", emoji: "\uD83D\uDCE3" },
+  { label: "Computer Science & IT", emoji: "\uD83D\uDCBB" },
+  { label: "Engineering", emoji: "\u2699\uFE0F" },
+  { label: "Medicine & Health Sciences", emoji: "\uD83E\uDE7A" },
+  { label: "Sciences (Bio/Chem/Physics)", emoji: "\uD83D\uDD2C" },
+  { label: "Design & Creative Arts", emoji: "\uD83C\uDFA8" },
+  { label: "Hospitality & Tourism", emoji: "\uD83C\uDFE8" },
+  { label: "Other", emoji: "\u2728" },
 ];
 
-const CAREER_GOALS = ["Corporate / Employment", "Entrepreneurship / Business", "Academia / Research", "Undecided", "Other"];
-const CAMPUS_ENVS = ["City Center", "Suburban / Campus Town", "Rural / Quiet", "Other"];
+const CAREER_GOALS = [
+  "Corporate / Private Sector",
+  "Freelance / Creative",
+  "Government / Public Sector",
+  "Non-Profit / NGO / Social Impact",
+  "Family Business",
+  "Entrepreneurship / Business",
+  "Academia / Research",
+  "Undecided",
+  "Other",
+];
+
+const CAMPUS_ENVS = [
+  "City Center",
+  "Suburban / Campus Town",
+  "Rural / Quiet",
+  "Traditional College Town",
+  "Industry / Tech / Innovation Hub",
+  "Other",
+];
+
+const FORTRUST_COUNTRIES = [
+  { value: "australia", label: "🇦🇺 Australia" },
+  { value: "uk", label: "🇬🇧 United Kingdom" },
+  { value: "usa", label: "🇺🇸 United States" },
+  { value: "canada", label: "🇨🇦 Canada" },
+  { value: "netherlands", label: "🇳🇱 Netherlands" },
+  { value: "germany", label: "🇩🇪 Germany" },
+  { value: "new_zealand", label: "🇳🇿 New Zealand" },
+  { value: "singapore", label: "🇸🇬 Singapore" },
+  { value: "malaysia", label: "🇲🇾 Malaysia" },
+  { value: "other", label: "🌍 Other" },
+];
 
 const MAX_FIELD_INTERESTS = 3;
 
@@ -117,6 +148,7 @@ export default function GlobalStudentDatabase() {
   const [customFieldInterest, setCustomFieldInterest] = useState("");
   const [customCareerGoal, setCustomCareerGoal] = useState("");
   const [customCampusEnv, setCustomCampusEnv] = useState("");
+  const [countryInterest, setCountryInterest] = useState("");
 
   const [newNote, setNewNote] = useState("");
   const [isSendingNote, setIsSendingNote] = useState(false);
@@ -137,11 +169,36 @@ export default function GlobalStudentDatabase() {
   }, [dossierTab, editingStudent?.timeline]);
 
   // Load field_interests and profile from the student record when dossier opens
+  // Load field_interests and profile from the student record when dossier opens
   useEffect(() => {
     if (!editingStudent?.id) {
       setAiReport("");
+      setFieldInterests([]);
+      setCareerGoal("");
+      setCampusEnv("");
+      setCountryInterest("");
+      setCustomFieldInterest("");
+      setCustomCareerGoal("");
+      setCustomCampusEnv("");
       return;
     }
+
+    // Populate academic profile fields from student data
+    try {
+      const raw = editingStudent.field_interests;
+      if (raw) {
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        setFieldInterests(Array.isArray(parsed) ? parsed : []);
+      } else {
+        setFieldInterests([]);
+      }
+    } catch {
+      setFieldInterests([]);
+    }
+    setCareerGoal(editingStudent.career_goal || "");
+    setCampusEnv(editingStudent.campus_env || "");
+    setCountryInterest(editingStudent.country_interest || "");
+
     const loadSavedReport = async () => {
       try {
         const token = localStorage.getItem("fortrust_token");
@@ -311,7 +368,8 @@ export default function GlobalStudentDatabase() {
           mother_whatsapp: editingStudent.mother_whatsapp,
           field_interests: JSON.stringify(finalFields),
           career_goal: finalCareer,
-          campus_env: finalCampus
+          campus_env: finalCampus,
+          country_interest: countryInterest
         })
       });
 
@@ -633,6 +691,36 @@ export default function GlobalStudentDatabase() {
         </div>
       </div>
 
+      {/* ARCHIVED STAT — shown only when archived students exist */}
+      {(() => {
+        const archivedCount = allStudents.filter(s => (s.status || "").toUpperCase() === "ARCHIVED").length;
+        if (archivedCount === 0) return null;
+        return (
+          <div className="mb-6">
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              className={`w-full p-4 rounded-2xl border transition-all flex items-center justify-between ${
+                showArchived
+                  ? 'bg-red-50 border-red-200'
+                  : 'bg-slate-50 border-slate-200 hover:bg-red-50 hover:border-red-100'
+              }`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
+                  <Archive size={20} className="text-red-600"/>
+                </div>
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Archived Students</p>
+                  <p className="text-lg font-black text-[#282860]">{archivedCount} preserved</p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-slate-500">
+                {showArchived ? "Hide from list ↑" : "Show in list ↓"}
+              </span>
+            </button>
+          </div>
+        );
+      })()}
+
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[700px] overflow-hidden">
         <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row gap-4 justify-between items-center">
           <div className="flex items-center text-slate-400 bg-white px-4 py-2.5 rounded-xl border border-slate-200 w-full md:w-96 focus-within:border-[#BAD133] focus-within:ring-2 focus-within:ring-[#BAD133]/20 transition-all shadow-sm">
@@ -852,7 +940,15 @@ export default function GlobalStudentDatabase() {
               <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-center">
                 <p className="text-sm text-slate-600">You are about to archive the pipeline for</p>
                 <p className="font-black text-[#282860] text-xl mt-1">{studentToArchive?.name}</p>
-                <p className="text-xs text-slate-400 mt-2">This action removes them from the active funnel.</p>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 mt-3 text-left">
+                  <p className="text-xs text-emerald-700 font-bold flex items-center gap-1.5">
+                    <CheckCircle2 size={12}/> All data will be preserved
+                  </p>
+                  <p className="text-[10px] text-emerald-600 mt-0.5">
+                    Documents, AI report, chat, notes, and all profile data stay intact.
+                    You can restore this student anytime via the archived view.
+                  </p>
+                </div>
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Reason for dropping/archiving <span className="text-red-500">*</span></label>
@@ -883,7 +979,60 @@ export default function GlobalStudentDatabase() {
         <>
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 transition-opacity" onClick={() => setEditingStudent(null)}></div>
           <div className="fixed inset-y-0 right-0 w-full sm:w-[750px] bg-white shadow-2xl border-l border-slate-200 z-50 flex flex-col transform transition-transform duration-300 ease-out">
-            
+
+            {/* ARCHIVED BANNER */}
+            {(editingStudent.status || "").toUpperCase() === "ARCHIVED" && (
+              <div className="bg-red-50 border-b border-red-200 px-6 py-4 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                    <Archive size={20} className="text-red-600"/>
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-red-700 uppercase tracking-wider">Student Archived</p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      {editingStudent.archive_reason
+                        ? <>Reason: <strong>{editingStudent.archive_reason}</strong></>
+                        : "No reason specified."}
+                      {" "}— All data preserved. Documents and AI report intact.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!window.confirm(`Restore ${editingStudent.name} to active pipeline?`)) return;
+                    try {
+                      const token = localStorage.getItem("fortrust_token");
+                      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}`, {
+                        method: "PUT",
+                        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "NEW LEAD", archive_reason: "" })
+                      });
+                      if (res.ok) {
+                        // Log system note
+                        let authorName = "Master Admin";
+                        try { if (token) { const payload = JSON.parse(atob(token.split('.')[1])); authorName = payload.name || "Master Admin"; } } catch (e) {}
+                        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/notes`, {
+                          method: "POST",
+                          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                          body: JSON.stringify({ note: `SYSTEM: ${authorName} restored student from archive to active pipeline.`, author: "System AI" })
+                        });
+                        setNotification({type: 'success', message: `${editingStudent.name} restored to active pipeline.`});
+                        setEditingStudent(null);
+                        fetchData();
+                      } else {
+                        setNotification({type: 'error', message: "Failed to restore student."});
+                      }
+                    } catch (e) {
+                      setNotification({type: 'error', message: "Network error."});
+                    }
+                  }}
+                  className="bg-white hover:bg-red-100 text-red-700 border border-red-300 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0"
+                >
+                  <RefreshCcw size={14}/> Restore
+                </button>
+              </div>
+            )}
             <div className="p-8 border-b border-slate-100 bg-[#1b1b42] text-white flex justify-between items-start relative overflow-hidden shrink-0">
               <div className="absolute top-0 right-0 w-64 h-64 bg-[#BAD133] rounded-full blur-[80px] opacity-10 pointer-events-none"></div>
               <div className="relative z-10 flex items-center gap-5">
@@ -1095,6 +1244,31 @@ export default function GlobalStudentDatabase() {
                             <input type="text" placeholder="Please specify preferred environment..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-blue-200" value={customCampusEnv} onChange={(e) => setCustomCampusEnv(e.target.value)}/>
                           </div>
                         )}
+                      </div>
+
+                      {/* PREFERRED STUDY DESTINATION */}
+                      <div>
+                        <div className="border-b border-slate-100 pb-3 mb-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
+                            <MapPin size={16} className="text-rose-500"/> Preferred Study Destination
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1.5">Select one country. Used by AI for university matching.</p>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {FORTRUST_COUNTRIES.map(country => (
+                            <button
+                              key={country.value}
+                              type="button"
+                              onClick={() => setCountryInterest(countryInterest === country.value ? "" : country.value)}
+                              className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors text-left ${
+                                countryInterest === country.value
+                                  ? 'bg-[#BAD133] text-[#1b1b42] border-[#BAD133] shadow-md'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}>
+                              {country.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
 
                     </div>
@@ -1317,26 +1491,54 @@ export default function GlobalStudentDatabase() {
                     </div>
                   )}
                   {aiReport && !isGeneratingAI && (
-                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
+                    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                      {/* Header bar */}
                       <div className="bg-slate-50 border-b border-slate-100 p-4 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <CheckCircle2 size={18} className="text-emerald-500"/>
                           <span className="font-bold text-[#282860]">AI Strategic Report</span>
                         </div>
-                        
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={handleDownloadPdf}
+                            disabled={isDownloadingPdf}
+                            className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            {isDownloadingPdf
+                              ? <Loader2 size={12} className="animate-spin"/>
+                              : <Download size={12}/>}
+                            {isDownloadingPdf ? "Generating..." : "Download PDF"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={generateAIReport}
+                            className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
+                          >
+                            <RefreshCcw size={12}/> Regenerate
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
+
+                      {/* Report body */}
+                      <div className="p-6 overflow-y-auto custom-scrollbar prose prose-sm max-w-none">
+                        <div className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-mono">
+                          {aiReport}
+                        </div>
+                      </div>
+
+                      {/* Bottom download button for long reports */}
+                      <div className="border-t border-slate-100 p-4 flex justify-end bg-slate-50">
                         <button
                           type="button"
                           onClick={handleDownloadPdf}
-                          disabled={isDownloadingPdf || isGeneratingAI}
-                          className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                          disabled={isDownloadingPdf}
+                          className="bg-[#BAD133] hover:bg-[#a3b827] text-[#1b1b42] px-5 py-2.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
                         >
-                          {isDownloadingPdf ? <Loader2 size={12} className="animate-spin"/> : <Download size={12}/>}
-                          {isDownloadingPdf ? "Generating..." : "Download PDF"}
-                        </button>
-                        <button type="button" onClick={generateAIReport} className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1">
-                          <RefreshCcw size={12}/> Regenerate
+                          {isDownloadingPdf
+                            ? <Loader2 size={14} className="animate-spin"/>
+                            : <Download size={14}/>}
+                          {isDownloadingPdf ? "Generating PDF..." : "Download PDF Report"}
                         </button>
                       </div>
                     </div>
