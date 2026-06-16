@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { 
-  Phone, Mail, Building2, Search, Filter, Briefcase, 
-  MapPin, CheckCircle2, ShieldAlert, Loader2, MessageCircle, Users
+  Phone, Mail, Building2, Search, 
+  CheckCircle2, Loader2, MessageCircle, Users
 } from "lucide-react";
 
 export default function ContactPersonDirectory() {
@@ -23,24 +23,35 @@ export default function ContactPersonDirectory() {
         const data = await res.json();
         
         if (data.status === "success") {
-          // Extract and flatten all contacts from all institutions
-          let allContacts: any[] = [];
+          // Extract and flatten ALL contacts from ALL institutions
+          const allContacts: any[] = [];
           data.data.forEach((inst: any) => {
-            if (inst.contacts && typeof inst.contacts === 'object') {
-              const parsedContacts = typeof inst.contacts === 'string' ? JSON.parse(inst.contacts) : inst.contacts;
-              parsedContacts.forEach((c: any) => {
-                allContacts.push({
-                  ...c,
-                  institution_name: inst.name,
-                  country: inst.country
-                });
-              });
+            if (!inst.contacts) return;
+            let parsedContacts: any[] = [];
+            try {
+              parsedContacts = typeof inst.contacts === 'string' 
+                ? JSON.parse(inst.contacts) 
+                : inst.contacts;
+            } catch (e) {
+              console.warn(`Could not parse contacts for ${inst.name}`);
+              return;
             }
+            if (!Array.isArray(parsedContacts)) return;
+            parsedContacts.forEach((c: any) => {
+              if (!c) return;
+              allContacts.push({
+                ...c,
+                institution_name: inst.name,
+                country: inst.country,
+                institution_status: inst.status,
+                institution_id: inst.id
+              });
+            });
           });
           setContacts(allContacts);
         }
       } catch (error) {
-        console.error("Failed to load contacts");
+        console.error("Failed to load contacts", error);
       } finally {
         setLoading(false);
       }
@@ -52,7 +63,8 @@ export default function ContactPersonDirectory() {
 
   const filteredContacts = contacts.filter(c => {
     const matchesSearch = (c.full_name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          (c.institution_name || "").toLowerCase().includes(searchQuery.toLowerCase());
+                          (c.institution_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (c.email || "").toLowerCase().includes(searchQuery.toLowerCase());
     const matchesDept = departmentFilter === "ALL" || (c.department || "General") === departmentFilter;
     return matchesSearch && matchesDept;
   });
@@ -71,6 +83,11 @@ export default function ContactPersonDirectory() {
           </h1>
           <p className="text-slate-500 mt-2 font-medium text-sm">
             Master Rolodex of all university regional managers, admissions officers, and partners.
+            {contacts.length > 0 && (
+              <span className="ml-2 bg-[#BAD133]/20 text-[#1b1b42] px-2 py-0.5 rounded-full text-[11px] font-bold">
+                {contacts.length} total contacts
+              </span>
+            )}
           </p>
         </div>
       </div>
@@ -81,7 +98,7 @@ export default function ContactPersonDirectory() {
           <Search size={18} className="mr-3 text-slate-400" />
           <input 
             type="text" 
-            placeholder="Search name or institution..." 
+            placeholder="Search name, institution, or email..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="bg-transparent border-none outline-none text-sm text-slate-700 w-full font-bold" 
@@ -110,12 +127,17 @@ export default function ContactPersonDirectory() {
         ) : filteredContacts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-200 rounded-2xl bg-white">
             <Users size={48} className="text-slate-300 mb-4"/>
-            <p className="text-slate-500 font-bold">No contacts found.</p>
+            <p className="text-slate-500 font-bold">
+              {contacts.length === 0 ? "No contacts in directory yet." : "No contacts match your search."}
+            </p>
+            {contacts.length === 0 && (
+              <p className="text-xs text-slate-400 mt-2">Add contacts via the Institution Partners page.</p>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {filteredContacts.map((contact, i) => (
-              <div key={i} className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow p-6 group">
+              <div key={`${contact.institution_id}-${i}`} className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow p-6 group">
                 <div className="flex justify-between items-start mb-4 border-b border-slate-100 pb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-[#282860] text-white flex items-center justify-center font-black text-lg shadow-inner">

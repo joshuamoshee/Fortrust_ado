@@ -1,16 +1,18 @@
-"use client";
 
+"use client";
+ 
 import React, { FormEvent, useEffect, useState, useRef, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { createPortal } from "react-dom";
+import AIAssistantFAB from "@/components/AIAssistantFAB";
 import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
-  Phone, ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe, BellRing, Bot
+  ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
+  GraduationCap, Globe, BellRing
 } from "lucide-react";
-
+ 
 // --- TRANSLATION DICTIONARY ---
 const translations = {
   EN: {
@@ -22,7 +24,6 @@ const translations = {
     agentManagement: "Agent",
     globalStudents: "Student Management",
     broadcasts: "Broadcast Hub",
-    aiAssistant: "AI Assistant", // NEW
     consultation: "Consultation",
     profilingTest: "Profiling Test",
     assessment: "Assessment",
@@ -53,7 +54,6 @@ const translations = {
     agentManagement: "Agen",
     globalStudents: "Manajemen Siswa",
     broadcasts: "Broadcast Hub",
-    aiAssistant: "Asisten AI", // NEW
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
     assessment: "Penilaian",
@@ -76,13 +76,13 @@ const translations = {
     account: "Akun"
   }
 };
-
+ 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<any>(null);
   const [isLoaded, setIsLoaded] = useState(false);
-
+ 
   // --- UI STATES ---
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -96,7 +96,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   // Language State
   const [language, setLanguage] = useState<"EN" | "ID">("EN");
   const [languageMessage, setLanguageMessage] = useState<{ type: 'success', text: string } | null>(null);
-
+ 
   const [newPassword, setNewPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -107,20 +107,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [swiftCode, setSwiftCode] = useState("");
   const [isUpdatingBank, setIsUpdatingBank] = useState(false);
   const [bankMessage, setBankMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-
+ 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-
+ 
   const profileMenuRef = useRef<HTMLDivElement>(null);
   
   const t = translations[language];
-
+ 
   useEffect(() => {
     const storedUser = localStorage.getItem("fortrust_user");
     const storedLang = localStorage.getItem("fortrust_lang") as "EN" | "ID";
     if (storedLang) setLanguage(storedLang);
-
+ 
     if (!storedUser) {
       router.push("/");
     } else {
@@ -133,9 +133,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setIsLoaded(true);
     }
   }, [router]);
-
+ 
   useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
-
+ 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
@@ -145,7 +145,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
-
+ 
   useEffect(() => {
     const fetchNotifications = async () => {
       const token = localStorage.getItem("fortrust_token");
@@ -161,20 +161,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         }
       } catch (error) {}
     };
-
+ 
     if (isLoaded && user) {
       fetchNotifications();
       const interval = setInterval(fetchNotifications, 10000);
       return () => clearInterval(interval);
     }
   }, [isLoaded, user]);
-
+ 
   const handleLogout = () => {
     localStorage.removeItem("fortrust_user");
     localStorage.removeItem("fortrust_token");
     router.push("/");
   };
-
+ 
   const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newLang = e.target.value as "EN" | "ID";
     setLanguage(newLang);
@@ -182,7 +182,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     setLanguageMessage({ type: 'success', text: newLang === "EN" ? "Language updated successfully." : "Bahasa berhasil diperbarui." });
     setTimeout(() => setLanguageMessage(null), 3000);
   };
-
+ 
   const handlePasswordChange = async (e: FormEvent) => {
     e.preventDefault();
     setIsChangingPassword(true);
@@ -207,7 +207,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setIsChangingPassword(false);
     }
   };
-
+ 
   const handleBankUpdate = async (e: FormEvent) => {
     e.preventDefault();
     setIsUpdatingBank(true);
@@ -234,7 +234,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setIsUpdatingBank(false);
     }
   };
-
+ 
   const TUTORIAL_STEPS = [
     {
       title: "1. The Agent Workspace",
@@ -257,7 +257,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       points: [
         "Upload student PDF Report Cards and Psychology tests for instant AI analysis.",
         "Generate personalized 'Hasil Reports' to match students with the best university programs.",
-        "Use the 1-Click AI Email and AI WhatsApp generators to draft tailored follow-up messages based on the student's status."
+        "Use the floating AI Assistant button (bottom-right) for instant partnership info and answers."
       ]
     },
     {
@@ -297,18 +297,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       ]
     }
   ];
-
+ 
   if (!isLoaded || !user) return null;
-
+ 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex font-sans antialiased relative overflow-hidden">
-
+ 
       {isMobileMenuOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
       )}
-
+ 
       <aside className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#1b1b42] text-slate-300 flex flex-col h-full shadow-2xl border-r border-[#131333] transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-
+ 
         <div className="h-16 lg:h-24 flex items-center px-6 border-b border-white/5 bg-[#171738] justify-between">
           <div className="bg-white px-4 py-2 lg:py-3 rounded-xl w-full flex items-center justify-center shadow-md">
             <img src="/fortrust-logo.png" alt="Fortrust" className="h-6 lg:h-8 w-auto object-contain" />
@@ -317,25 +317,25 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <X size={24} />
           </button>
         </div>
-
+ 
         <div className="flex-1 py-6 px-4 space-y-1.5 overflow-y-auto custom-scrollbar">
-
+ 
           {user.role !== "MASTER_ADMIN" && (
             <>
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-2">{t.agentWorkspace}</p>
-
+ 
               <Link href="/dashboard/pipeline" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/pipeline' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <LayoutDashboard size={18} className={pathname === '/dashboard/pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.studentPipeline}
               </Link>
-
+ 
               <Link href="/dashboard/programs" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/programs' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <BookOpen size={18} className={pathname === '/dashboard/programs' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.programFinder}
               </Link>
             </>
           )}
-
+ 
           {user.role === "MASTER_ADMIN" && (
             <>
               {/* Top Level Pages */}
@@ -343,12 +343,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <ShieldAlert size={18} className={pathname === '/dashboard/admin' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.mainDashboard}
               </Link>
-
-              <Link href="/dashboard/ai-assistant" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/ai-assistant' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                <Bot size={18} className={pathname === '/dashboard/ai-assistant' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                {t.aiAssistant}
-              </Link>
-
+ 
               {/* Management Group */}
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.management}</p>
               
@@ -356,68 +351,68 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <Users size={18} className={pathname === '/dashboard/agent-pipeline' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.agentManagement}
               </Link>
-
+ 
               <Link href="/dashboard/students" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/students' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <GraduationCap size={18} className={pathname === '/dashboard/students' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.globalStudents}
               </Link>
-
+ 
               <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
-
+ 
               <Link href="/dashboard/broadcasts" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/broadcasts' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <BellRing size={18} className={pathname === '/dashboard/broadcasts' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.broadcasts}
               </Link>
-
+ 
               {/* Marketing Group */}
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.marketing}</p>
-
+ 
               <Link href="/dashboard/marketing" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <Megaphone size={18} className={pathname === '/dashboard/marketing' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.leads}
               </Link>
-
+ 
               <Link href="/dashboard/marketing/budget" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing/budget' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <DollarSign size={18} className={pathname === '/dashboard/marketing/budget' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.budgetRoi}
               </Link>
-
+ 
               <Link href="/dashboard/marketing/strategist" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/marketing/strategist' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <BrainCircuit size={18} className={pathname === '/dashboard/marketing/strategist' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.aiStrategist}
               </Link>
-
+ 
               {/* Account Group */}
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.account}</p>
-
+ 
               <Link href="/dashboard/claimed" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/claimed' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
                 <DollarSign size={18} className={pathname === '/dashboard/claimed' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.commissions}
               </Link>
             </>
           )}
-
+ 
         </div>
       </aside>
-
+ 
       <div className="flex-1 flex flex-col lg:ml-[260px] min-w-0 w-full transition-all duration-300">
-
+ 
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm gap-4">
-
+ 
           <div className="flex items-center flex-1 gap-4">
             <button className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors" onClick={() => setIsMobileMenuOpen(true)}>
               <Menu size={24} />
             </button>
           </div>
-
+ 
           <div className="flex items-center gap-3 lg:gap-5 flex-shrink-0">
-
+ 
             <div className="relative">
               <button onClick={() => { setShowNotifications(!showNotifications); setShowProfileMenu(false); setUnreadCount(0); }} className={`p-2 lg:p-2.5 rounded-full transition-colors relative ${showNotifications ? 'bg-slate-100 text-[#282860]' : 'text-slate-400 hover:text-[#282860] hover:bg-slate-100'}`}>
                 <Bell size={20} />
                 {unreadCount > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>}
               </button>
-
+ 
               {showNotifications && (
                 <div className="absolute right-0 mt-2 w-72 lg:w-96 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 z-50">
                   <div className="p-4 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
@@ -455,9 +450,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 </div>
               )}
             </div>
-
+ 
             <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
-
+ 
             <div className="relative" ref={profileMenuRef}>
               <button 
                 onClick={() => { setShowProfileMenu(!showProfileMenu); setShowNotifications(false); }}
@@ -469,7 +464,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <span className="text-sm font-bold text-slate-700 hidden sm:block">{user.name.split(" ")[0]}</span>
                 <ChevronDown size={14} className="text-slate-400 hidden sm:block"/>
               </button>
-
+ 
               {showProfileMenu && (
                 <div className="absolute right-0 mt-3 w-72 bg-white rounded-3xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] border border-slate-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
                   <div className="p-5 border-b border-slate-100 bg-[#f8fafc]">
@@ -498,7 +493,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       <Settings size={18} className="text-slate-400" /> {t.accountSettings}
                     </button>
                   </div>
-
+ 
                   <div className="p-2 border-t border-slate-100 bg-slate-50/50">
                     <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors">
                       <LogOut size={18} className="text-red-400" /> {t.secureSignOut}
@@ -507,15 +502,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 </div>
               )}
             </div>
-
+ 
           </div>
         </header>
-
+ 
         <main className="flex-1 w-full max-w-[1600px] mx-auto overflow-x-hidden p-3 lg:p-6">
           {children}
         </main>
       </div>
-
+ 
       {/* --- PLATFORM TUTORIAL MODAL --- */}
       {showTutorial && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
@@ -529,7 +524,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <X size={20} />
               </button>
             </div>
-
+ 
             <div className="p-8 flex-1 bg-slate-50 border-y border-slate-100 min-h-[350px] flex flex-col justify-center">
                <div className="flex flex-col md:flex-row gap-6 items-center md:items-start animate-in fade-in slide-in-from-right-4 duration-300" key={tutorialStep}>
                  <div className={`w-24 h-24 rounded-3xl flex items-center justify-center shrink-0 shadow-sm border ${TUTORIAL_STEPS[tutorialStep].bg} ${TUTORIAL_STEPS[tutorialStep].border}`}>
@@ -551,7 +546,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                  </div>
                </div>
             </div>
-
+ 
             <div className="p-5 bg-white flex items-center justify-between">
               <button 
                 onClick={() => setTutorialStep(prev => Math.max(0, prev - 1))}
@@ -566,7 +561,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <div key={idx} className={`h-2 rounded-full transition-all duration-300 ${tutorialStep === idx ? "w-6 bg-[#BAD133]" : "w-2 bg-slate-200"}`}></div>
                 ))}
               </div>
-
+ 
               {tutorialStep === TUTORIAL_STEPS.length - 1 ? (
                 <button 
                   onClick={() => setShowTutorial(false)}
@@ -586,7 +581,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
       )}
-
+ 
       {/* COMPREHENSIVE ACCOUNT SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
@@ -601,7 +596,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <X size={24} />
               </button>
             </div>
-
+ 
             <div className="flex bg-slate-50 border-b border-slate-200">
               <button onClick={() => setSettingsTab('preferences')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'preferences' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
                 <Globe size={16}/> Preferences
@@ -615,7 +610,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 </button>
               )}
             </div>
-
+ 
             <div className="p-5 lg:p-6 overflow-y-auto flex-1">
               
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
@@ -627,7 +622,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <p className="text-xs font-semibold text-slate-500 uppercase mt-0.5">{user.role} • {user.branch}</p>
                 </div>
               </div>
-
+ 
               {/* TAB 1: PREFERENCES */}
               {settingsTab === 'preferences' && (
                 <div className="space-y-4 animate-in fade-in">
@@ -640,7 +635,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       <CheckCircle size={14} /> {languageMessage.text}
                     </div>
                   )}
-
+ 
                   <div>
                     <label className="text-xs font-bold text-slate-500">System Language</label>
                     <div className="relative mt-1">
@@ -657,7 +652,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   </div>
                 </div>
               )}
-
+ 
               {/* TAB 2: SECURITY */}
               {settingsTab === 'security' && (
                 <form onSubmit={handlePasswordChange} className="space-y-4 animate-in fade-in">
@@ -672,7 +667,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       {passwordMessage.text}
                     </div>
                   )}
-
+ 
                   <div>
                     <label className="text-xs font-bold text-slate-500">New Password</label>
                     <input type="password" required minLength={6} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Enter new password" className="w-full mt-1 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-[#282860]" />
@@ -685,7 +680,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   </div>
                 </form>
               )}
-
+ 
               {/* TAB 3: BANK DETAILS */}
               {settingsTab === 'bank' && user.role !== "MASTER_ADMIN" && (
                 <form onSubmit={handleBankUpdate} className="space-y-4 animate-in fade-in">
@@ -700,7 +695,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       {bankMessage.text}
                     </div>
                   )}
-
+ 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="text-xs font-bold text-slate-500">Bank Name</label>
@@ -723,32 +718,36 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
       )}
+ 
+      {/* GLOBAL AI ASSISTANT FAB - appears on every dashboard page */}
+      <AIAssistantFAB />
+ 
     </div>
   );
 }
-
+ 
 // --- SIDEBAR DROPDOWN COMPONENT ---
-
+ 
 type SidebarMenuItem = {
   label: string;
   href: string;
   icon?: React.ReactNode;
   iconClassName?: string | ((active: boolean) => string);
 };
-
+ 
 type SidebarMenuProps = {
   label: string;
   icon?: React.ReactNode;
   menuItems: SidebarMenuItem[];
   activePath: string;
 };
-
+ 
 function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
   const [submenuOpen, setSubmenuOpen] = React.useState(false);
   const btnRef = React.useRef<HTMLDivElement>(null);
   const [submenuPos, setSubmenuPos] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const submenuHover = React.useRef(false);
-
+ 
   React.useEffect(() => {
     if (submenuOpen && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
@@ -763,7 +762,7 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
       });
     }
   }, [submenuOpen, menuItems.length]);
-
+ 
   React.useEffect(() => {
     if (!submenuOpen) return;
     const handle = (e: MouseEvent) => {
@@ -779,7 +778,7 @@ function SidebarMenu({ label, icon, menuItems, activePath }: SidebarMenuProps) {
     document.addEventListener('mousedown', handle);
     return () => document.removeEventListener('mousedown', handle);
   }, [submenuOpen]);
-
+ 
   const isActive = menuItems.some(item => item.href === activePath);
   
   return (

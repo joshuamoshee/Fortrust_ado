@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { 
-  Percent, Search, Building, TrendingUp, AlertCircle, 
-  CheckCircle2, Loader2, ArrowUpRight, DollarSign, FileText
+  Percent, Search, Building, TrendingUp, 
+  Loader2, ArrowUpRight, FileText
 } from "lucide-react";
 
 export default function CommissionStructureMatrix() {
@@ -149,11 +149,48 @@ export default function CommissionStructureMatrix() {
                     </td>
 
                     <td className="px-6 py-5 text-right">
-                      <span className={`inline-flex px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider
-                        ${inst.status === "Active" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
-                        {inst.status || "ACTIVE"}
-                      </span>
-                      <p className="text-[10px] text-slate-400 font-medium mt-1.5">Exp: {inst.duration_end || "Unknown"}</p>
+                      {(() => {
+                        const end = inst.duration_end;
+                        let expStatus: "active" | "expiring" | "expired" | "unknown" = "unknown";
+                        let daysLeft: number | null = null;
+                        if (end) {
+                          try {
+                            const diff = Math.floor((new Date(end).getTime() - Date.now()) / 86400000);
+                            daysLeft = diff;
+                            if (diff < 0) expStatus = "expired";
+                            else if (diff <= 30) expStatus = "expiring";
+                            else expStatus = "active";
+                          } catch {}
+                        }
+                        if (expStatus === "expired") {
+                          return (
+                            <>
+                              <span className="inline-flex px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border-red-200">
+                                ⚠️ Expired
+                              </span>
+                              <p className="text-[10px] text-red-500 font-bold mt-1.5">Ended {end}</p>
+                            </>
+                          );
+                        }
+                        if (expStatus === "expiring") {
+                          return (
+                            <>
+                              <span className="inline-flex px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border-amber-200">
+                                ⏰ Expires {daysLeft}d
+                              </span>
+                              <p className="text-[10px] text-amber-600 font-bold mt-1.5">End: {end}</p>
+                            </>
+                          );
+                        }
+                        return (
+                          <>
+                            <span className={`inline-flex px-3 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider ${inst.status === "Active" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                              {inst.status || "ACTIVE"}
+                            </span>
+                            <p className="text-[10px] text-slate-400 font-medium mt-1.5">Exp: {end || "Unknown"}</p>
+                          </>
+                        );
+                      })()}
                     </td>
 
                   </tr>

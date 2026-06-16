@@ -4,8 +4,28 @@ import { useState, useEffect, useRef } from "react";
 import { 
   Building2, MapPin, DollarSign, UploadCloud, Plus, 
   Sparkles, X, Loader2, Trash2, Building, FileText, Phone, Calculator,
-  Search, Filter, Globe, CheckCircle2
+  Search, Filter, Globe, CheckCircle2, AlertCircle
 } from "lucide-react";
+
+// --- AGREEMENT EXPIRY HELPERS ---
+function getAgreementStatus(durationEnd: string | null | undefined): {
+  status: "active" | "expiring" | "expired" | "unknown";
+  daysLeft: number | null;
+  label: string;
+} {
+  if (!durationEnd) return { status: "unknown", daysLeft: null, label: "No end date" };
+  try {
+    const end = new Date(durationEnd);
+    const now = new Date();
+    const diffMs = end.getTime() - now.getTime();
+    const daysLeft = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (daysLeft < 0) return { status: "expired", daysLeft, label: `Expired ${Math.abs(daysLeft)}d ago` };
+    if (daysLeft <= 30) return { status: "expiring", daysLeft, label: `Expires in ${daysLeft}d` };
+    return { status: "active", daysLeft, label: `${daysLeft}d remaining` };
+  } catch {
+    return { status: "unknown", daysLeft: null, label: "Invalid date" };
+  }
+}
 
 export default function InstitutionPartners() {
   const [institutions, setInstitutions] = useState<any[]>([]);
@@ -16,16 +36,13 @@ export default function InstitutionPartners() {
   const [scanSuccess, setScanSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // New UI States for Mami's Request
+  // Search
   const [searchQuery, setSearchQuery] = useState("");
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadInstId, setUploadInstId] = useState("");
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const emptyForm = {
     id: "",
     institution_name: "", institution_type: "University", country: "", website: "",
-    establishment_year: "", student_intake: "", programs_offered: "", status: "Active",
+    student_intake: "", programs_offered: "", status: "Active",
     agreement_id: "", agreement_date: "", agreement_type: "Commission-based",
     base_commission: "", performance_bonus: "", tiered_levels: "",
     duration_start: "", duration_end: "", terms_conditions: "", document_link: "",
@@ -71,7 +88,6 @@ export default function InstitutionPartners() {
         country: formData.country,
         website: formData.website,
         status: formData.status,
-        establishment_year: formData.establishment_year,
         student_intake: formData.student_intake,
         programs_offered: formData.programs_offered,
         agreement_id: formData.agreement_id,
@@ -169,14 +185,6 @@ export default function InstitutionPartners() {
     }
   };
 
-  const handleVaultUpload = () => {
-    if (!uploadFile) return;
-    alert("Agreement securely saved to vault! (Sync with S3 pending)");
-    setShowUploadModal(false);
-    setUploadFile(null);
-    setUploadInstId("");
-  };
-
   const filteredInstitutions = institutions.filter(inst => 
     (inst.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
     (inst.country || "").toLowerCase().includes(searchQuery.toLowerCase())
@@ -200,12 +208,6 @@ export default function InstitutionPartners() {
         </div>
         
         <div className="flex items-center gap-3 w-full lg:w-auto">
-          <button
-            onClick={() => { setShowUploadModal(true); setUploadInstId(""); }}
-            className="bg-white hover:bg-slate-50 border border-slate-200 text-[#282860] px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm flex items-center gap-2 shrink-0 transition-colors"
-          >
-            <UploadCloud size={18} /> Upload MoU
-          </button>
           <button
             onClick={() => { setFormData(emptyForm); setIsEditModalOpen(true); setModalTab("profile"); }}
             className="bg-[#282860] hover:bg-[#1b1b42] text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex items-center gap-2 shrink-0 transition-colors"
@@ -275,9 +277,40 @@ export default function InstitutionPartners() {
                   </td>
                   <td className="px-5 py-4 font-bold text-emerald-600">{inst.base_commission ? `${inst.base_commission}%` : "-"}</td>
                   <td className="px-5 py-4">
-                    <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider ${inst.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
-                      {inst.status || "ACTIVE"}
-                    </span>
+                    {(() => {
+                      const exp = getAgreementStatus(inst.duration_end);
+                      const isActive = inst.status === "Active";
+                      if (exp.status === "expired") {
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-red-50 text-red-700 border border-red-200 w-fit">
+                              ⚠️ Expired
+                            </span>
+                            <span className="text-[9px] text-red-500 font-bold">{exp.label}</span>
+                          </div>
+                        );
+                      }
+                      if (exp.status === "expiring") {
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200 w-fit">
+                              ⏰ Expiring Soon
+                            </span>
+                            <span className="text-[9px] text-amber-600 font-bold">{exp.label}</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="flex flex-col gap-1">
+                          <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider w-fit ${isActive ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-50 text-slate-600 border border-slate-200"}`}>
+                            {inst.status || "ACTIVE"}
+                          </span>
+                          {exp.daysLeft !== null && (
+                            <span className="text-[9px] text-slate-400 font-bold">{exp.label}</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-5 py-4">
                     {inst.document_link ? (
@@ -285,9 +318,9 @@ export default function InstitutionPartners() {
                         <FileText size={14}/> View PDF
                       </a>
                     ) : (
-                      <button onClick={() => { setUploadInstId(inst.id); setShowUploadModal(true); }} className="flex items-center justify-center gap-2 text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-100 hover:text-slate-600 transition-colors w-fit">
-                        <UploadCloud size={14}/> Awaiting Upload
-                      </button>
+                      <span className="flex items-center justify-center gap-2 text-slate-400 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold w-fit">
+                        <UploadCloud size={14}/> No file
+                      </span>
                     )}
                   </td>
                   <td className="px-5 py-4">
@@ -323,66 +356,7 @@ export default function InstitutionPartners() {
         </div>
       </div>
 
-      {/* --- MAMI'S AGREEMENT UPLOAD VAULT MODAL --- */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#f8fafc]">
-              <h2 className="text-xl font-bold text-[#282860] flex items-center gap-2"><Building2 size={22} className="text-[#BAD133]" /> Upload Agreement (MoU)</h2>
-              <button onClick={() => { setShowUploadModal(false); setUploadFile(null); setUploadInstId(""); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
-            </div>
-            
-            <div className="p-8 space-y-6">
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Institution Partner</label>
-                <select 
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 bg-slate-50 focus:bg-white cursor-pointer"
-                  value={uploadInstId}
-                  onChange={(e) => setUploadInstId(e.target.value)}
-                >
-                  <option value="" disabled>Select an institution...</option>
-                  {institutions.map(inst => (
-                    <option key={inst.id} value={inst.id}>{inst.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Signed Document</label>
-                {!uploadFile ? (
-                  <label className="border-2 border-dashed border-slate-300 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-all">
-                    <input type="file" accept=".pdf" className="hidden" onChange={(e) => { if(e.target.files) setUploadFile(e.target.files[0]) }} />
-                    <UploadCloud size={32} className="text-slate-400 mb-3" />
-                    <p className="text-sm font-bold text-slate-700">Click to upload PDF</p>
-                    <p className="text-xs text-slate-400 mt-1">Max size: 10MB</p>
-                  </label>
-                ) : (
-                  <div className="border-2 border-emerald-500 bg-emerald-50 rounded-2xl p-6 flex flex-col justify-center relative shadow-sm">
-                    <button onClick={() => setUploadFile(null)} className="absolute top-4 right-4 text-emerald-500 hover:bg-white p-1 rounded-full"><X size={18}/></button>
-                    <div className="flex items-center gap-3">
-                      <div className="bg-white p-2 rounded-lg text-emerald-600 shadow-sm shrink-0"><CheckCircle2 size={24} /></div>
-                      <div className="overflow-hidden">
-                        <p className="text-sm font-bold text-[#282860] truncate">{uploadFile.name}</p>
-                        <p className="text-xs font-bold text-slate-500 mt-0.5">{(uploadFile.size / 1024).toFixed(1)} KB • Ready to sync</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <button 
-                disabled={!uploadFile || !uploadInstId} 
-                onClick={handleVaultUpload} 
-                className="w-full bg-[#282860] hover:bg-[#1b1b42] disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-all shadow-md active:scale-95"
-              >
-                Securely Save to Vault
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- MASTER EDIT MODAL (RETAINED EXACTLY AS IS) --- */}
+      {/* --- MASTER EDIT MODAL --- */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
@@ -403,6 +377,38 @@ export default function InstitutionPartners() {
                 <X size={24} />
               </button>
             </div>
+
+            {/* EXPIRY WARNING BANNER */}
+            {formData.duration_end && (() => {
+              const exp = getAgreementStatus(formData.duration_end);
+              if (exp.status === "expired") {
+                return (
+                  <div className="bg-red-50 border-b-2 border-red-200 px-6 py-3 flex items-center gap-3 shrink-0">
+                    <div className="bg-red-100 text-red-600 p-1.5 rounded-lg">
+                      <AlertCircle size={18}/>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-black text-red-700">⚠️ This agreement has expired</p>
+                      <p className="text-xs text-red-600">End date: {formData.duration_end} ({exp.label}). Renew before continuing to refer students.</p>
+                    </div>
+                  </div>
+                );
+              }
+              if (exp.status === "expiring") {
+                return (
+                  <div className="bg-amber-50 border-b-2 border-amber-200 px-6 py-3 flex items-center gap-3 shrink-0">
+                    <div className="bg-amber-100 text-amber-600 p-1.5 rounded-lg">
+                      <AlertCircle size={18}/>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-black text-amber-700">⏰ Agreement expiring soon</p>
+                      <p className="text-xs text-amber-600">End date: {formData.duration_end} ({exp.label}). Begin renewal discussions now.</p>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* AI Banner */}
             <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-4 border-b border-indigo-100 flex items-center justify-between shrink-0">
@@ -461,10 +467,6 @@ export default function InstitutionPartners() {
                     <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} />
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Establishment Year</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.establishment_year} onChange={e => setFormData({ ...formData, establishment_year: e.target.value })} />
-                  </div>
-                  <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Student Intake (Annual)</label>
                     <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.student_intake} onChange={e => setFormData({ ...formData, student_intake: e.target.value })} />
                   </div>
@@ -521,10 +523,42 @@ export default function InstitutionPartners() {
                     <label className="text-xs font-bold text-slate-500 uppercase">Duration End</label>
                     <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.duration_end} onChange={e => setFormData({ ...formData, duration_end: e.target.value })} />
                   </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Document/File Link</label>
-                    <input type="url" className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-blue-600 outline-none focus:border-[#BAD133]" placeholder="https://..." value={formData.document_link} onChange={e => setFormData({ ...formData, document_link: e.target.value })} />
+                  
+                  {/* MoU UPLOAD SECTION - moved from top button */}
+                  <div className="col-span-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-dashed border-blue-200 p-5 rounded-2xl">
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div>
+                        <h4 className="text-sm font-black text-[#282860] flex items-center gap-2">
+                          <UploadCloud size={16} className="text-blue-600"/> Signed MoU Document
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-0.5">Upload the signed agreement PDF or paste a Drive/Dropbox link.</p>
+                      </div>
+                      {formData.document_link && (
+                        <a 
+                          href={formData.document_link} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0"
+                        >
+                          <FileText size={14}/> View Current PDF
+                        </a>
+                      )}
+                    </div>
+                    <label className="block">
+                      <span className="text-xs font-bold text-slate-500 uppercase">Document Link / URL</span>
+                      <input 
+                        type="url" 
+                        className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-blue-600 bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" 
+                        placeholder="https://drive.google.com/... or paste any document URL" 
+                        value={formData.document_link} 
+                        onChange={e => setFormData({ ...formData, document_link: e.target.value })} 
+                      />
+                    </label>
+                    <p className="text-[10px] text-slate-400 mt-2 italic">
+                      💡 For now: upload your PDF to Google Drive / Dropbox and paste the share link here. Direct PDF upload to vault coming soon.
+                    </p>
                   </div>
+
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Terms & Conditions</label>
                     <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.terms_conditions} onChange={e => setFormData({ ...formData, terms_conditions: e.target.value })} />

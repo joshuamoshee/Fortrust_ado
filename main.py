@@ -552,7 +552,6 @@ class InstitutionUpdate(BaseModel):
     city: Optional[str] = None
     status: Optional[str] = None
     website: Optional[str] = None
-    establishment_year: Optional[str] = None
     student_intake: Optional[str] = None
     programs_offered: Optional[str] = None
     agreement_id: Optional[str] = None
@@ -3334,7 +3333,6 @@ def ai_partnership_assistant(req: AIChatRequest, user_data: dict = Depends(verif
                 "agreement_period": f"{inst.get('duration_start', '?')} to {inst.get('duration_end', '?')}",
                 "terms": inst.get('terms_conditions') or '',
                 "contacts": contacts_str,
-                "established": inst.get('establishment_year') or '',
                 "annual_intake": inst.get('student_intake') or '',
             })
         context_text = json.dumps(clean_data, indent=2, default=str)
