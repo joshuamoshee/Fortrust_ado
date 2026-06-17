@@ -165,6 +165,8 @@ def verify_schema():
                     created_at TIMESTAMP DEFAULT NOW()
                 );
             """)
+            cur.execute("ALTER TABLE institutions ADD COLUMN IF NOT EXISTS commission_programs JSONB DEFAULT '[]'::jsonb;")
+            cur.execute("ALTER TABLE institutions ADD COLUMN IF NOT EXISTS ai_extracted_at TIMESTAMP;")
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -563,7 +565,9 @@ class InstitutionUpdate(BaseModel):
     duration_start: Optional[str] = None
     duration_end: Optional[str] = None
     terms_conditions: Optional[str] = None
+    document_link: Optional[str] = None
     contacts: Optional[list] = None
+    commission_programs: Optional[list] = None
     total_referrals: Optional[int] = None
     total_enrollment: Optional[int] = None
     total_base_commission: Optional[str] = None
@@ -2765,6 +2769,9 @@ def delete_student(student_id: int):
 # =====================================================================
 # --- 9. NETWORK DIRECTORY & INSTITUTIONS ---
 # =====================================================================
+# =====================================================================
+# --- 9. NETWORK DIRECTORY & INSTITUTIONS ---
+# =====================================================================
 @app.get("/api/institutions")
 def get_institutions(user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
@@ -2817,9 +2824,9 @@ def update_institution(inst_id: int, inst: InstitutionUpdate, user_data: dict = 
             updates = []
             params = []
             for field, value in data.items():
-                if field == 'contacts':
+                if field in ('contacts', 'commission_programs'):
                     updates.append(f"{field} = %s::jsonb")
-                    params.append(json.dumps(value))
+                    params.append(json.dumps(value or []))
                 elif value == "" or value is None:
                     updates.append(f"{field} = NULL")
                 else:
@@ -2883,12 +2890,12 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
             try:
                 t = page.extract_text() or ""
                 if t.strip():
-                    pages.append(f"\n--- PAGE {i+1} ---\n{t}")
+                    pages.append(f"\\n--- PAGE {i+1} ---\\n{t}")
             except Exception as pe:
                 print(f"[extract-commission] page {i+1} skipped: {pe}")
                 continue
  
-        extracted_text = "\n".join(pages).strip()
+        extracted_text = "\\n".join(pages).strip()
         if not extracted_text:
             raise HTTPException(
                 status_code=400,
@@ -2896,8 +2903,7 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
             )
  
         if len(extracted_text) > MAX_AGREEMENT_CHARS:
-            print(f"[extract-commission] Truncating from {len(extracted_text)} to {MAX_AGREEMENT_CHARS} chars")
-            extracted_text = extracted_text[:MAX_AGREEMENT_CHARS] + "\n\n[...truncated...]"
+            extracted_text = extracted_text[:MAX_AGREEMENT_CHARS] + "\\n\\n[...truncated...]"
  
     except HTTPException:
         raise
@@ -2906,7 +2912,7 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
  
-    # --- 2. Build strict extraction prompt ---
+    # --- 2. Build the upgraded extraction prompt ---
     prompt = f"""You are a senior contract analyst at Fortrust Education Services.
 You are extracting structured data from a University/College partnership or commission agreement.
  
@@ -2916,26 +2922,50 @@ You are extracting structured data from a University/College partnership or comm
 ```
  
 # FAIL-SAFE CHECK
-If the document is clearly NOT a partnership/commission agreement (e.g., it's a random PDF, invoice, brochure, or transcript), return EXACTLY:
+If the document is clearly NOT a partnership/commission agreement (e.g., a random PDF, invoice, brochure, transcript), return EXACTLY:
 {{"is_valid": false, "error_message": "This document does not appear to be a partnership or commission agreement."}}
  
 # IF VALID, RETURN THIS EXACT JSON STRUCTURE
-Every field is required. Use null (not "Unknown", not "N/A", not empty string) when a value cannot be found.
+Every field is required. Use null when a value cannot be found.
  
 {{
   "is_valid": true,
-  "institution_name": "Full official name as written, e.g. 'The Australian National University'",
+  "institution_name": "Full official name as written",
   "institution_type": "One of: University | College | Vocational | Language School | Other",
-  "country": "Country where the institution is based, e.g. 'Australia'",
-  "city": "City where the institution is based, e.g. 'Canberra'",
+  "country": "Country where the institution is based",
+  "city": "City where the institution is based",
   "website": "Official institution website URL if mentioned, else null",
+  "agreement_id": "Agreement number or reference ID if visible",
   "agreement_type": "One of: Commission-based | Fixed Fee | Tiered | Hybrid",
-  "base_commission": "Headline commission as a clear short sentence, e.g. '10% of first 12 months tuition, paid in two parts per semester'",
-  "performance_bonus": "Any bonus/incentive structure, e.g. 'Visa assistance $500 one-off' or null if none",
-  "tiered_levels": "If commission varies by program, summarize the tiers, e.g. 'Bachelors/Masters/PhD: 10%; English Pathway: 20%; MChD: flat $2,500/semester'. If single flat rate, return null.",
-  "duration_start": "Effective date in YYYY-MM-DD. If only a year, use January 1st of that year.",
-  "duration_end": "Expiry date in YYYY-MM-DD, or null if open-ended/perpetual",
-  "terms_conditions": "2-4 sentence summary of the most important terms: invoice deadlines, payment timing, key restrictions, exclusivity, territory, termination notice period. Be specific.",
+  "base_commission": "Headline commission rate as a short string like '10%' or 'Variable - see programs'",
+  "performance_bonus": "Bonus structure if any, e.g. 'Visa assistance $500 one-off', else null",
+  "tiered_levels": "Plain-text summary of commission tiers (keep as backup, also fill commission_programs below)",
+  "commission_programs": [
+    {{
+      "program_name": "Bachelor / Honours / Masters / PhD / Diploma",
+      "part1_pct": 10,
+      "part2_pct": 10,
+      "partial_service_fee": null,
+      "notes": "10% Part 1 + 10% Part 2 of semester tuition, paid after each Census Date"
+    }},
+    {{
+      "program_name": "Graduate Certificate",
+      "part1_pct": 10,
+      "part2_pct": null,
+      "partial_service_fee": null,
+      "notes": "Single payment for 6-month program"
+    }},
+    {{
+      "program_name": "MChD (Medicine)",
+      "part1_pct": null,
+      "part2_pct": null,
+      "partial_service_fee": 2500,
+      "notes": "Flat $2,500 per semester (not percentage based)"
+    }}
+  ],
+  "duration_start": "YYYY-MM-DD format",
+  "duration_end": "YYYY-MM-DD format, or null if open-ended",
+  "terms_conditions": "2-4 sentence summary of key terms: invoice deadlines, payment timing, restrictions, exclusivity, territory, termination notice",
   "contacts": [
     {{
       "name": "Full name",
@@ -2947,46 +2977,50 @@ Every field is required. Use null (not "Unknown", not "N/A", not empty string) w
   ]
 }}
  
-# EXTRACTION RULES
-1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01". "30/04/25" → "2025-04-30".
-2. **Amendments / Variation Letters**: If the document is a variation/amendment that MODIFIES a previous agreement, extract the POST-AMENDMENT state. Add a note in `terms_conditions` like "[Variation dated YYYY-MM-DD: ...]".
-3. **Multiple commission rates**: If different programs have different rates, the headline rate goes in `base_commission`, and the full breakdown goes in `tiered_levels`.
-4. **Contacts**: Include the institution's authorized signatory (the person who signed for the university), plus any operational contacts (admissions email, commission payments email). Skip generic info@ addresses.
-5. **Territory**: Mention in `terms_conditions` if the agent is limited to specific countries.
-6. **Currency**: If commissions are in non-USD currency (e.g., AUD, GBP), mention in `terms_conditions`.
+# CRITICAL: HOW TO FILL commission_programs
  
-# WORKED EXAMPLE (for an ANU-style Australian agreement)
-This is what good extraction looks like:
-{{
-  "is_valid": true,
-  "institution_name": "The Australian National University",
-  "institution_type": "University",
-  "country": "Australia",
-  "city": "Canberra",
-  "website": null,
-  "agreement_type": "Commission-based",
-  "base_commission": "10% of first 12 months tuition, paid in two parts per semester after each Census Date",
-  "performance_bonus": "Visa assistance only: $500 one-off; Partial service: $1,000 one-off",
-  "tiered_levels": "Bachelors/Honours/Masters/PhD/Diploma: 10% Part 1 + 10% Part 2 of respective semester tuition. Graduate Certificate: 10% (single payment, 6-month program). MChD: $2,500 per semester. UC English Language Pathway: 20%.",
-  "duration_start": "2021-11-01",
-  "duration_end": "2025-04-30",
-  "terms_conditions": "Non-exclusive appointment. Territory: Indonesia, Malaysia, Philippines. All payments in AUD. Commission invoiced within 12 months of relevant Census Date. Either party may terminate with 30 days written notice. Commission not payable for students with Australia Awards Scholarships, US Federal Aid recipients, or diplomatic visa holders. [Variation dated 2024-07-19: Added UC English Language Program pathway with 20% commission.]",
-  "contacts": [
-    {{
-      "name": "Dr Amanda Barry",
-      "title": "Director, Future Students",
-      "department": "International Strategy and Future Students Division",
-      "email": "agent.contract@anu.edu.au",
-      "phone": null
-    }}
-  ]
-}}
+This is the most important field. Read the commission section of the agreement carefully and break out EACH distinct program type into its own entry.
+ 
+For each program, identify:
+- **program_name**: What kind of program (Bachelor, Masters, PhD, Diploma, English Pathway, Foundation, Specific Medical degree, etc.). Group similar programs (e.g. "Bachelor / Masters / PhD" if they share the same rate).
+- **part1_pct**: If commission is paid in 2 parts after Census Date, the percentage for Part 1. Otherwise null.
+- **part2_pct**: The percentage for Part 2. If only one payment, leave null.
+- **partial_service_fee**: If the program pays a FLAT FEE (not percentage), put the amount here. Otherwise null.
+- **notes**: Any specific conditions: "paid per semester", "single payment", "6-month program", "after Census Date 1 only", etc.
+ 
+WORKED EXAMPLES:
+ 
+For an ANU-style Australian agreement, the commission_programs array would look like:
+```
+[
+  {{"program_name": "Bachelor / Honours / Masters / PhD / Diploma", "part1_pct": 10, "part2_pct": 10, "partial_service_fee": null, "notes": "10% Part 1 + 10% Part 2 of respective semester tuition, paid after each Census Date"}},
+  {{"program_name": "Graduate Certificate", "part1_pct": 10, "part2_pct": null, "partial_service_fee": null, "notes": "Single payment, 6-month program"}},
+  {{"program_name": "MChD (Doctor of Medicine and Surgery)", "part1_pct": null, "part2_pct": null, "partial_service_fee": 2500, "notes": "Flat $2,500 per semester"}},
+  {{"program_name": "UC English Language Pathway", "part1_pct": 20, "part2_pct": null, "partial_service_fee": null, "notes": "Added via 2024 variation. Single 20% payment."}},
+  {{"program_name": "Partial Service Cases", "part1_pct": null, "part2_pct": null, "partial_service_fee": 1000, "notes": "$1,000 one-off for partial service (e.g., student already enrolled, agent assists with visa only)"}},
+  {{"program_name": "Visa Assistance Only", "part1_pct": null, "part2_pct": null, "partial_service_fee": 500, "notes": "$500 one-off when agent only helps with visa, not application"}}
+]
+```
+ 
+For a simple flat-rate agreement (one rate for everything):
+```
+[
+  {{"program_name": "All Programs", "part1_pct": 15, "part2_pct": null, "partial_service_fee": null, "notes": "Standard 15% on first-year tuition for all programs"}}
+]
+```
+ 
+# EXTRACTION RULES
+1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01".
+2. **Amendments / Variation Letters**: Extract POST-amendment state. Note variations in `terms_conditions` like "[Variation dated YYYY-MM-DD: ...]".
+3. **Multiple rates**: If different programs have different rates, populate commission_programs FULLY. base_commission can be "Variable - see programs".
+4. **Contacts**: Include the authorized signatory + operational contacts (admissions email, payments email). Skip generic info@.
+5. **Currency**: If commissions are in non-USD (AUD, GBP, etc.), mention in `terms_conditions` and `notes`.
  
 # OUTPUT FORMAT
 Return ONLY the JSON object. No preamble, no markdown fences, no commentary.
 Begin extraction now."""
  
-    # --- 3. Call Gemini with JSON mode + low temperature ---
+    # --- 3. Call Gemini ---
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -3001,7 +3035,6 @@ Begin extraction now."""
         if not raw:
             raise Exception("Gemini returned an empty response.")
  
-        # Strip code fences if the AI added them
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
@@ -3015,7 +3048,6 @@ Begin extraction now."""
             print(f"[extract-commission] Raw response: {raw[:1000]}")
             raise Exception(f"AI returned malformed JSON: {raw[:200]}")
  
-        # --- 4. Handle invalid doc ---
         if not data.get("is_valid"):
             return {
                 "status": "error",
@@ -3023,17 +3055,19 @@ Begin extraction now."""
                 "message": data.get("error_message", "Document is not a valid agreement.")
             }
  
-        # --- 5. Fill missing keys with null, clean empty strings ---
+        # Fill defaults including the new commission_programs array
         defaults = {
             "institution_name": None,
             "institution_type": None,
             "country": None,
             "city": None,
             "website": None,
+            "agreement_id": None,
             "agreement_type": None,
             "base_commission": None,
             "performance_bonus": None,
             "tiered_levels": None,
+            "commission_programs": [],
             "duration_start": None,
             "duration_end": None,
             "terms_conditions": None,
@@ -3043,17 +3077,20 @@ Begin extraction now."""
             if k not in data:
                 data[k] = v
  
-        # Normalize empty/placeholder strings to null
+        # Normalize empty strings to null
         for k in list(data.keys()):
             if isinstance(data[k], str) and data[k].strip() in ("", "Unknown", "N/A", "null", "None"):
                 data[k] = None
  
-        # Ensure contacts is always a list
+        # Ensure lists are lists
         if not isinstance(data.get("contacts"), list):
             data["contacts"] = []
+        if not isinstance(data.get("commission_programs"), list):
+            data["commission_programs"] = []
  
         print(f"[extract-commission] Extracted: {data.get('institution_name')} "
-              f"({data.get('country')}) — {len(data.get('contacts', []))} contacts")
+              f"({data.get('country')}) — {len(data.get('contacts', []))} contacts, "
+              f"{len(data.get('commission_programs', []))} programs")
  
         return {"status": "success", "data": data}
  

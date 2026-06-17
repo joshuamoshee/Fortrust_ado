@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { 
-  Building2, MapPin, DollarSign, UploadCloud, Plus, 
+  Building2, UploadCloud, Plus, 
   Sparkles, X, Loader2, Trash2, Building, FileText, Phone, Calculator,
-  Search, Filter, Globe, CheckCircle2, AlertCircle
+  Search, Filter, Globe, AlertCircle, DollarSign, Percent
 } from "lucide-react";
 
 // --- AGREEMENT EXPIRY HELPERS ---
@@ -27,17 +27,62 @@ function getAgreementStatus(durationEnd: string | null | undefined): {
   }
 }
 
+// --- COMMISSION PROGRAM TYPE ---
+interface CommissionProgram {
+  program_name: string;
+  part1_pct: number | null;
+  part2_pct: number | null;
+  partial_service_fee: number | null;
+  notes: string;
+}
+
+const emptyProgram: CommissionProgram = {
+  program_name: "",
+  part1_pct: null,
+  part2_pct: null,
+  partial_service_fee: null,
+  notes: ""
+};
+
+// --- AUTO-CALC HELPER ---
+function calculateCommission(
+  program: CommissionProgram | null,
+  tuition: number,
+  semesters: number
+): { total: number; breakdown: string } {
+  if (!program) return { total: 0, breakdown: "Select a program first" };
+  if (program.partial_service_fee !== null && program.partial_service_fee > 0) {
+    const total = program.partial_service_fee * semesters;
+    return {
+      total,
+      breakdown: `Flat fee: $${program.partial_service_fee} × ${semesters} semester(s) = $${total.toLocaleString()}`
+    };
+  }
+  const p1 = program.part1_pct ? (tuition * program.part1_pct / 100) : 0;
+  const p2 = program.part2_pct ? (tuition * program.part2_pct / 100) : 0;
+  const total = (p1 + p2) * semesters;
+  const parts: string[] = [];
+  if (p1) parts.push(`Part 1: ${program.part1_pct}% × $${tuition.toLocaleString()} = $${p1.toLocaleString()}`);
+  if (p2) parts.push(`Part 2: ${program.part2_pct}% × $${tuition.toLocaleString()} = $${p2.toLocaleString()}`);
+  parts.push(`× ${semesters} semester(s) = $${total.toLocaleString()}`);
+  return { total, breakdown: parts.join("\n") };
+}
+
 export default function InstitutionPartners() {
   const [institutions, setInstitutions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [modalTab, setModalTab] = useState<"profile" | "agreement" | "contacts" | "commission">("profile");
+  const [modalTab, setModalTab] = useState<"profile" | "agreement" | "contacts" | "programs" | "commission">("profile");
   const [isScanning, setIsScanning] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Search
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Calc tab state (per-student commission calculator)
+  const [calcProgramIdx, setCalcProgramIdx] = useState<number | null>(null);
+  const [calcTuition, setCalcTuition] = useState<string>("");
+  const [calcSemesters, setCalcSemesters] = useState<string>("1");
 
   const emptyForm = {
     id: "",
@@ -47,15 +92,14 @@ export default function InstitutionPartners() {
     base_commission: "", performance_bonus: "", tiered_levels: "",
     duration_start: "", duration_end: "", terms_conditions: "", document_link: "",
     contacts: [] as any[],
+    commission_programs: [] as CommissionProgram[],
     total_referrals: "", total_enrollment: "", base_amount: "", calc_bonus: "",
     total_payable: "", comm_status: "Pending", payment_date: "", calc_notes: ""
   };
 
   const [formData, setFormData] = useState(emptyForm);
 
-  useEffect(() => {
-    fetchInstitutions();
-  }, []);
+  useEffect(() => { fetchInstitutions(); }, []);
 
   const fetchInstitutions = async () => {
     setLoading(true);
@@ -101,6 +145,7 @@ export default function InstitutionPartners() {
         terms_conditions: formData.terms_conditions,
         document_link: formData.document_link,
         contacts: formData.contacts,
+        commission_programs: formData.commission_programs,
       };
 
       if (!isEditing) delete payload.id;
@@ -148,6 +193,30 @@ export default function InstitutionPartners() {
     setFormData({ ...formData, contacts: updated });
   };
 
+  // --- COMMISSION PROGRAM CRUD ---
+  const handleAddProgram = () => {
+    setFormData({
+      ...formData,
+      commission_programs: [...formData.commission_programs, { ...emptyProgram }]
+    });
+  };
+
+  const handleUpdateProgram = (index: number, field: keyof CommissionProgram, value: any) => {
+    const updated = [...formData.commission_programs];
+    if (field === "part1_pct" || field === "part2_pct" || field === "partial_service_fee") {
+      updated[index] = { ...updated[index], [field]: value === "" || value === null ? null : Number(value) };
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
+    setFormData({ ...formData, commission_programs: updated });
+  };
+
+  const handleRemoveProgram = (index: number) => {
+    if (!window.confirm("Remove this program row?")) return;
+    const updated = formData.commission_programs.filter((_, i) => i !== index);
+    setFormData({ ...formData, commission_programs: updated });
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -168,6 +237,7 @@ export default function InstitutionPartners() {
           institution_type: result.data.institution_type || prev.institution_type,
           country: result.data.country || prev.country,
           website: result.data.website || prev.website,
+          agreement_id: result.data.agreement_id || prev.agreement_id,
           agreement_type: result.data.agreement_type || prev.agreement_type,
           base_commission: result.data.base_commission || prev.base_commission,
           performance_bonus: result.data.performance_bonus || prev.performance_bonus,
@@ -176,9 +246,19 @@ export default function InstitutionPartners() {
           duration_end: result.data.duration_end || prev.duration_end,
           terms_conditions: result.data.terms_conditions || prev.terms_conditions,
           contacts: result.data.contacts || prev.contacts,
+          // KEY UPGRADE: pull commission_programs from AI extraction
+          commission_programs: (result.data.commission_programs && result.data.commission_programs.length > 0)
+            ? result.data.commission_programs
+            : prev.commission_programs,
         }));
         setScanSuccess(true);
         setTimeout(() => setScanSuccess(false), 3000);
+        // Auto-switch to programs tab so user sees what was extracted
+        if (result.data.commission_programs && result.data.commission_programs.length > 0) {
+          setModalTab("programs");
+        }
+      } else {
+        alert(result.message || "AI extraction failed.");
       }
     } finally {
       setIsScanning(false);
@@ -190,9 +270,17 @@ export default function InstitutionPartners() {
     (inst.country || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Calc tab — compute current selected commission
+  const selectedProgram = calcProgramIdx !== null ? formData.commission_programs[calcProgramIdx] : null;
+  const calcResult = calculateCommission(
+    selectedProgram,
+    Number(calcTuition) || 0,
+    Number(calcSemesters) || 1
+  );
+
   return (
     <div className="p-4 lg:p-8 max-w-[1500px] mx-auto w-full relative animate-in fade-in">
-      
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
@@ -206,7 +294,7 @@ export default function InstitutionPartners() {
             Manage university agreements, MoU documents, and active partner statuses.
           </p>
         </div>
-        
+
         <div className="flex items-center gap-3 w-full lg:w-auto">
           <button
             onClick={() => { setFormData(emptyForm); setIsEditModalOpen(true); setModalTab("profile"); }}
@@ -219,16 +307,16 @@ export default function InstitutionPartners() {
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-[650px]">
-        
+
         <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
           <div className="flex items-center text-slate-400 bg-white px-3 py-2 rounded-lg border border-slate-200 w-full max-w-sm focus-within:border-[#BAD133] transition-all shadow-sm">
             <Search size={16} className="mr-2 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search institution or country..." 
+            <input
+              type="text"
+              placeholder="Search institution or country..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="bg-transparent border-none outline-none text-sm text-slate-700 w-full" 
+              className="bg-transparent border-none outline-none text-sm text-slate-700 w-full"
             />
           </div>
           <button className="flex items-center gap-2 text-sm font-bold text-slate-600 bg-white border border-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 shadow-sm shrink-0">
@@ -242,7 +330,7 @@ export default function InstitutionPartners() {
               <tr>
                 <th className="px-5 py-4">Institution Name</th>
                 <th className="px-5 py-4">Location</th>
-                <th className="px-5 py-4">Base Commission</th>
+                <th className="px-5 py-4">Programs</th>
                 <th className="px-5 py-4">MoU Status</th>
                 <th className="px-5 py-4">Agreement File</th>
                 <th className="px-5 py-4 text-right">Actions</th>
@@ -261,7 +349,9 @@ export default function InstitutionPartners() {
                     No institutions found. Click "Add Institution" to get started.
                   </td>
                 </tr>
-              ) : filteredInstitutions.map((inst) => (
+              ) : filteredInstitutions.map((inst) => {
+                const programCount = Array.isArray(inst.commission_programs) ? inst.commission_programs.length : 0;
+                return (
                 <tr key={inst.id} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-5 py-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 font-black shrink-0">
@@ -275,7 +365,15 @@ export default function InstitutionPartners() {
                   <td className="px-5 py-4 text-slate-600 font-medium">
                     <span className="flex items-center gap-1.5"><Globe size={14} className="text-slate-400"/> {inst.country || "N/A"}</span>
                   </td>
-                  <td className="px-5 py-4 font-bold text-emerald-600">{inst.base_commission ? `${inst.base_commission}%` : "-"}</td>
+                  <td className="px-5 py-4">
+                    {programCount > 0 ? (
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-md text-[11px] font-black uppercase tracking-wider flex items-center gap-1 w-fit">
+                        <Percent size={11}/> {programCount} program{programCount !== 1 ? 's' : ''}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 text-xs italic">No programs yet</span>
+                    )}
+                  </td>
                   <td className="px-5 py-4">
                     {(() => {
                       const exp = getAgreementStatus(inst.duration_end);
@@ -333,9 +431,13 @@ export default function InstitutionPartners() {
                             institution_name: inst.name || "",
                             institution_type: inst.type || "University",
                             contacts: inst.contacts || [],
+                            commission_programs: inst.commission_programs || [],
                           });
                           setIsEditModalOpen(true);
                           setModalTab("profile");
+                          setCalcProgramIdx(null);
+                          setCalcTuition("");
+                          setCalcSemesters("1");
                         }}
                         className="text-[#BAD133] hover:text-[#9bb029] font-bold text-xs uppercase tracking-wider bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors"
                       >
@@ -350,7 +452,7 @@ export default function InstitutionPartners() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -361,7 +463,6 @@ export default function InstitutionPartners() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
 
-            {/* Modal Header */}
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-[#1b1b42] text-white shrink-0">
               <div>
                 <h2 className="text-2xl font-black flex items-center gap-2">
@@ -384,12 +485,10 @@ export default function InstitutionPartners() {
               if (exp.status === "expired") {
                 return (
                   <div className="bg-red-50 border-b-2 border-red-200 px-6 py-3 flex items-center gap-3 shrink-0">
-                    <div className="bg-red-100 text-red-600 p-1.5 rounded-lg">
-                      <AlertCircle size={18}/>
-                    </div>
+                    <div className="bg-red-100 text-red-600 p-1.5 rounded-lg"><AlertCircle size={18}/></div>
                     <div className="flex-1">
                       <p className="text-sm font-black text-red-700">⚠️ This agreement has expired</p>
-                      <p className="text-xs text-red-600">End date: {formData.duration_end} ({exp.label}). Renew before continuing to refer students.</p>
+                      <p className="text-xs text-red-600">End date: {formData.duration_end} ({exp.label}). Renew before continuing.</p>
                     </div>
                   </div>
                 );
@@ -397,9 +496,7 @@ export default function InstitutionPartners() {
               if (exp.status === "expiring") {
                 return (
                   <div className="bg-amber-50 border-b-2 border-amber-200 px-6 py-3 flex items-center gap-3 shrink-0">
-                    <div className="bg-amber-100 text-amber-600 p-1.5 rounded-lg">
-                      <AlertCircle size={18}/>
-                    </div>
+                    <div className="bg-amber-100 text-amber-600 p-1.5 rounded-lg"><AlertCircle size={18}/></div>
                     <div className="flex-1">
                       <p className="text-sm font-black text-amber-700">⏰ Agreement expiring soon</p>
                       <p className="text-xs text-amber-600">End date: {formData.duration_end} ({exp.label}). Begin renewal discussions now.</p>
@@ -416,7 +513,7 @@ export default function InstitutionPartners() {
                 <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><Sparkles size={20} /></div>
                 <div>
                   <p className="text-sm font-bold text-[#282860]">AI Contract Auto-Fill</p>
-                  <p className="text-xs text-slate-500">Upload a PDF agreement to extract terms instantly.</p>
+                  <p className="text-xs text-slate-500">Upload a PDF agreement to extract terms + program-by-program commission table instantly.</p>
                 </div>
               </div>
               <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf" className="hidden" />
@@ -430,19 +527,25 @@ export default function InstitutionPartners() {
             </div>
             {scanSuccess && (
               <div className="bg-green-50 text-green-700 p-2 text-center text-xs font-bold border-b border-green-100 shrink-0">
-                ✅ AI successfully extracted contract data!
+                ✅ AI extracted contract data + {formData.commission_programs.length} program rows!
               </div>
             )}
 
-            {/* Modal Tabs */}
+            {/* Tabs */}
             <div className="flex bg-[#f8fafc] border-b border-slate-200 px-6 overflow-x-auto shrink-0">
-              <button onClick={() => setModalTab('profile')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'profile' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><Building size={16} /> A. Profile</button>
-              <button onClick={() => setModalTab('agreement')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'agreement' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><FileText size={16} /> B. Agreement</button>
-              <button onClick={() => setModalTab('contacts')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'contacts' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><Phone size={16} /> C. Contacts</button>
-              <button onClick={() => setModalTab('commission')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'commission' ? 'border-b-2 border-green-600 text-green-700' : 'text-slate-400'}`}><Calculator size={16} /> D. Calculations</button>
+              <button onClick={() => setModalTab('profile')} className={`px-4 py-4 text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'profile' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><Building size={16} /> A. Profile</button>
+              <button onClick={() => setModalTab('agreement')} className={`px-4 py-4 text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'agreement' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><FileText size={16} /> B. Agreement</button>
+              <button onClick={() => setModalTab('contacts')} className={`px-4 py-4 text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'contacts' ? 'border-b-2 border-[#282860] text-[#282860]' : 'text-slate-400'}`}><Phone size={16} /> C. Contacts</button>
+              <button onClick={() => setModalTab('programs')} className={`px-4 py-4 text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'programs' ? 'border-b-2 border-purple-600 text-purple-700' : 'text-slate-400'}`}>
+                <Percent size={16} /> D. Programs
+                {formData.commission_programs.length > 0 && (
+                  <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-[10px] font-black">{formData.commission_programs.length}</span>
+                )}
+              </button>
+              <button onClick={() => setModalTab('commission')} className={`px-4 py-4 text-sm font-bold whitespace-nowrap transition-colors flex items-center gap-2 ${modalTab === 'commission' ? 'border-b-2 border-green-600 text-green-700' : 'text-slate-400'}`}><Calculator size={16} /> E. Calculator</button>
             </div>
 
-            {/* Modal Content */}
+            {/* Content */}
             <div className="flex-1 overflow-y-auto p-8 bg-slate-50 custom-scrollbar">
 
               {/* TAB A: PROFILE */}
@@ -497,23 +600,21 @@ export default function InstitutionPartners() {
                   <div className="col-span-2">
                     <label className="text-xs font-bold text-slate-500 uppercase">Agreement Type</label>
                     <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.agreement_type} onChange={e => setFormData({ ...formData, agreement_type: e.target.value })}>
-                      <option>Commission-based</option><option>Fixed Fee</option><option>Tiered</option>
+                      <option>Commission-based</option><option>Fixed Fee</option><option>Tiered</option><option>Hybrid</option>
                     </select>
                   </div>
-                  <div className="col-span-2 grid grid-cols-3 gap-4 p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
-                    <div className="col-span-3 pb-2 border-b text-xs font-bold text-[#282860]">Commission Structure</div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-500 uppercase">Base Commission %</label>
-                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" placeholder="e.g. 5%" value={formData.base_commission} onChange={e => setFormData({ ...formData, base_commission: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-500 uppercase">Performance Bonus %</label>
-                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.performance_bonus} onChange={e => setFormData({ ...formData, performance_bonus: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-500 uppercase">Tiered Levels</label>
-                      <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.tiered_levels} onChange={e => setFormData({ ...formData, tiered_levels: e.target.value })} />
-                    </div>
+                  <div className="col-span-2 p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                    <p className="text-xs font-bold text-purple-700 flex items-center gap-2">
+                      💡 For per-program commission rates (e.g. Bachelor 10%, MChD $2,500 flat), use the <span className="bg-purple-200 px-2 py-0.5 rounded">D. Programs</span> tab.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Headline Base Commission</label>
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" placeholder="e.g. 10% or Variable" value={formData.base_commission} onChange={e => setFormData({ ...formData, base_commission: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase">Performance Bonus</label>
+                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.performance_bonus} onChange={e => setFormData({ ...formData, performance_bonus: e.target.value })} />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 uppercase">Duration Start</label>
@@ -523,40 +624,24 @@ export default function InstitutionPartners() {
                     <label className="text-xs font-bold text-slate-500 uppercase">Duration End</label>
                     <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.duration_end} onChange={e => setFormData({ ...formData, duration_end: e.target.value })} />
                   </div>
-                  
-                  {/* MoU UPLOAD SECTION - moved from top button */}
+
+                  {/* MoU UPLOAD SECTION */}
                   <div className="col-span-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-dashed border-blue-200 p-5 rounded-2xl">
                     <div className="flex items-center justify-between gap-4 mb-3">
                       <div>
                         <h4 className="text-sm font-black text-[#282860] flex items-center gap-2">
                           <UploadCloud size={16} className="text-blue-600"/> Signed MoU Document
                         </h4>
-                        <p className="text-xs text-slate-500 mt-0.5">Upload the signed agreement PDF or paste a Drive/Dropbox link.</p>
+                        <p className="text-xs text-slate-500 mt-0.5">Paste a Drive/Dropbox share link to the signed PDF.</p>
                       </div>
                       {formData.document_link && (
-                        <a 
-                          href={formData.document_link} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0"
-                        >
+                        <a href={formData.document_link} target="_blank" rel="noopener noreferrer"
+                          className="bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0">
                           <FileText size={14}/> View Current PDF
                         </a>
                       )}
                     </div>
-                    <label className="block">
-                      <span className="text-xs font-bold text-slate-500 uppercase">Document Link / URL</span>
-                      <input 
-                        type="url" 
-                        className="w-full mt-1 p-3 border border-slate-200 rounded-xl text-blue-600 bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" 
-                        placeholder="https://drive.google.com/... or paste any document URL" 
-                        value={formData.document_link} 
-                        onChange={e => setFormData({ ...formData, document_link: e.target.value })} 
-                      />
-                    </label>
-                    <p className="text-[10px] text-slate-400 mt-2 italic">
-                      💡 For now: upload your PDF to Google Drive / Dropbox and paste the share link here. Direct PDF upload to vault coming soon.
-                    </p>
+                    <input type="url" className="w-full p-3 border border-slate-200 rounded-xl text-blue-600 bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" placeholder="https://drive.google.com/..." value={formData.document_link} onChange={e => setFormData({ ...formData, document_link: e.target.value })} />
                   </div>
 
                   <div className="col-span-2">
@@ -569,63 +654,62 @@ export default function InstitutionPartners() {
               {/* TAB C: CONTACTS */}
               {modalTab === 'contacts' && (
                 <div className="space-y-6">
+                  {formData.contacts.length === 0 && (
+                    <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-center">
+                      <p className="text-sm text-amber-700 font-bold">No contacts yet. Add the authorized signatory + key operational contacts.</p>
+                    </div>
+                  )}
                   {formData.contacts.map((contact, index) => (
-                    <div key={contact.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
-                      <button
-                        onClick={() => handleRemoveContact(index)}
-                        className="absolute top-4 right-4 text-red-400 hover:text-red-600 p-1 bg-red-50 rounded-md transition-colors"
-                      >
+                    <div key={contact.id || index} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative">
+                      <button onClick={() => handleRemoveContact(index)}
+                        className="absolute top-4 right-4 text-red-400 hover:text-red-600 p-1 bg-red-50 rounded-md transition-colors">
                         <Trash2 size={16} />
                       </button>
                       <h3 className="font-bold text-[#282860] mb-4 border-b pb-2">
                         Contact Person {index + 1}
-                        <span className="text-xs font-mono text-slate-400 ml-2">({contact.id})</span>
+                        {contact.primary === "Yes" && <span className="ml-2 bg-emerald-100 text-emerald-700 text-[10px] font-black px-2 py-0.5 rounded uppercase tracking-wider">Primary</span>}
                       </h3>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Full Name</label>
-                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.full_name} onChange={(e) => { const c = [...formData.contacts]; c[index].full_name = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.full_name || contact.name || ""} onChange={(e) => { const c = [...formData.contacts]; c[index].full_name = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Title/Position</label>
-                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.title} onChange={(e) => { const c = [...formData.contacts]; c[index].title = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.title || ""} onChange={(e) => { const c = [...formData.contacts]; c[index].title = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase">Email Address</label>
-                          <input type="email" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.email} onChange={(e) => { const c = [...formData.contacts]; c[index].email = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <label className="text-xs font-bold text-slate-500 uppercase">Email</label>
+                          <input type="email" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.email || ""} onChange={(e) => { const c = [...formData.contacts]; c[index].email = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase">Mobile Number</label>
-                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.mobile} onChange={(e) => { const c = [...formData.contacts]; c[index].mobile = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <label className="text-xs font-bold text-slate-500 uppercase">Mobile</label>
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.mobile || contact.phone || ""} onChange={(e) => { const c = [...formData.contacts]; c[index].mobile = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
                           <label className="text-xs font-bold text-slate-500 uppercase">Department</label>
-                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.department} onChange={(e) => { const c = [...formData.contacts]; c[index].department = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.department || ""} onChange={(e) => { const c = [...formData.contacts]; c[index].department = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase">WhatsApp/WeChat</label>
-                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.whatsapp} onChange={(e) => { const c = [...formData.contacts]; c[index].whatsapp = e.target.value; setFormData({ ...formData, contacts: c }); }} />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="text-xs font-bold text-slate-500 uppercase">Office Address</label>
-                          <textarea rows={2} className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.office_address} onChange={(e) => { const c = [...formData.contacts]; c[index].office_address = e.target.value; setFormData({ ...formData, contacts: c }); }} />
+                          <label className="text-xs font-bold text-slate-500 uppercase">WhatsApp</label>
+                          <input type="text" className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.whatsapp || ""} onChange={(e) => { const c = [...formData.contacts]; c[index].whatsapp = e.target.value; setFormData({ ...formData, contacts: c }); }} />
                         </div>
                         <div className="col-span-2 grid grid-cols-3 gap-4 mt-2">
                           <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase">Preferred Contact</label>
-                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.method} onChange={(e) => { const c = [...formData.contacts]; c[index].method = e.target.value; setFormData({ ...formData, contacts: c }); }}>
-                              <option>Email</option><option>Phone</option><option>WhatsApp</option>
-                            </select>
-                          </div>
-                          <div>
                             <label className="text-xs font-bold text-slate-500 uppercase">Primary Contact?</label>
-                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.primary} onChange={(e) => { const c = [...formData.contacts]; c[index].primary = e.target.value; setFormData({ ...formData, contacts: c }); }}>
+                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.primary || "No"} onChange={(e) => { const c = [...formData.contacts]; c[index].primary = e.target.value; setFormData({ ...formData, contacts: c }); }}>
                               <option>Yes</option><option>No</option>
                             </select>
                           </div>
                           <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase">Preferred Contact</label>
+                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.method || "Email"} onChange={(e) => { const c = [...formData.contacts]; c[index].method = e.target.value; setFormData({ ...formData, contacts: c }); }}>
+                              <option>Email</option><option>Phone</option><option>WhatsApp</option>
+                            </select>
+                          </div>
+                          <div>
                             <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.status} onChange={(e) => { const c = [...formData.contacts]; c[index].status = e.target.value; setFormData({ ...formData, contacts: c }); }}>
+                            <select className="w-full mt-1 p-2 border border-slate-200 rounded-lg outline-none focus:border-[#BAD133]" value={contact.status || "Active"} onChange={(e) => { const c = [...formData.contacts]; c[index].status = e.target.value; setFormData({ ...formData, contacts: c }); }}>
                               <option>Active</option><option>Inactive</option>
                             </select>
                           </div>
@@ -633,63 +717,242 @@ export default function InstitutionPartners() {
                       </div>
                     </div>
                   ))}
-                  <button
-                    onClick={handleAddContact}
-                    className="w-full py-4 border-2 border-dashed border-[#BAD133] rounded-xl text-[#282860] font-bold hover:bg-[#BAD133]/10 transition-colors flex items-center justify-center gap-2"
-                  >
+                  <button onClick={handleAddContact}
+                    className="w-full py-4 border-2 border-dashed border-[#BAD133] rounded-xl text-[#282860] font-bold hover:bg-[#BAD133]/10 transition-colors flex items-center justify-center gap-2">
                     <Plus size={18} /> Add Contact Person
                   </button>
                 </div>
               )}
 
-              {/* TAB D: COMMISSION CALCULATION */}
+              {/* TAB D: COMMISSION PROGRAMS (NEW!) */}
+              {modalTab === 'programs' && (
+                <div className="space-y-4">
+                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-5">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="bg-purple-100 text-purple-700 p-2 rounded-lg"><Percent size={18}/></div>
+                      <h3 className="font-black text-purple-900 text-lg">Per-Program Commission Structure</h3>
+                    </div>
+                    <p className="text-xs text-purple-700">
+                      Break down commission rates by program type. Different programs may have different Part 1 / Part 2 percentages, or fixed flat fees (Partial Service). E.g., ANU has 9 program rows.
+                    </p>
+                  </div>
+
+                  {formData.commission_programs.length === 0 ? (
+                    <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-12 text-center">
+                      <Percent size={48} className="text-slate-300 mx-auto mb-4"/>
+                      <p className="text-slate-500 font-bold mb-2">No commission programs defined yet.</p>
+                      <p className="text-xs text-slate-400 mb-6">Add programs manually or use AI Auto-Fill to extract from the agreement PDF.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                          <tr>
+                            <th className="px-4 py-3 text-left">Program Name</th>
+                            <th className="px-4 py-3 text-center w-24">Part 1 %</th>
+                            <th className="px-4 py-3 text-center w-24">Part 2 %</th>
+                            <th className="px-4 py-3 text-center w-32">Flat Fee ($)</th>
+                            <th className="px-4 py-3 text-left">Notes</th>
+                            <th className="px-2 py-3 w-12"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {formData.commission_programs.map((prog, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  placeholder="e.g. Bachelor / Masters / PhD"
+                                  className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm font-bold text-[#282860] outline-none focus:border-purple-400"
+                                  value={prog.program_name}
+                                  onChange={(e) => handleUpdateProgram(idx, "program_name", e.target.value)}
+                                />
+                              </td>
+                              <td className="px-2 py-2">
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  placeholder="10"
+                                  className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center font-mono outline-none focus:border-purple-400"
+                                  value={prog.part1_pct ?? ""}
+                                  onChange={(e) => handleUpdateProgram(idx, "part1_pct", e.target.value)}
+                                />
+                              </td>
+                              <td className="px-2 py-2">
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  placeholder="10"
+                                  className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center font-mono outline-none focus:border-purple-400"
+                                  value={prog.part2_pct ?? ""}
+                                  onChange={(e) => handleUpdateProgram(idx, "part2_pct", e.target.value)}
+                                />
+                              </td>
+                              <td className="px-2 py-2">
+                                <input
+                                  type="number"
+                                  step="100"
+                                  placeholder="2500"
+                                  className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center font-mono outline-none focus:border-purple-400"
+                                  value={prog.partial_service_fee ?? ""}
+                                  onChange={(e) => handleUpdateProgram(idx, "partial_service_fee", e.target.value)}
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  placeholder="Per semester after Census Date..."
+                                  className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-purple-400"
+                                  value={prog.notes}
+                                  onChange={(e) => handleUpdateProgram(idx, "notes", e.target.value)}
+                                />
+                              </td>
+                              <td className="px-2 py-2 text-center">
+                                <button
+                                  onClick={() => handleRemoveProgram(idx)}
+                                  className="text-red-400 hover:text-white hover:bg-red-500 p-1.5 rounded-lg border border-red-100 bg-red-50 transition-colors"
+                                  title="Remove program"
+                                >
+                                  <Trash2 size={14}/>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleAddProgram}
+                    className="w-full py-4 border-2 border-dashed border-purple-400 rounded-xl text-purple-700 font-bold hover:bg-purple-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus size={18} /> Add Program Row
+                  </button>
+
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600">
+                    <p className="font-bold text-[#282860] mb-2">💡 How to fill this:</p>
+                    <ul className="space-y-1 list-disc list-inside">
+                      <li><strong>Percentage programs:</strong> Fill Part 1 % and/or Part 2 % (leave Flat Fee blank)</li>
+                      <li><strong>Flat fee programs</strong> (e.g. MChD $2,500/sem): Fill only the Flat Fee column</li>
+                      <li><strong>Single-payment programs:</strong> Fill only Part 1 %, leave Part 2 blank</li>
+                      <li><strong>Notes:</strong> Add timing, conditions, exclusions</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB E: PER-STUDENT COMMISSION CALCULATOR */}
               {modalTab === 'commission' && (
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="col-span-2 bg-green-50 border border-green-200 rounded-xl p-6 mb-2 shadow-sm">
-                    <h3 className="font-black text-green-800 text-lg flex items-center gap-2 mb-4"><Calculator /> Calculation Overview</h3>
-                    <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-6">
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-6">
+                    <h3 className="font-black text-green-800 text-lg flex items-center gap-2 mb-4">
+                      <Calculator/> Per-Student Commission Calculator
+                    </h3>
+                    <p className="text-xs text-green-700 mb-4">
+                      Select a program, enter the student's tuition, and the system auto-calculates your commission based on the program's rules.
+                    </p>
+
+                    {formData.commission_programs.length === 0 ? (
+                      <div className="bg-white border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+                        <AlertCircle size={20} className="text-amber-500 shrink-0"/>
+                        <div>
+                          <p className="text-sm font-bold text-amber-700">No programs defined yet</p>
+                          <p className="text-xs text-amber-600">Go to the <strong>D. Programs</strong> tab first to define commission rates per program type.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-green-700 uppercase mb-1.5 block">Program</label>
+                          <select
+                            className="w-full p-3 border border-green-200 rounded-xl bg-white font-bold outline-none focus:border-green-400 text-sm"
+                            value={calcProgramIdx ?? ""}
+                            onChange={(e) => setCalcProgramIdx(e.target.value === "" ? null : Number(e.target.value))}
+                          >
+                            <option value="">-- Select program --</option>
+                            {formData.commission_programs.map((p, i) => (
+                              <option key={i} value={i}>{p.program_name || `Program ${i + 1}`}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-green-700 uppercase mb-1.5 block">Tuition / Semester</label>
+                          <input
+                            type="number"
+                            placeholder="30000"
+                            className="w-full p-3 border border-green-200 rounded-xl bg-white outline-none focus:border-green-400 font-mono"
+                            value={calcTuition}
+                            onChange={(e) => setCalcTuition(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-green-700 uppercase mb-1.5 block"># Semesters</label>
+                          <input
+                            type="number"
+                            min="1"
+                            className="w-full p-3 border border-green-200 rounded-xl bg-white outline-none focus:border-green-400 font-mono"
+                            value={calcSemesters}
+                            onChange={(e) => setCalcSemesters(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* CALCULATION RESULT */}
+                  {selectedProgram && (
+                    <div className="bg-white border-2 border-green-500 rounded-2xl p-6 shadow-lg">
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Estimated Commission</p>
+                      <p className="text-5xl font-black text-green-600 mb-4">
+                        ${calcResult.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </p>
+                      <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Calculation Breakdown</p>
+                        <pre className="text-xs text-slate-700 whitespace-pre-wrap font-mono">{calcResult.breakdown}</pre>
+                        {selectedProgram.notes && (
+                          <p className="text-[11px] text-slate-500 italic mt-3 border-t border-slate-200 pt-2">
+                            📌 {selectedProgram.notes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* MANUAL ENTRY for tracking actual paid commission */}
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6">
+                    <h4 className="font-bold text-[#282860] mb-4 flex items-center gap-2"><DollarSign size={18}/> Track Actual Commission Earned</h4>
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-bold text-green-700 uppercase">Total Referrals (Period)</label>
-                        <input type="number" className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white outline-none focus:border-green-400" value={formData.total_referrals} onChange={e => setFormData({ ...formData, total_referrals: e.target.value })} />
+                        <label className="text-xs font-bold text-slate-500 uppercase">Total Referrals (Period)</label>
+                        <input type="number" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.total_referrals} onChange={e => setFormData({ ...formData, total_referrals: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-bold text-green-700 uppercase">Enrollment Confirmed</label>
-                        <input type="number" className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white outline-none focus:border-green-400" value={formData.total_enrollment} onChange={e => setFormData({ ...formData, total_enrollment: e.target.value })} />
+                        <label className="text-xs font-bold text-slate-500 uppercase">Enrolled / Confirmed</label>
+                        <input type="number" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.total_enrollment} onChange={e => setFormData({ ...formData, total_enrollment: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs font-bold text-green-700 uppercase">Commission Status</label>
-                        <select className="w-full mt-1 p-3 border border-green-200 rounded-xl bg-white font-bold outline-none focus:border-green-400" value={formData.comm_status} onChange={e => setFormData({ ...formData, comm_status: e.target.value })}>
+                        <label className="text-xs font-bold text-slate-500 uppercase">Total Payable (USD)</label>
+                        <input type="text" className="w-full mt-1 p-3 border-2 border-[#282860] rounded-xl font-black text-lg text-green-600 outline-none" value={formData.total_payable} onChange={e => setFormData({ ...formData, total_payable: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
+                        <select className="w-full mt-1 p-3 border border-slate-200 rounded-xl font-bold outline-none focus:border-[#BAD133]" value={formData.comm_status} onChange={e => setFormData({ ...formData, comm_status: e.target.value })}>
                           <option>Pending</option><option>Approved</option><option>Paid</option>
                         </select>
                       </div>
+                      <div className="col-span-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Notes / Adjustments</label>
+                        <textarea rows={2} className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.calc_notes} onChange={e => setFormData({ ...formData, calc_notes: e.target.value })} />
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Base Commission Amount</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" placeholder="$" value={formData.base_amount} onChange={e => setFormData({ ...formData, base_amount: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Performance Bonus (%)</label>
-                    <input type="text" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.calc_bonus} onChange={e => setFormData({ ...formData, calc_bonus: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase">Payment Date</label>
-                    <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.payment_date} onChange={e => setFormData({ ...formData, payment_date: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-[#282860] uppercase">Total Commission Payable</label>
-                    <input type="text" className="w-full mt-1 p-3 border-2 border-[#282860] rounded-xl font-black text-xl text-green-600 bg-white outline-none" placeholder="$" value={formData.total_payable} onChange={e => setFormData({ ...formData, total_payable: e.target.value })} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Notes / Adjustments</label>
-                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.calc_notes} onChange={e => setFormData({ ...formData, calc_notes: e.target.value })} />
                   </div>
                 </div>
               )}
 
             </div>
 
-            {/* Modal Footer */}
+            {/* Footer */}
             <div className="p-5 border-t border-slate-200 bg-white flex justify-end gap-3 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] shrink-0">
               <button onClick={() => setIsEditModalOpen(false)} className="px-6 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
               <button onClick={handleSaveInstitution} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md transition-all">Save Institution Data</button>
