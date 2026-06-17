@@ -3,10 +3,11 @@
 import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
-  Award, Users, FileText, DollarSign, TrendingUp, TrendingDown,
-  Info, Plus, Calendar, Building2, GraduationCap, ChevronDown,
-  X, Loader2, Activity, LogOut, Clock, Target, CheckCircle2, Cctv,
-  AlertTriangle, Flag, ShieldAlert, Timer
+  Award, Users, DollarSign, Calendar, ChevronDown, X, Activity,
+  Target, CheckCircle2, Timer,
+  ArrowRight, Flame, FileWarning, UserMinus, FileClock, BellRing,
+  Plus, GraduationCap, Zap,
+  TrendingUp, Building2
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
@@ -18,24 +19,36 @@ const TIMEFRAMES = [
   { value: "30days", label: "Last 30 Days" },
 ];
 
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+};
+
 export default function MasterDashboardPage() {
   const [timeframe, setTimeframe] = useState("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [showCustomModal, setShowCustomModal] = useState(false);
-  
+
   const [showTimeMenu, setShowTimeMenu] = useState(false);
   const [showNewMenu, setShowNewMenu] = useState(false);
 
   const [stats, setStats] = useState<any>(null);
+  const [actionQueue, setActionQueue] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState("");
 
-  const [openTip, setOpenTip] = useState<string | null>(null);
   const timeMenuRef = useRef<HTMLDivElement>(null);
   const newMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const storedUser = localStorage.getItem("fortrust_user");
+    if (storedUser) {
+      try { setUserName(JSON.parse(storedUser).name?.split(" ")[0] || ""); } catch {}
+    }
     const handle = (e: MouseEvent) => {
       if (timeMenuRef.current && !timeMenuRef.current.contains(e.target as Node)) setShowTimeMenu(false);
       if (newMenuRef.current && !newMenuRef.current.contains(e.target as Node)) setShowNewMenu(false);
@@ -44,7 +57,7 @@ export default function MasterDashboardPage() {
     return () => document.removeEventListener('mousedown', handle);
   }, []);
 
-  const fetchStats = async () => {
+  const fetchAllData = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem("fortrust_token");
@@ -52,23 +65,26 @@ export default function MasterDashboardPage() {
       if (timeframe === "custom" && customFrom && customTo) {
         url += `&from_date=${customFrom}&to_date=${customTo}`;
       }
-      
-      const [statsRes, logsRes] = await Promise.all([
+
+      const [statsRes, queueRes, logsRes] = await Promise.all([
         fetch(url, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs?limit=10`, { headers: { Authorization: `Bearer ${token}` } })
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/action-queue`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/audit-logs?limit=8`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
-      
+
       const statsData = await statsRes.json();
+      const queueData = await queueRes.json();
       const logsData = await logsRes.json();
-      
+
       if (statsData.status === "success") setStats(statsData.data);
+      if (queueData.status === "success") setActionQueue(queueData.data);
       if (logsData.status === "success") setAuditLogs(logsData.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
 
   useEffect(() => {
-    if (timeframe !== "custom" || (customFrom && customTo)) fetchStats();
+    if (timeframe !== "custom" || (customFrom && customTo)) fetchAllData();
   }, [timeframe, customFrom, customTo]);
 
   const handleTimeChoice = (val: string) => {
@@ -84,92 +100,72 @@ export default function MasterDashboardPage() {
   const m = stats?.metrics || {};
   const perf = stats?.performance || {};
   const branchData = perf.branch_pipeline || [];
+  const q = actionQueue || {};
 
-  // --- HARDCORE LOGIC FOR ALERTS AND FLAGS ---
-  const generatePerformanceFlags = () => {
-    const flags: any[] = [];
-    const agentsVolume = perf.top_agents_volume || [];
-    const agentsRevenue = perf.top_agents_revenue || [];
-
-    agentsVolume.forEach((agent: any) => {
-      const revenueMatch = agentsRevenue.find((r: any) => r.name === agent.name);
-      const totalRevenue = revenueMatch ? revenueMatch.value : 0;
-      
-      // Condition 1: High Lead volume but zero revenue brought in
-      if (agent.value > 15 && totalRevenue === 0) {
-        flags.push({
-          agent: agent.name,
-          type: "CRITICAL",
-          reason: "Zero Revenue Generation",
-          detail: `Managing ${agent.value} active leads but has contributed $0 in cleared commissions.`
-        });
-      }
-      // Condition 2: Overloaded queue capacity limits
-      if (agent.value >= 45) {
-        flags.push({
-          agent: agent.name,
-          type: "WARNING",
-          reason: "Pipeline Saturation",
-          detail: `Approaching max structural load capacity with ${agent.value} concurrent student files.`
-        });
-      }
-    });
-
-    // Fallback default flag if data is pristine
-    if (flags.length === 0) {
-      flags.push({
-        agent: "Global Operations",
-        type: "OPTIMAL",
-        reason: "All systems green",
-        detail: "No agent is currently triggering underperformance or capacity boundary flags."
-      });
-    }
-    return flags;
-  };
+  // Total items needing attention
+  const totalAttention =
+    (q.hot_stale?.count || 0) +
+    (q.missing_docs?.count || 0) +
+    (q.unassigned?.count || 0) +
+    (q.commissions_ready?.count || 0) +
+    (q.expiring_agreements?.count || 0) +
+    (q.todays_reminders?.count || 0);
 
   return (
-    <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full space-y-8 animate-in fade-in">
+    <div className="p-4 lg:p-8 max-w-[1600px] mx-auto w-full space-y-6 animate-in fade-in">
 
-      {/* HEADER */}
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-[#282860] flex items-center gap-3">
-            <Award className="text-[#BAD133]" size={36} />
-            Master Dashboard
-          </h1>
-          <p className="text-sm text-slate-500 font-medium mt-2">Global business analytics, financial leadership charts, and automated team audit flags.</p>
-        </div>
-
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="relative" ref={newMenuRef}>
-            <button onClick={() => setShowNewMenu(!showNewMenu)} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white text-sm font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-md">
-              <Plus size={16} /> New <ChevronDown size={14} className={`text-slate-300 transition-transform duration-200 ${showNewMenu ? 'rotate-180' : ''}`}/>
-            </button>
-            {showNewMenu && (
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-40 animate-in fade-in slide-in-from-top-2">
-                <Link href="/dashboard/pipeline?action=new-student" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 text-[#282860]">
-                  <GraduationCap size={18} className="text-[#BAD133]" /> New Student
-                </Link>
-                <Link href="/dashboard/agent-pipeline" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 text-slate-600">
-                  <Users size={18} className="text-slate-400" /> New Agent
-                </Link>
-              </div>
-            )}
+      {/* WELCOME BAR */}
+      <div className="bg-gradient-to-r from-[#1b1b42] via-[#282860] to-[#1b1b42] rounded-3xl p-6 lg:p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-[#BAD133] rounded-full blur-[120px] opacity-10 pointer-events-none"></div>
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+          <div>
+            <p className="text-[#BAD133] text-sm font-black uppercase tracking-widest mb-2">
+              {getGreeting()}{userName ? `, ${userName}` : ""} 👋
+            </p>
+            <h1 className="text-3xl lg:text-4xl font-black mb-2">
+              {totalAttention === 0
+                ? "All clear — nothing urgent today!"
+                : `You have ${totalAttention} ${totalAttention === 1 ? "item" : "items"} needing attention`}
+            </h1>
+            <p className="text-slate-300 text-sm font-medium">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
           </div>
 
-          <div className="relative ml-2" ref={timeMenuRef}>
-            <button onClick={() => setShowTimeMenu(!showTimeMenu)} className="bg-white border border-slate-200 hover:bg-slate-50 text-[#282860] text-sm font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-sm transition-all">
-              <Calendar size={16} className="text-[#BAD133]"/> {currentTimeLabel} <ChevronDown size={16} className="text-slate-400"/>
-            </button>
-            {showTimeMenu && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden z-30 animate-in fade-in slide-in-from-top-2">
-                {TIMEFRAMES.map(t => (
-                  <button key={t.value} onClick={() => handleTimeChoice(t.value)} className={`w-full text-left px-5 py-3 text-sm font-bold hover:bg-slate-50 border-b border-slate-50 last:border-0 ${timeframe === t.value ? "bg-[#BAD133]/10 text-[#282860]" : "text-slate-600"}`}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="relative" ref={newMenuRef}>
+              <button onClick={() => setShowNewMenu(!showNewMenu)} className="bg-[#BAD133] hover:bg-[#a3b827] active:scale-95 text-[#1b1b42] text-sm font-black px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md">
+                <Plus size={16} /> Quick Add <ChevronDown size={14} className={`transition-transform duration-200 ${showNewMenu ? 'rotate-180' : ''}`}/>
+              </button>
+              {showNewMenu && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-40 animate-in fade-in slide-in-from-top-2">
+                  <Link href="/dashboard/students" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 text-[#282860]">
+                    <GraduationCap size={18} className="text-[#BAD133]" /> New Student
+                  </Link>
+                  <Link href="/dashboard/agent-pipeline" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 text-slate-600">
+                    <Users size={18} className="text-slate-400" /> New Agent
+                  </Link>
+                  <Link href="/dashboard/network" className="w-full flex items-center gap-3 px-5 py-3.5 text-sm font-bold hover:bg-slate-50 text-slate-600">
+                    <Building2 size={18} className="text-slate-400" /> New Institution
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div className="relative" ref={timeMenuRef}>
+              <button onClick={() => setShowTimeMenu(!showTimeMenu)} className="bg-white/10 hover:bg-white/20 border border-white/20 text-white text-sm font-bold px-5 py-3 rounded-xl flex items-center gap-2 transition-all backdrop-blur-sm">
+                <Calendar size={16} className="text-[#BAD133]"/> {currentTimeLabel} <ChevronDown size={16}/>
+              </button>
+              {showTimeMenu && (
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden z-30 animate-in fade-in slide-in-from-top-2">
+                  {TIMEFRAMES.map(t => (
+                    <button key={t.value} onClick={() => handleTimeChoice(t.value)} className={`w-full text-left px-5 py-3 text-sm font-bold hover:bg-slate-50 border-b border-slate-50 last:border-0 ${timeframe === t.value ? "bg-[#BAD133]/10 text-[#282860]" : "text-slate-600"}`}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -177,95 +173,224 @@ export default function MasterDashboardPage() {
       {loading ? (
         <div className="flex flex-col items-center justify-center h-[50vh] text-slate-400">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#BAD133] mb-4"></div>
-          <p className="font-medium tracking-wide">Compiling Master Metrics...</p>
+          <p className="font-medium tracking-wide">Loading your command center...</p>
         </div>
       ) : (
         <>
-          {/* TOP KPI ROW */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <KpiCard id="commission" icon={<DollarSign className="text-emerald-600" size={24} />} iconBg="bg-emerald-50" label="Total Cleared Commission" value={`$${(m.logged_commission ?? 0).toLocaleString()}`} tipOpen={openTip === "commission"} onTipToggle={() => setOpenTip(openTip === "commission" ? null : "commission")} tipText="Total historical cleared cash payouts successfully paid out by global institutions.">
-              <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-                <span className="text-[10px] text-slate-400 uppercase font-black">PIPELINE UNRELEASED:</span>
-                <span className="font-black text-amber-600 text-xs">${(m.estimation_commission ?? 0).toLocaleString()}</span>
-              </div>
-            </KpiCard>
+          {/* ACTION QUEUE — THE HERO */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-black text-[#282860] flex items-center gap-2">
+                <Zap size={22} className="text-[#BAD133]"/> Action Queue
+              </h2>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Click any card to jump straight in</span>
+            </div>
 
-            <KpiCard id="velocity" icon={<Timer className="text-blue-600" size={24} />} iconBg="bg-blue-50" label="Avg Time To Close" value={`${m.avg_days_to_close ?? 24} Days`} tipOpen={openTip === "velocity"} onTipToggle={() => setOpenTip(openTip === "velocity" ? null : "velocity")} tipText="Average lifespan tracking of 1 student shifting from initial entry lead to successful institutional placement.">
-              <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2">
-                 <Clock size={14} className="text-slate-400"/>
-                 <span className="text-[10px] text-slate-500 uppercase font-black">Target Cycle Metric: 30 Days</span>
-              </div>
-            </KpiCard>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-            <KpiCard id="qualified" icon={<Award className="text-yellow-600" size={24} />} iconBg="bg-yellow-50" label="Qualified Hot Leads" value={m.qualified_leads ?? 0} tipOpen={openTip === "qualified"} onTipToggle={() => setOpenTip(openTip === "qualified" ? null : "qualified")} tipText="AI Rated hot and warm interest files currently requiring active consultation.">
-              <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-                <div className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-black ${(m.qualified_growth ?? 0) >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                  {(m.qualified_growth ?? 0) >= 0 ? "+" : ""}{m.qualified_growth ?? 0}% Growth
-                </div>
-                <span className="text-[10px] text-slate-400 uppercase font-bold">vs last month</span>
-              </div>
-            </KpiCard>
+              <ActionCard
+                href="/dashboard/students?filter=stale-hot"
+                accent="red"
+                icon={<Flame size={22} className="text-red-600"/>}
+                iconBg="bg-red-50"
+                title="Hot Leads Going Cold"
+                count={q.hot_stale?.count || 0}
+                description="No contact in 3+ days"
+                items={q.hot_stale?.items || []}
+                renderItem={(it: any) => (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700 truncate">{it.name}</span>
+                    <span className="text-red-500 font-bold shrink-0 ml-2">{it.assignee || 'Unassigned'}</span>
+                  </div>
+                )}
+                ctaLabel="View all stale leads"
+              />
 
-            <KpiCard id="active" icon={<Users className="text-purple-600" size={24} />} iconBg="bg-purple-50" label="Total Active Pipeline" value={m.in_progress ?? 0} tipOpen={openTip === "active"} onTipToggle={() => setOpenTip(openTip === "active" ? null : "active")} tipText="Total count of active student profiles currently processing within the systems.">
-              <div className="flex items-center gap-4 mt-4 pt-4 border-t border-slate-100">
-                <div className="text-[11px] font-bold text-slate-500">Placed: <span className="text-emerald-600 font-black">{m.completed ?? 0}</span></div>
-                <div className="text-[11px] font-bold text-slate-500">Dropped: <span className="text-red-500 font-black">{m.dropped ?? 0}</span></div>
-              </div>
-            </KpiCard>
+              <ActionCard
+                href="/dashboard/claimed"
+                accent="emerald"
+                icon={<DollarSign size={22} className="text-emerald-600"/>}
+                iconBg="bg-emerald-50"
+                title="Ready to Claim"
+                count={q.commissions_ready?.count || 0}
+                description={q.commissions_ready?.description || "Cleared funds awaiting withdrawal"}
+                heroValue={q.commissions_ready?.total_amount > 0 ? `$${(q.commissions_ready.total_amount).toLocaleString()}` : null}
+                items={q.commissions_ready?.items || []}
+                renderItem={(it: any) => (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700 truncate">{it.name}</span>
+                    <span className="text-emerald-600 font-black shrink-0 ml-2">${(it.commission_earned || 0).toLocaleString()}</span>
+                  </div>
+                )}
+                ctaLabel="Claim commissions"
+              />
+
+              <ActionCard
+                href="/dashboard/students"
+                accent="amber"
+                icon={<FileWarning size={22} className="text-amber-600"/>}
+                iconBg="bg-amber-50"
+                title="Missing Documents"
+                count={q.missing_docs?.count || 0}
+                description="Students with incomplete files"
+                items={q.missing_docs?.items || []}
+                renderItem={(it: any) => (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700 truncate">{it.name}</span>
+                    <span className="text-amber-600 font-bold shrink-0 ml-2">{it.doc_count}/3+ docs</span>
+                  </div>
+                )}
+                ctaLabel="Review document gaps"
+              />
+
+              <ActionCard
+                href="/dashboard/students?filter=unassigned"
+                accent="blue"
+                icon={<UserMinus size={22} className="text-blue-600"/>}
+                iconBg="bg-blue-50"
+                title="Unassigned Leads"
+                count={q.unassigned?.count || 0}
+                description="Waiting in the open pool"
+                items={q.unassigned?.items || []}
+                renderItem={(it: any) => (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700 truncate">{it.name}</span>
+                    <span className="text-blue-500 font-bold shrink-0 ml-2 capitalize">{(it.lead_temperature || 'cold').toLowerCase().replace(' leads', '')}</span>
+                  </div>
+                )}
+                ctaLabel="Assign now"
+              />
+
+              <ActionCard
+                href="/dashboard/network"
+                accent="purple"
+                icon={<FileClock size={22} className="text-purple-600"/>}
+                iconBg="bg-purple-50"
+                title="Agreements at Risk"
+                count={q.expiring_agreements?.count || 0}
+                description="Expiring or expired in 30 days"
+                items={q.expiring_agreements?.items || []}
+                renderItem={(it: any) => (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700 truncate">{it.name}</span>
+                    <span className={`font-bold shrink-0 ml-2 ${it.is_expired ? 'text-red-500' : 'text-amber-600'}`}>
+                      {it.is_expired ? `Expired ${Math.abs(it.days_left)}d ago` : `${it.days_left}d left`}
+                    </span>
+                  </div>
+                )}
+                ctaLabel="Renew agreements"
+              />
+
+              <ActionCard
+                href="/dashboard/students"
+                accent="indigo"
+                icon={<BellRing size={22} className="text-indigo-600"/>}
+                iconBg="bg-indigo-50"
+                title="Today's Reminders"
+                count={q.todays_reminders?.count || 0}
+                description="Scheduled follow-ups for today"
+                items={q.todays_reminders?.items || []}
+                renderItem={(it: any) => (
+                  <div className="text-xs">
+                    <p className="font-bold text-slate-700 truncate">{it.student_name}</p>
+                    <p className="text-[10px] text-slate-500 truncate italic">{it.note}</p>
+                  </div>
+                )}
+                ctaLabel="View reminders"
+              />
+            </div>
           </div>
 
-          {/* SYSTEM PERFORMANCE MATRIX & LEADERBOARD */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            
-            {/* Chart Column */}
-            <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8">
-              <div className="mb-6">
-                <h3 className="font-black text-xl text-[#282860] flex items-center gap-2"><Building2 size={20} className="text-[#BAD133]" /> Pipeline Volume by Branch</h3>
-                <p className="text-xs text-slate-400 mt-1 font-medium">Active student distribution across corporate physical branch architectures.</p>
+          {/* PERFORMANCE METRICS STRIP */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-black text-[#282860] flex items-center gap-2">
+                <TrendingUp size={22} className="text-[#BAD133]"/> Performance Snapshot
+              </h2>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{currentTimeLabel}</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <MetricChip
+                icon={<Users size={18}/>}
+                color="purple"
+                label="Active Pipeline"
+                value={m.in_progress ?? 0}
+                sublabel={`${m.completed ?? 0} placed · ${m.dropped ?? 0} dropped`}
+              />
+              <MetricChip
+                icon={<Award size={18}/>}
+                color="yellow"
+                label="Qualified Leads"
+                value={m.qualified_leads ?? 0}
+                sublabel={`${(m.qualified_growth ?? 0) >= 0 ? '+' : ''}${m.qualified_growth ?? 0}% vs last month`}
+                trend={(m.qualified_growth ?? 0) >= 0 ? 'up' : 'down'}
+              />
+              <MetricChip
+                icon={<DollarSign size={18}/>}
+                color="emerald"
+                label="Cleared Commission"
+                value={`$${(m.logged_commission ?? 0).toLocaleString()}`}
+                sublabel={`$${(m.estimation_commission ?? 0).toLocaleString()} pipeline`}
+              />
+              <MetricChip
+                icon={<Timer size={18}/>}
+                color="blue"
+                label="Avg Time to Close"
+                value={`${m.avg_days_to_close ?? 24}d`}
+                sublabel="Target: 30 days"
+              />
+            </div>
+          </div>
+
+          {/* LOWER SECTION: Branch Volume + Top Performers */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+              <div className="mb-4">
+                <h3 className="font-black text-lg text-[#282860] flex items-center gap-2"><Building2 size={20} className="text-[#BAD133]" /> Pipeline by Branch</h3>
+                <p className="text-xs text-slate-400 mt-0.5 font-medium">Active student distribution across branches</p>
               </div>
               {branchData.length === 0 ? (
-                <div className="h-64 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-2xl">
-                  <p className="text-slate-400 font-medium">No active branch data found.</p>
+                <div className="h-48 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-2xl">
+                  <p className="text-slate-400 font-medium text-sm">No branch data yet.</p>
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={branchData} margin={{ top: 10, right: 10, bottom: 10, left: -20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis dataKey="branch" tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }} axisLine={false} tickLine={false} dy={10} />
                     <YAxis tick={{ fontSize: 11, fill: "#64748b", fontWeight: 700 }} axisLine={false} tickLine={false} />
                     <ReTooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: 'none', fontWeight: 'bold', color: '#282860' }} />
-                    <Bar dataKey="value" fill="#282860" radius={[6, 6, 0, 0]} maxBarSize={50} />
+                    <Bar dataKey="value" fill="#BAD133" radius={[6, 6, 0, 0]} maxBarSize={50} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </div>
 
-            {/* COMMISSION REVENUE LEADERBOARD */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8">
-              <div className="mb-6">
-                <h3 className="font-black text-xl text-[#282860] flex items-center gap-2"><Target size={20} className="text-[#BAD133]" /> Revenue Leaderboard</h3>
-                <p className="text-xs text-slate-400 mt-1 font-medium">Ranked explicitly by total financial commission brought into the company.</p>
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+              <div className="mb-4">
+                <h3 className="font-black text-lg text-[#282860] flex items-center gap-2"><Target size={20} className="text-[#BAD133]" /> Top Performers</h3>
+                <p className="text-xs text-slate-400 mt-0.5 font-medium">Revenue leaders this period</p>
               </div>
-
               {(perf.top_agents_revenue || []).length === 0 ? (
-                <div className="h-48 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-2xl">
-                  <p className="text-slate-400 font-medium">No transaction histories recorded.</p>
+                <div className="h-32 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-2xl">
+                  <p className="text-slate-400 font-medium text-sm">No revenue yet.</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1 custom-scrollbar">
-                  {(perf.top_agents_revenue || []).map((agent: any, i: number) => (
-                    <div key={agent.name} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/50 hover:bg-slate-50 border border-slate-100 transition-all">
-                      <div className="flex items-center gap-4">
-                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black
-                          ${i === 0 ? "bg-yellow-100 text-yellow-700 ring-2 ring-yellow-50"
+                <div className="space-y-2.5">
+                  {(perf.top_agents_revenue || []).slice(0, 5).map((agent: any, i: number) => (
+                    <div key={agent.name} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black shrink-0
+                          ${i === 0 ? "bg-yellow-100 text-yellow-700 ring-2 ring-yellow-200"
                           : i === 1 ? "bg-slate-200 text-slate-700"
                           : i === 2 ? "bg-amber-100 text-amber-800"
                           : "bg-white border text-slate-400"}`}>
                           {i + 1}
                         </span>
-                        <span className="text-sm font-bold text-[#282860]">{agent.name}</span>
+                        <span className="text-sm font-bold text-[#282860] truncate">{agent.name}</span>
                       </div>
-                      <span className="text-sm font-black text-emerald-600">${agent.value.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
+                      <span className="text-xs font-black text-emerald-600 shrink-0 ml-2">${agent.value.toLocaleString()}</span>
                     </div>
                   ))}
                 </div>
@@ -273,96 +398,52 @@ export default function MasterDashboardPage() {
             </div>
           </div>
 
-          {/* AUTOMATED OPERATIONAL UNDERPERFORMANCE FLAGS */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 lg:p-8 flex flex-col h-full">
-              <div className="mb-6">
-                <h3 className="font-black text-xl text-[#282860] flex items-center gap-2"><Flag size={20} className="text-red-500" /> System Performance Flags</h3>
-                <p className="text-xs text-slate-400 mt-1 font-medium">Automated system scans flagging pipeline bottlenecks or underperformance boundaries.</p>
-              </div>
+          {/* LIVE ACTIVITY — compact */}
+          <div className="bg-[#0f172a] rounded-3xl border border-slate-800 shadow-xl p-6 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600 rounded-full blur-[100px] opacity-10 pointer-events-none"></div>
 
-              <div className="space-y-3 flex-1 overflow-y-auto pr-1 custom-scrollbar max-h-[300px]">
-                {generatePerformanceFlags().map((flag: any, i: number) => (
-                  <div key={i} className={`p-4 rounded-2xl border flex items-start gap-3 transition-colors
-                    ${flag.type === 'CRITICAL' ? 'bg-red-50/60 border-red-100 text-red-800' : 
-                      flag.type === 'WARNING' ? 'bg-amber-50/60 border-amber-100 text-amber-800' : 
-                      'bg-emerald-50/50 border-emerald-100 text-emerald-800'}`}>
-                    <div className="mt-0.5">
-                      {flag.type === 'CRITICAL' ? <ShieldAlert size={18} className="text-red-500"/> : 
-                       flag.type === 'WARNING' ? <AlertTriangle size={18} className="text-amber-500"/> : 
-                       <CheckCircle2 size={18} className="text-emerald-500"/>}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-black text-sm">{flag.agent}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-black border
-                          ${flag.type === 'CRITICAL' ? 'bg-red-100 border-red-200 text-red-700' : 
-                            flag.type === 'WARNING' ? 'bg-amber-100 border-amber-200 text-amber-700' : 
-                            'bg-emerald-100 border-emerald-200 text-emerald-700'}`}>{flag.reason}</span>
+            <div className="flex justify-between items-center mb-4 border-b border-slate-800 pb-3 relative z-10">
+              <div>
+                <h3 className="font-black text-lg text-white flex items-center gap-2">
+                  <Activity size={20} className="text-blue-400" /> Live Activity
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5 font-medium">Real-time actions across all users</p>
+              </div>
+              <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-xl">
+                 <span className="relative flex h-2 w-2">
+                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                   <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                 </span>
+                 <span className="text-[10px] font-black text-red-400 uppercase tracking-wider">Live</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 relative z-10">
+              {auditLogs.length === 0 ? (
+                 <p className="col-span-2 text-center text-slate-500 italic py-8 font-medium text-sm">No activity tracked yet.</p>
+              ) : (
+                 auditLogs.slice(0, 8).map((log) => (
+                   <div key={log.id} className="flex items-start gap-3 p-2.5 rounded-lg bg-slate-800/40 hover:bg-slate-800/70 border border-slate-800/60 transition-colors">
+                      <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white text-xs
+                        ${log.action === 'LOGIN' ? 'bg-indigo-500' : log.action === 'CREATE' || log.action === 'CREATE_LEAD' ? 'bg-emerald-500' : log.action === 'UPDATE' ? 'bg-blue-500' : log.action === 'ARCHIVE_STUDENT' ? 'bg-red-500' : 'bg-amber-500'}`}>
+                        <Activity size={12} />
                       </div>
-                      <p className="text-xs font-medium text-slate-600 mt-1.5 leading-relaxed">{flag.detail}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                      <div className="flex-1 min-w-0">
+                         <p className="text-xs text-slate-300 font-medium truncate">
+                           <strong className="text-white font-black">{log.changed_by}</strong>{' '}
+                           <span className="text-slate-400">{log.action === 'LOGIN' ? 'logged in' : `${log.action.toLowerCase().replace(/_/g, ' ')}`}</span>
+                         </p>
+                         <p className="text-[10px] font-bold text-slate-500 mt-0.5">{new Date(log.created_at).toLocaleString()}</p>
+                      </div>
+                   </div>
+                 ))
+              )}
             </div>
-
-            {/* SUPER CCTV LIVE ACTION AUDIT FEED */}
-            <div className="lg:col-span-2 bg-[#0f172a] rounded-3xl border border-slate-800 shadow-2xl p-6 lg:p-8 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-80 h-80 bg-blue-600 rounded-full blur-[120px] opacity-10 pointer-events-none"></div>
-              
-              <div className="flex justify-between items-center mb-6 border-b border-slate-800 pb-4 relative z-10">
-                <div>
-                  <h3 className="font-black text-xl text-white flex items-center gap-3">
-                    <Cctv size={22} className="text-blue-400" /> Secure Audit CCTV
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1 font-medium">Real-time systemic action tracking of all agent accounts across the platform.</p>
-                </div>
-                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-xl">
-                   <span className="relative flex h-2 w-2">
-                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                     <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                   </span>
-                   <span className="text-[10px] font-black text-red-400 uppercase tracking-wider">Live System Sync</span>
-                </div>
-              </div>
-              
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar relative z-10">
-                {auditLogs.length === 0 ? (
-                   <p className="text-center text-slate-500 italic py-12 font-medium">No live system inputs tracked.</p>
-                ) : (
-                   auditLogs.map((log) => (
-                     <div key={log.id} className="flex items-start gap-4 p-3 rounded-xl bg-slate-800/30 hover:bg-slate-800/60 border border-slate-800/60 transition-colors">
-                        <div className={`mt-0.5 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs
-                          ${log.action === 'LOGIN' ? 'bg-indigo-500' : log.action === 'CREATE' ? 'bg-emerald-500' : log.action === 'UPDATE' ? 'bg-blue-500' : 'bg-amber-500'}`}>
-                           {log.action === 'LOGIN' ? <LogOut size={14} className="rotate-180" /> : <Activity size={14} />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                           <p className="text-sm text-slate-300 font-medium">
-                             <strong className="text-white font-black pr-1">{log.changed_by}</strong> 
-                             {log.action === 'LOGIN' ? 'entered workspace' : `executed ${log.action} on ${log.entity}`}
-                           </p>
-                           <div className="flex items-center gap-3 mt-1.5">
-                             <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1"><Clock size={10}/> {new Date(log.created_at).toLocaleTimeString()}</span>
-                             {log.details && (
-                               <p className="text-[11px] text-blue-300 font-mono truncate max-w-[450px]">
-                                 {typeof log.details === 'string' ? log.details : JSON.stringify(log.details)}
-                               </p>
-                             )}
-                           </div>
-                        </div>
-                     </div>
-                   ))
-                )}
-              </div>
-            </div>
-
           </div>
         </>
       )}
 
-      {/* TIMEFRAME CALENDAR MODAL */}
+      {/* CUSTOM DATE RANGE MODAL */}
       {showCustomModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
@@ -373,11 +454,11 @@ export default function MasterDashboardPage() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">From Date</label>
-                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border rounded-xl outline-none" />
+                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" />
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">To Date</label>
-                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border rounded-xl outline-none" />
+                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" />
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button onClick={() => setShowCustomModal(false)} className="text-slate-500 font-bold text-sm px-4">Cancel</button>
@@ -391,22 +472,100 @@ export default function MasterDashboardPage() {
   );
 }
 
-function KpiCard({ id, icon, iconBg, label, value, tipOpen, onTipToggle, tipText, children }: any) {
-  return (
-    <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-sm relative hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`${iconBg} p-3 rounded-2xl`}>{icon}</div>
-        <button onClick={onTipToggle} className={`p-1.5 rounded-full transition-colors ${tipOpen ? "bg-[#282860] text-white shadow-md" : "text-slate-300 hover:text-[#282860] hover:bg-slate-100"}`}><Info size={16} /></button>
+// =============================================================
+// ACTION CARD — the new hero component
+// =============================================================
+function ActionCard({
+  href, accent, icon, iconBg, title, count, description, items, renderItem, ctaLabel, heroValue
+}: any) {
+  const isEmpty = count === 0;
+
+  const accentColors: any = {
+    red: { border: "border-red-200", hover: "hover:border-red-400 hover:shadow-red-100", badge: "bg-red-50 text-red-700 border-red-200", cta: "text-red-600 group-hover:text-red-700" },
+    emerald: { border: "border-emerald-200", hover: "hover:border-emerald-400 hover:shadow-emerald-100", badge: "bg-emerald-50 text-emerald-700 border-emerald-200", cta: "text-emerald-600 group-hover:text-emerald-700" },
+    amber: { border: "border-amber-200", hover: "hover:border-amber-400 hover:shadow-amber-100", badge: "bg-amber-50 text-amber-700 border-amber-200", cta: "text-amber-600 group-hover:text-amber-700" },
+    blue: { border: "border-blue-200", hover: "hover:border-blue-400 hover:shadow-blue-100", badge: "bg-blue-50 text-blue-700 border-blue-200", cta: "text-blue-600 group-hover:text-blue-700" },
+    purple: { border: "border-purple-200", hover: "hover:border-purple-400 hover:shadow-purple-100", badge: "bg-purple-50 text-purple-700 border-purple-200", cta: "text-purple-600 group-hover:text-purple-700" },
+    indigo: { border: "border-indigo-200", hover: "hover:border-indigo-400 hover:shadow-indigo-100", badge: "bg-indigo-50 text-indigo-700 border-indigo-200", cta: "text-indigo-600 group-hover:text-indigo-700" },
+  };
+  const c = accentColors[accent] || accentColors.blue;
+
+  if (isEmpty) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 opacity-60">
+        <div className="flex items-center gap-3 mb-3">
+          <div className={`${iconBg} p-2.5 rounded-xl opacity-50`}>{icon}</div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-black text-sm text-slate-500">{title}</h3>
+            <p className="text-[11px] text-slate-400 font-medium">{description}</p>
+          </div>
+        </div>
+        <div className="text-center py-4">
+          <CheckCircle2 size={32} className="text-emerald-300 mx-auto mb-2"/>
+          <p className="text-xs font-bold text-slate-400">All clear!</p>
+        </div>
       </div>
-      <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{label}</p>
-      <p className="text-4xl font-black text-[#282860] mt-1.5 tracking-tight">{value}</p>
-      {children}
-      {tipOpen && (
-        <div className="absolute top-16 right-4 bg-[#1b1b42] text-white text-xs font-medium p-4 rounded-2xl shadow-xl max-w-[240px] z-20 leading-relaxed animate-in fade-in zoom-in-95">
-          <div className="absolute -top-1.5 right-4 w-3 h-3 bg-[#1b1b42] rotate-45"></div>
-          {tipText}
+    );
+  }
+
+  return (
+    <Link href={href} className={`group bg-white rounded-2xl border-2 ${c.border} ${c.hover} p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer block`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className={`${iconBg} p-2.5 rounded-xl shrink-0`}>{icon}</div>
+          <div className="min-w-0">
+            <h3 className="font-black text-sm text-[#282860] truncate">{title}</h3>
+            <p className="text-[11px] text-slate-500 font-medium">{description}</p>
+          </div>
+        </div>
+        <span className={`${c.badge} px-2.5 py-1 rounded-lg text-xs font-black border shrink-0`}>{count}</span>
+      </div>
+
+      {heroValue && (
+        <div className="mb-3">
+          <p className="text-2xl font-black text-emerald-600">{heroValue}</p>
         </div>
       )}
+
+      {items.length > 0 && (
+        <div className="space-y-1.5 mb-3 py-3 border-y border-slate-100">
+          {items.map((it: any, i: number) => (
+            <div key={i}>{renderItem(it)}</div>
+          ))}
+          {count > items.length && (
+            <p className="text-[10px] text-slate-400 font-bold italic">+{count - items.length} more...</p>
+          )}
+        </div>
+      )}
+
+      <div className={`flex items-center justify-between ${c.cta} font-bold text-xs transition-colors`}>
+        <span>{ctaLabel}</span>
+        <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform"/>
+      </div>
+    </Link>
+  );
+}
+
+// =============================================================
+// COMPACT METRIC CHIP
+// =============================================================
+function MetricChip({ icon, color, label, value, sublabel, trend }: any) {
+  const colors: any = {
+    purple: "bg-purple-50 text-purple-600",
+    yellow: "bg-yellow-50 text-yellow-600",
+    emerald: "bg-emerald-50 text-emerald-600",
+    blue: "bg-blue-50 text-blue-600",
+  };
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-center gap-3 mb-2">
+        <div className={`${colors[color]} p-2 rounded-lg`}>{icon}</div>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+      </div>
+      <p className="text-2xl font-black text-[#282860] tracking-tight">{value}</p>
+      <p className={`text-[11px] font-bold mt-1 ${trend === 'up' ? 'text-emerald-600' : trend === 'down' ? 'text-red-500' : 'text-slate-500'}`}>
+        {sublabel}
+      </p>
     </div>
   );
 }

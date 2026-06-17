@@ -1045,33 +1045,34 @@ def delete_admin_user(user_id: int):
 # =====================================================================
 # --- ACTIONABLE DASHBOARD QUEUE ---
 # =====================================================================
-@app.get("/api/admin/action-queue")
+@app.get("/api/admin/action-queue", dependencies=[Depends(get_current_master_admin)])
 def get_action_queue(user_data: dict = Depends(verify_token)):
     """
-    Returns categorized action items for the Master Admin dashboard.
-    Each category includes a count and sample items (max 3 per category).
+    Returns 6 categories of actionable items for the Master Admin command center.
+    Each category includes: count, sample items (max 3), label, description.
     """
-    if user_data.get("role") != "MASTER_ADMIN":
-        raise HTTPException(status_code=403, detail="Master Admin access required.")
-
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-
-            # 1. HOT/WARM LEADS WITH NO RECENT CONTACT (3+ days)
+ 
+            # ============================================================
+            # 1. HOT/WARM LEADS WITH NO RECENT CONTACT (3+ days stale)
+            # ============================================================
             cur.execute("""
-                SELECT id, name, assignee, lead_temperature, 
+                SELECT id, name, assignee, lead_temperature,
                        COALESCE(updated_at, created_at) as last_activity
                 FROM students
                 WHERE LOWER(COALESCE(lead_temperature, '')) IN ('hot leads', 'warm leads')
                   AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
                   AND COALESCE(updated_at, created_at) < NOW() - INTERVAL '3 days'
                 ORDER BY COALESCE(updated_at, created_at) ASC
-                LIMIT 10
+                LIMIT 50
             """)
-            hot_stale = cur.fetchall()
-
-            # 2. STUDENTS WITH MISSING DOCUMENTS (< 3 docs)
+            hot_stale_rows = cur.fetchall()
+ 
+            # ============================================================
+            # 2. STUDENTS WITH MISSING DOCUMENTS (< 3 docs on file)
+            # ============================================================
             cur.execute("""
                 SELECT id, name, assignee,
                        COALESCE(jsonb_array_length(documents), 0) as doc_count
@@ -1079,34 +1080,43 @@ def get_action_queue(user_data: dict = Depends(verify_token)):
                 WHERE UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
                   AND COALESCE(jsonb_array_length(documents), 0) < 3
                 ORDER BY created_at DESC
-                LIMIT 10
+                LIMIT 50
             """)
-            missing_docs = cur.fetchall()
-
+            missing_docs_rows = cur.fetchall()
+ 
+            # ============================================================
             # 3. UNASSIGNED LEADS
+            # ============================================================
             cur.execute("""
                 SELECT id, name, lead_temperature, created_at
                 FROM students
-                WHERE (assignee IS NULL OR assignee = '' OR assignee = 'Unassigned')
+                WHERE (assignee IS NULL OR assignee = '' OR LOWER(assignee) = 'unassigned')
                   AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
                 ORDER BY created_at DESC
-                LIMIT 10
+                LIMIT 50
             """)
-            unassigned = cur.fetchall()
-
+            unassigned_rows = cur.fetchall()
+ 
+            # ============================================================
             # 4. COMMISSIONS READY TO CLAIM
+            # ============================================================
             cur.execute("""
                 SELECT id, name, assignee, commission_earned, payout_status
                 FROM students
-                WHERE (payout_status = 'CLEARED' OR (commission_earned > 0 AND payout_status != 'CLAIMED'))
-                  AND UPPER(COALESCE(status, '')) = 'COMPLETED'
-                ORDER BY commission_earned DESC
-                LIMIT 10
+                WHERE (
+                    UPPER(COALESCE(payout_status, '')) = 'CLEARED' 
+                    OR (COALESCE(commission_earned, 0) > 0 AND UPPER(COALESCE(payout_status, '')) NOT IN ('CLAIMED', 'PAID'))
+                )
+                AND UPPER(COALESCE(status, '')) = 'COMPLETED'
+                ORDER BY commission_earned DESC NULLS LAST
+                LIMIT 50
             """)
-            commissions_ready = cur.fetchall()
-            total_cleared = sum(float(r.get('commission_earned') or 0) for r in commissions_ready)
-
-            # 5. EXPIRING/EXPIRED AGREEMENTS (within 30 days)
+            commissions_rows = cur.fetchall()
+            total_cleared = sum(float(r.get('commission_earned') or 0) for r in commissions_rows)
+ 
+            # ============================================================
+            # 5. EXPIRING/EXPIRED AGREEMENTS (next 30 days or already expired)
+            # ============================================================
             cur.execute("""
                 SELECT id, name, country, duration_end
                 FROM institutions
@@ -1114,40 +1124,42 @@ def get_action_queue(user_data: dict = Depends(verify_token)):
                   AND duration_end != ''
                   AND COALESCE(status, 'Active') = 'Active'
                 ORDER BY duration_end ASC
-                LIMIT 20
+                LIMIT 100
             """)
             all_inst = cur.fetchall()
-            
-            # Filter expiring agreements in Python
-            from datetime import date
+ 
             today = date.today()
             expiring_agreements = []
             for inst in all_inst:
                 try:
-                    end_str = inst['duration_end']
-                    end_date = datetime.strptime(end_str[:10], '%Y-%m-%d').date()
+                    end_str = (inst.get('duration_end') or '')[:10]
+                    if not end_str:
+                        continue
+                    end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
                     days_left = (end_date - today).days
                     if days_left <= 30:  # expired OR expiring within 30 days
                         expiring_agreements.append({
                             'id': inst['id'],
                             'name': inst['name'],
-                            'country': inst['country'],
+                            'country': inst.get('country'),
                             'duration_end': end_str,
                             'days_left': days_left,
                             'is_expired': days_left < 0
                         })
                 except Exception:
                     continue
-            expiring_agreements = expiring_agreements[:10]
-
+ 
+            # ============================================================
             # 6. TODAY'S REMINDERS (timeline notes with reminder_date = today)
+            # ============================================================
             cur.execute("""
                 SELECT id, name, assignee, timeline
                 FROM students
                 WHERE timeline IS NOT NULL
+                  AND UPPER(COALESCE(status, '')) != 'ARCHIVED'
             """)
             all_with_timeline = cur.fetchall()
-            
+ 
             today_iso = today.isoformat()
             todays_reminders = []
             for s in all_with_timeline:
@@ -1166,46 +1178,47 @@ def get_action_queue(user_data: dict = Depends(verify_token)):
                         todays_reminders.append({
                             'student_id': s['id'],
                             'student_name': s['name'],
-                            'assignee': s['assignee'],
-                            'note': note.get('note', '')[:100],
+                            'assignee': s.get('assignee'),
+                            'note': (note.get('note') or note.get('content') or '')[:120],
                             'author': note.get('author', 'Unknown')
                         })
-                        break
-            todays_reminders = todays_reminders[:10]
-
-            # Serialize dates for JSON
+                        break  # only one reminder per student to keep list clean
+ 
+            # ============================================================
+            # HELPER: serialize dates / datetime for JSON
+            # ============================================================
             def serialize(row):
                 result = dict(row) if not isinstance(row, dict) else row.copy()
                 for k, v in result.items():
                     if hasattr(v, 'isoformat'):
                         result[k] = v.isoformat()
                 return result
-
+ 
             return {
                 "status": "success",
                 "data": {
                     "hot_stale": {
-                        "count": len(hot_stale),
-                        "items": [serialize(r) for r in hot_stale[:3]],
+                        "count": len(hot_stale_rows),
+                        "items": [serialize(r) for r in hot_stale_rows[:3]],
                         "label": "Hot/Warm leads needing follow-up",
                         "description": "Qualified leads with no activity in 3+ days"
                     },
                     "missing_docs": {
-                        "count": len(missing_docs),
-                        "items": [serialize(r) for r in missing_docs[:3]],
+                        "count": len(missing_docs_rows),
+                        "items": [serialize(r) for r in missing_docs_rows[:3]],
                         "label": "Students missing documents",
                         "description": "Active students with fewer than 3 documents on file"
                     },
                     "unassigned": {
-                        "count": len(unassigned),
-                        "items": [serialize(r) for r in unassigned[:3]],
+                        "count": len(unassigned_rows),
+                        "items": [serialize(r) for r in unassigned_rows[:3]],
                         "label": "Unassigned leads",
                         "description": "New leads sitting in the open pool"
                     },
                     "commissions_ready": {
-                        "count": len(commissions_ready),
+                        "count": len(commissions_rows),
                         "total_amount": total_cleared,
-                        "items": [serialize(r) for r in commissions_ready[:3]],
+                        "items": [serialize(r) for r in commissions_rows[:3]],
                         "label": "Commissions ready to claim",
                         "description": f"${total_cleared:,.0f} in cleared funds awaiting withdrawal"
                     },
@@ -1228,7 +1241,6 @@ def get_action_queue(user_data: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=f"Action queue error: {str(e)}")
     finally:
         conn.close()
-
 
 # =====================================================================
 # --- 3. AI PROGRAM SEARCH ---
