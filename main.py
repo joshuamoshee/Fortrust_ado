@@ -3103,112 +3103,157 @@ async def extract_commission_agreement(contract: UploadFile = File(...)):
  
     # --- 2. Build the upgraded extraction prompt ---
     prompt = f"""You are a senior contract analyst at Fortrust Education Services.
-You are extracting structured data from a University/College partnership or commission agreement.
- 
-# DOCUMENT TEXT
-```
-{extracted_text}
-```
- 
-# FAIL-SAFE CHECK
-If the document is clearly NOT a partnership/commission agreement (e.g., a random PDF, invoice, brochure, transcript), return EXACTLY:
-{{"is_valid": false, "error_message": "This document does not appear to be a partnership or commission agreement."}}
- 
-# IF VALID, RETURN THIS EXACT JSON STRUCTURE
-Every field is required. Use null when a value cannot be found.
- 
-{{
-  "is_valid": true,
-  "institution_name": "Full official name as written",
-  "institution_type": "One of: University | College | Vocational | Language School | Other",
-  "country": "Country where the institution is based",
-  "city": "City where the institution is based",
-  "website": "Official institution website URL if mentioned, else null",
-  "agreement_id": "Agreement number or reference ID if visible",
-  "agreement_type": "One of: Commission-based | Fixed Fee | Tiered | Hybrid",
-  "base_commission": "Headline commission rate as a short string like '10%' or 'Variable - see programs'",
-  "performance_bonus": "Bonus structure if any, e.g. 'Visa assistance $500 one-off', else null",
-  "tiered_levels": "Plain-text summary of commission tiers (keep as backup, also fill commission_programs below)",
-  "commission_programs": [
+
+    You are extracting structured data from a University/College partnership or commission agreement.
+
+    # DOCUMENT TEXT
+    {extracted_text}
+
+    # FAIL-SAFE CHECK
+    If the document is clearly NOT a partnership/commission agreement (e.g., a random PDF, invoice, brochure, transcript), return EXACTLY:
+    {{"is_valid": false, "error_message": "This document does not appear to be a partnership or commission agreement."}}
+
+    # IF VALID, RETURN THIS EXACT JSON STRUCTURE
+    Every field is required. Use null when a value cannot be found.
+
     {{
-      "program_name": "Bachelor / Honours / Masters / PhD / Diploma",
-      "part1_pct": 10,
-      "part2_pct": 10,
-      "partial_service_fee": null,
-      "notes": "10% Part 1 + 10% Part 2 of semester tuition, paid after each Census Date"
-    }},
-    {{
-      "program_name": "Graduate Certificate",
-      "part1_pct": 10,
-      "part2_pct": null,
-      "partial_service_fee": null,
-      "notes": "Single payment for 6-month program"
-    }},
-    {{
-      "program_name": "MChD (Medicine)",
-      "part1_pct": null,
-      "part2_pct": null,
-      "partial_service_fee": 2500,
-      "notes": "Flat $2,500 per semester (not percentage based)"
+    "is_valid": true,
+    "institution_name": "Full official name as written",
+    "institution_type": "One of: University | College | Vocational | Language School | Other",
+    "country": "Country where the institution is based",
+    "city": "City where the institution is based",
+    "website": "Official institution website URL if mentioned, else null",
+    "agreement_id": "Agreement number or reference ID if visible",
+    "agreement_type": "One of: Commission-based | Fixed Fee | Tiered | Hybrid",
+    "base_commission": "Headline commission rate as a short string like '10%' or 'Variable - see programs'",
+    "performance_bonus": "Bonus structure if any, e.g. 'Visa assistance $500 one-off', else null",
+    "tiered_levels": "Plain-text summary of commission tiers (keep as backup, also fill commission_programs below)",
+    "commission_programs": [
+        {{
+        "program_name": "Bachelor / Honours / Masters / PhD / Diploma",
+        "part1_pct": 10,
+        "part2_pct": 10,
+        "partial_service_fee": null,
+        "partial_service_currency": "AUD",
+        "notes": "10% 1st Semester + 10% 2nd Semester of semester tuition, paid after each Census Date"
+        }},
+        {{
+        "program_name": "Graduate Certificate",
+        "part1_pct": 10,
+        "part2_pct": null,
+        "partial_service_fee": null,
+        "partial_service_currency": "AUD",
+        "notes": "Single payment for 6-month program"
+        }},
+        {{
+        "program_name": "MChD (Medicine)",
+        "part1_pct": null,
+        "part2_pct": null,
+        "partial_service_fee": 2500,
+        "partial_service_currency": "AUD",
+        "notes": "Flat AUD 2,500 per semester (not percentage based)"
+        }}
+    ],
+    "duration_start": "YYYY-MM-DD format",
+    "duration_end": "YYYY-MM-DD format, or null if open-ended",
+    "terms_conditions": "2-4 sentence summary of key terms: invoice deadlines, payment timing, restrictions, exclusivity, territory, termination notice",
+    "contacts": [
+        {{
+        "name": "Full name",
+        "title": "Job title",
+        "department": "Department or division",
+        "email": "Email address or null",
+        "phone": "Phone number or null"
+        }}
+    ]
     }}
-  ],
-  "duration_start": "YYYY-MM-DD format",
-  "duration_end": "YYYY-MM-DD format, or null if open-ended",
-  "terms_conditions": "2-4 sentence summary of key terms: invoice deadlines, payment timing, restrictions, exclusivity, territory, termination notice",
-  "contacts": [
-    {{
-      "name": "Full name",
-      "title": "Job title",
-      "department": "Department or division",
-      "email": "Email address or null",
-      "phone": "Phone number or null"
-    }}
-  ]
-}}
- 
-# CRITICAL: HOW TO FILL commission_programs
- 
-This is the most important field. Read the commission section of the agreement carefully and break out EACH distinct program type into its own entry.
- 
-For each program, identify:
-- **program_name**: What kind of program (Bachelor, Masters, PhD, Diploma, English Pathway, Foundation, Specific Medical degree, etc.). Group similar programs (e.g. "Bachelor / Masters / PhD" if they share the same rate).
-- **part1_pct**: If commission is paid in 2 parts after Census Date, the percentage for Part 1. Otherwise null.
-- **part2_pct**: The percentage for Part 2. If only one payment, leave null.
-- **partial_service_fee**: If the program pays a FLAT FEE (not percentage), put the amount here. Otherwise null.
-- **notes**: Any specific conditions: "paid per semester", "single payment", "6-month program", "after Census Date 1 only", etc.
- 
-WORKED EXAMPLES:
- 
-For an ANU-style Australian agreement, the commission_programs array would look like:
-```
-[
-  {{"program_name": "Bachelor / Honours / Masters / PhD / Diploma", "part1_pct": 10, "part2_pct": 10, "partial_service_fee": null, "notes": "10% Part 1 + 10% Part 2 of respective semester tuition, paid after each Census Date"}},
-  {{"program_name": "Graduate Certificate", "part1_pct": 10, "part2_pct": null, "partial_service_fee": null, "notes": "Single payment, 6-month program"}},
-  {{"program_name": "MChD (Doctor of Medicine and Surgery)", "part1_pct": null, "part2_pct": null, "partial_service_fee": 2500, "notes": "Flat $2,500 per semester"}},
-  {{"program_name": "UC English Language Pathway", "part1_pct": 20, "part2_pct": null, "partial_service_fee": null, "notes": "Added via 2024 variation. Single 20% payment."}},
-  {{"program_name": "Partial Service Cases", "part1_pct": null, "part2_pct": null, "partial_service_fee": 1000, "notes": "$1,000 one-off for partial service (e.g., student already enrolled, agent assists with visa only)"}},
-  {{"program_name": "Visa Assistance Only", "part1_pct": null, "part2_pct": null, "partial_service_fee": 500, "notes": "$500 one-off when agent only helps with visa, not application"}}
-]
-```
- 
-For a simple flat-rate agreement (one rate for everything):
-```
-[
-  {{"program_name": "All Programs", "part1_pct": 15, "part2_pct": null, "partial_service_fee": null, "notes": "Standard 15% on first-year tuition for all programs"}}
-]
-```
- 
-# EXTRACTION RULES
-1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01".
-2. **Amendments / Variation Letters**: Extract POST-amendment state. Note variations in `terms_conditions` like "[Variation dated YYYY-MM-DD: ...]".
-3. **Multiple rates**: If different programs have different rates, populate commission_programs FULLY. base_commission can be "Variable - see programs".
-4. **Contacts**: Include the authorized signatory + operational contacts (admissions email, payments email). Skip generic info@.
-5. **Currency**: If commissions are in non-USD (AUD, GBP, etc.), mention in `terms_conditions` and `notes`.
- 
-# OUTPUT FORMAT
-Return ONLY the JSON object. No preamble, no markdown fences, no commentary.
-Begin extraction now."""
- 
+
+    # CRITICAL: HOW TO FILL commission_programs
+
+    This is the most important field. Read the commission section of the agreement carefully and break out EACH distinct program type into its own entry.
+
+    For each program, identify:
+    - **program_name**: What kind of program (Bachelor, Masters, PhD, Diploma, English Pathway, Foundation, Specific Medical degree, etc.). Group similar programs (e.g. "Bachelor / Masters / PhD" if they share the same rate).
+    - **part1_pct**: If commission is paid in 2 parts after Census Date, the percentage for Part 1 (1st Semester). Otherwise null.
+    - **part2_pct**: The percentage for Part 2 (2nd Semester). If only one payment, leave null.
+    - **partial_service_fee**: If the program pays a FLAT FEE (not percentage), put the amount here. Otherwise null.
+    - **partial_service_currency**: The currency code for the flat fee. AUTO-DETECT using this priority:
+    1. If the document EXPLICITLY states a currency next to the amount (e.g. "$2,500 AUD" → "AUD", "£1,500" → "GBP", "¥10,000" → "CNY", "€2,000" → "EUR"), use that.
+    2. Otherwise infer from the institution's COUNTRY:
+        - Australia → "AUD"
+        - United Kingdom / UK / England / Scotland / Wales → "GBP"
+        - United States / USA → "USD"
+        - Canada → "CAD"
+        - New Zealand → "NZD"
+        - Singapore → "SGD"
+        - Switzerland → "CHF"
+        - China → "CNY"
+        - Malaysia → "MYR"
+        - Indonesia → "IDR"
+        - Japan → "JPY"
+        - South Korea / Korea → "KRW"
+        - India → "INR"
+        - Hong Kong → "HKD"
+        - UAE / Dubai → "AED"
+        - Any EU country (Germany, France, Netherlands, Spain, Italy, Belgium, Austria, Portugal, Ireland, etc.) → "EUR"
+        - Default fallback → "USD"
+    3. ALWAYS set this field even if partial_service_fee is null. Use the country-based currency as the default so the system knows what currency to use later if a flat fee is added.
+
+    - **notes**: Any specific conditions: "paid per semester", "single payment", "6-month program", "after Census Date 1 only", etc.
+
+    WORKED EXAMPLES:
+
+    For an ANU-style Australian agreement (Australia → AUD), the commission_programs array would look like:
+    [
+
+    {{"program_name": "Bachelor / Honours / Masters / PhD / Diploma", "part1_pct": 10, "part2_pct": 10, "partial_service_fee": null, "partial_service_currency": "AUD", "notes": "10% 1st Semester + 10% 2nd Semester of respective semester tuition, paid after each Census Date"}},
+
+    {{"program_name": "Graduate Certificate", "part1_pct": 10, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "AUD", "notes": "Single payment, 6-month program"}},
+
+    {{"program_name": "MChD (Doctor of Medicine and Surgery)", "part1_pct": null, "part2_pct": null, "partial_service_fee": 2500, "partial_service_currency": "AUD", "notes": "Flat AUD 2,500 per semester"}},
+
+    {{"program_name": "UC English Language Pathway", "part1_pct": 20, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "AUD", "notes": "Added via 2024 variation. Single 20% payment."}},
+
+    {{"program_name": "Partial Service Cases", "part1_pct": null, "part2_pct": null, "partial_service_fee": 1000, "partial_service_currency": "AUD", "notes": "AUD 1,000 one-off for partial service (e.g., student already enrolled, agent assists with visa only)"}},
+
+    {{"program_name": "Visa Assistance Only", "part1_pct": null, "part2_pct": null, "partial_service_fee": 500, "partial_service_currency": "AUD", "notes": "AUD 500 one-off when agent only helps with visa, not application"}}
+
+    ]
+
+    For a simple UK agreement (UK → GBP):
+    [
+
+    {{"program_name": "All Programs", "part1_pct": 15, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "GBP", "notes": "Standard 15% on first-year tuition for all programs"}}
+
+    ]
+
+    For a Chinese university with a flat per-student fee (China → CNY):
+    [
+
+    {{"program_name": "All Bachelor Programs", "part1_pct": null, "part2_pct": null, "partial_service_fee": 8000, "partial_service_currency": "CNY", "notes": "Flat CNY 8,000 per enrolled student"}}
+
+    ]
+
+    For a US college with tiered percentages (USA → USD):
+    [
+
+    {{"program_name": "Undergraduate (1-5 students/year)", "part1_pct": 10, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "USD", "notes": "Tier 1: 10% on first-year tuition"}},
+
+    {{"program_name": "Undergraduate (6+ students/year)", "part1_pct": 15, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "USD", "notes": "Tier 2: 15% bonus rate after 5 enrollments"}}
+
+    ]
+
+    # EXTRACTION RULES
+    1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01".
+    2. **Amendments / Variation Letters**: Extract POST-amendment state. Note variations in `terms_conditions` like "[Variation dated YYYY-MM-DD: ...]".
+    3. **Multiple rates**: If different programs have different rates, populate commission_programs FULLY. base_commission can be "Variable - see programs".
+    4. **Contacts**: Include the authorized signatory + operational contacts (admissions email, payments email). Skip generic info@.
+    5. **Currency consistency**: All flat fees within the same agreement should use the same currency unless the document explicitly states otherwise. Mention any non-USD currency context in `terms_conditions`.
+    6. **Always set partial_service_currency**: Even when partial_service_fee is null, set the currency based on the country so future entries inherit the right default.
+
+    # OUTPUT FORMAT
+    Return ONLY the JSON object. No preamble, no markdown fences, no commentary.
+    Begin extraction now."""
     # --- 3. Call Gemini ---
     try:
         response = client.models.generate_content(
@@ -3276,6 +3321,34 @@ Begin extraction now."""
             data["contacts"] = []
         if not isinstance(data.get("commission_programs"), list):
             data["commission_programs"] = []
+
+        # Defensive: backfill partial_service_currency for any program missing it
+        # Uses the institution's country to pick a sensible default
+        country_to_currency = {
+            "australia": "AUD",
+            "united kingdom": "GBP", "uk": "GBP", "england": "GBP", "scotland": "GBP", "wales": "GBP",
+            "united states": "USD", "usa": "USD", "us": "USD", "america": "USD",
+            "canada": "CAD",
+            "new zealand": "NZD",
+            "singapore": "SGD",
+            "switzerland": "CHF",
+            "china": "CNY",
+            "malaysia": "MYR",
+            "indonesia": "IDR",
+            "japan": "JPY",
+            "south korea": "KRW", "korea": "KRW",
+            "india": "INR",
+            "hong kong": "HKD",
+            "uae": "AED", "dubai": "AED",
+            "germany": "EUR", "france": "EUR", "netherlands": "EUR", "spain": "EUR",
+            "italy": "EUR", "ireland": "EUR", "belgium": "EUR", "austria": "EUR", "portugal": "EUR",
+        }
+        inst_country = (data.get("country") or "").strip().lower()
+        default_currency = country_to_currency.get(inst_country, "USD")
+
+        for prog in data.get("commission_programs", []):
+            if isinstance(prog, dict) and not prog.get("partial_service_currency"):
+                prog["partial_service_currency"] = default_currency
  
         print(f"[extract-commission] Extracted: {data.get('institution_name')} "
               f"({data.get('country')}) — {len(data.get('contacts', []))} contacts, "
