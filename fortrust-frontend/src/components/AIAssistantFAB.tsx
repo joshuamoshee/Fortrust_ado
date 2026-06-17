@@ -6,6 +6,20 @@ import {
   Maximize2, MessageCircle, AlertCircle, Building 
 } from "lucide-react";
 
+// Strip markdown so AI messages render clean like a WhatsApp chat
+function cleanForChat(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '$1')   // **bold** → bold
+    .replace(/\*(.*?)\*/g, '$1')       // *italic* → italic
+    .replace(/__(.*?)__/g, '$1')       // __bold__ → bold
+    .replace(/_(.*?)_/g, '$1')         // _italic_ → italic
+    .replace(/`(.*?)`/g, '$1')         // `code` → code
+    .replace(/^#{1,6}\s+/gm, '')       // ## headers → plain
+    .replace(/^\s*[-*+]\s+/gm, '• ')   // - bullets → • bullets
+    .replace(/\n{3,}/g, '\n\n');       // collapse extra blank lines
+}
+
 interface Message {
   role: "user" | "assistant";
   content: string;
@@ -218,7 +232,9 @@ export default function AIAssistantFAB() {
                           ? "bg-[#282860] text-white rounded-br-sm"
                           : "bg-white text-slate-700 border border-slate-100 shadow-sm rounded-bl-sm"
                       }`}>
-                        <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                        <div className="whitespace-pre-wrap break-words leading-relaxed">
+                          {msg.role === "user" ? msg.content : cleanForChat(msg.content)}
+                        </div>
                         <p className={`text-[9px] mt-1 ${msg.role === "user" ? "text-slate-300" : "text-slate-400"}`}>
                           {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>

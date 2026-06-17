@@ -66,14 +66,14 @@ const CAMPUS_ENVS = [
 
 const FORTRUST_COUNTRIES = [
   { value: "australia", label: "🇦🇺 Australia" },
-  { value: "uk", label: "🇬🇧 United Kingdom" },
-  { value: "usa", label: "🇺🇸 United States" },
   { value: "canada", label: "🇨🇦 Canada" },
   { value: "china", label: "🇨🇳 China" },
-  { value: "switzerland", label: "🇨🇭 Switzerland" },
+  { value: "malaysia", label: "🇲🇾 Malaysia" },
   { value: "new_zealand", label: "🇳🇿 New Zealand" },
   { value: "singapore", label: "🇸🇬 Singapore" },
-  { value: "malaysia", label: "🇲🇾 Malaysia" },
+  { value: "switzerland", label: "🇨🇭 Switzerland" },
+  { value: "uk", label: "🇬🇧 United Kingdom" },
+  { value: "usa", label: "🇺🇸 United States" },
   { value: "other", label: "🌍 Other" },
 ];
 

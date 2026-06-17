@@ -165,6 +165,7 @@ def verify_schema():
                     created_at TIMESTAMP DEFAULT NOW()
                 );
             """)
+            cur.execute("ALTER TABLE institutions ADD COLUMN IF NOT EXISTS document_link TEXT;")
             cur.execute("ALTER TABLE institutions ADD COLUMN IF NOT EXISTS commission_programs JSONB DEFAULT '[]'::jsonb;")
             cur.execute("ALTER TABLE institutions ADD COLUMN IF NOT EXISTS ai_extracted_at TIMESTAMP;")
 
@@ -378,7 +379,8 @@ class BroadcastCreate(BaseModel):
     message: str
     target_role: str = "ALL"
     target_branch: str = "ALL"
-    send_email: bool = False
+    send_email: bool = True
+    mentioned_agents: Optional[List[str]] = None  # If set, sends ONLY to these emails (overrides role/branch)
 
 
 class NewUserRequest(BaseModel):
@@ -1037,6 +1039,193 @@ def delete_admin_user(user_id: int):
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+# =====================================================================
+# --- ACTIONABLE DASHBOARD QUEUE ---
+# =====================================================================
+@app.get("/api/admin/action-queue")
+def get_action_queue(user_data: dict = Depends(verify_token)):
+    """
+    Returns categorized action items for the Master Admin dashboard.
+    Each category includes a count and sample items (max 3 per category).
+    """
+    if user_data.get("role") != "MASTER_ADMIN":
+        raise HTTPException(status_code=403, detail="Master Admin access required.")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+
+            # 1. HOT/WARM LEADS WITH NO RECENT CONTACT (3+ days)
+            cur.execute("""
+                SELECT id, name, assignee, lead_temperature, 
+                       COALESCE(updated_at, created_at) as last_activity
+                FROM students
+                WHERE LOWER(COALESCE(lead_temperature, '')) IN ('hot leads', 'warm leads')
+                  AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
+                  AND COALESCE(updated_at, created_at) < NOW() - INTERVAL '3 days'
+                ORDER BY COALESCE(updated_at, created_at) ASC
+                LIMIT 10
+            """)
+            hot_stale = cur.fetchall()
+
+            # 2. STUDENTS WITH MISSING DOCUMENTS (< 3 docs)
+            cur.execute("""
+                SELECT id, name, assignee,
+                       COALESCE(jsonb_array_length(documents), 0) as doc_count
+                FROM students
+                WHERE UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
+                  AND COALESCE(jsonb_array_length(documents), 0) < 3
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
+            missing_docs = cur.fetchall()
+
+            # 3. UNASSIGNED LEADS
+            cur.execute("""
+                SELECT id, name, lead_temperature, created_at
+                FROM students
+                WHERE (assignee IS NULL OR assignee = '' OR assignee = 'Unassigned')
+                  AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
+            unassigned = cur.fetchall()
+
+            # 4. COMMISSIONS READY TO CLAIM
+            cur.execute("""
+                SELECT id, name, assignee, commission_earned, payout_status
+                FROM students
+                WHERE (payout_status = 'CLEARED' OR (commission_earned > 0 AND payout_status != 'CLAIMED'))
+                  AND UPPER(COALESCE(status, '')) = 'COMPLETED'
+                ORDER BY commission_earned DESC
+                LIMIT 10
+            """)
+            commissions_ready = cur.fetchall()
+            total_cleared = sum(float(r.get('commission_earned') or 0) for r in commissions_ready)
+
+            # 5. EXPIRING/EXPIRED AGREEMENTS (within 30 days)
+            cur.execute("""
+                SELECT id, name, country, duration_end
+                FROM institutions
+                WHERE duration_end IS NOT NULL
+                  AND duration_end != ''
+                  AND COALESCE(status, 'Active') = 'Active'
+                ORDER BY duration_end ASC
+                LIMIT 20
+            """)
+            all_inst = cur.fetchall()
+            
+            # Filter expiring agreements in Python
+            from datetime import date
+            today = date.today()
+            expiring_agreements = []
+            for inst in all_inst:
+                try:
+                    end_str = inst['duration_end']
+                    end_date = datetime.strptime(end_str[:10], '%Y-%m-%d').date()
+                    days_left = (end_date - today).days
+                    if days_left <= 30:  # expired OR expiring within 30 days
+                        expiring_agreements.append({
+                            'id': inst['id'],
+                            'name': inst['name'],
+                            'country': inst['country'],
+                            'duration_end': end_str,
+                            'days_left': days_left,
+                            'is_expired': days_left < 0
+                        })
+                except Exception:
+                    continue
+            expiring_agreements = expiring_agreements[:10]
+
+            # 6. TODAY'S REMINDERS (timeline notes with reminder_date = today)
+            cur.execute("""
+                SELECT id, name, assignee, timeline
+                FROM students
+                WHERE timeline IS NOT NULL
+            """)
+            all_with_timeline = cur.fetchall()
+            
+            today_iso = today.isoformat()
+            todays_reminders = []
+            for s in all_with_timeline:
+                timeline = s.get('timeline')
+                if not timeline:
+                    continue
+                if isinstance(timeline, str):
+                    try:
+                        timeline = json.loads(timeline)
+                    except Exception:
+                        continue
+                if not isinstance(timeline, list):
+                    continue
+                for note in timeline:
+                    if isinstance(note, dict) and note.get('reminder_date') == today_iso:
+                        todays_reminders.append({
+                            'student_id': s['id'],
+                            'student_name': s['name'],
+                            'assignee': s['assignee'],
+                            'note': note.get('note', '')[:100],
+                            'author': note.get('author', 'Unknown')
+                        })
+                        break
+            todays_reminders = todays_reminders[:10]
+
+            # Serialize dates for JSON
+            def serialize(row):
+                result = dict(row) if not isinstance(row, dict) else row.copy()
+                for k, v in result.items():
+                    if hasattr(v, 'isoformat'):
+                        result[k] = v.isoformat()
+                return result
+
+            return {
+                "status": "success",
+                "data": {
+                    "hot_stale": {
+                        "count": len(hot_stale),
+                        "items": [serialize(r) for r in hot_stale[:3]],
+                        "label": "Hot/Warm leads needing follow-up",
+                        "description": "Qualified leads with no activity in 3+ days"
+                    },
+                    "missing_docs": {
+                        "count": len(missing_docs),
+                        "items": [serialize(r) for r in missing_docs[:3]],
+                        "label": "Students missing documents",
+                        "description": "Active students with fewer than 3 documents on file"
+                    },
+                    "unassigned": {
+                        "count": len(unassigned),
+                        "items": [serialize(r) for r in unassigned[:3]],
+                        "label": "Unassigned leads",
+                        "description": "New leads sitting in the open pool"
+                    },
+                    "commissions_ready": {
+                        "count": len(commissions_ready),
+                        "total_amount": total_cleared,
+                        "items": [serialize(r) for r in commissions_ready[:3]],
+                        "label": "Commissions ready to claim",
+                        "description": f"${total_cleared:,.0f} in cleared funds awaiting withdrawal"
+                    },
+                    "expiring_agreements": {
+                        "count": len(expiring_agreements),
+                        "items": expiring_agreements[:3],
+                        "label": "Agreements expiring/expired",
+                        "description": "Institution agreements ending in 30 days or already expired"
+                    },
+                    "todays_reminders": {
+                        "count": len(todays_reminders),
+                        "items": todays_reminders[:3],
+                        "label": "Today's reminders",
+                        "description": "Timeline notes scheduled for today"
+                    }
+                }
+            }
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Action queue error: {str(e)}")
     finally:
         conn.close()
 
@@ -3127,26 +3316,51 @@ def create_broadcast(req: BroadcastCreate, user_data: dict = Depends(verify_toke
             ))
             new_id = cur.fetchone()[0]
 
-            # 2. If send_email, fetch matching agents and email them
+            # 2. If send_email, gather recipient list
             emails_sent = 0
             emails_failed = []
 
             if req.send_email:
-                # Build agent filter query
-                query = "SELECT name, email FROM users WHERE COALESCE(is_active, true) = true AND COALESCE(is_archived, false) = false AND email IS NOT NULL AND email != ''"
-                params = []
+                agents = []  # list of (name, email) tuples
 
-                if req.target_role != "ALL":
-                    query += " AND agent_type = %s"
-                    params.append(req.target_role)
+                # --- PATH A: Specific @mentioned agents — direct send only ---
+                if req.mentioned_agents and len(req.mentioned_agents) > 0:
+                    # Normalize emails for the query (lowercase, strip)
+                    clean_emails = [e.strip().lower() for e in req.mentioned_agents if e and "@" in e]
+                    if clean_emails:
+                        cur.execute("""
+                            SELECT name, email FROM users 
+                            WHERE LOWER(email) = ANY(%s)
+                              AND COALESCE(is_active, true) = true 
+                              AND COALESCE(is_archived, false) = false
+                        """, (clean_emails,))
+                        agents = cur.fetchall()
+                        print(f"[broadcast] @mention mode: targeting {len(agents)} specific agent(s) out of {len(clean_emails)} requested")
 
-                if req.target_branch != "ALL":
-                    query += " AND branch = %s"
-                    params.append(req.target_branch)
+                # --- PATH B: Role/Branch filter — only if no @mention was provided ---
+                else:
+                    query = """
+                        SELECT name, email FROM users 
+                        WHERE COALESCE(is_active, true) = true 
+                          AND COALESCE(is_archived, false) = false 
+                          AND email IS NOT NULL 
+                          AND email != ''
+                    """
+                    params = []
 
-                cur.execute(query, tuple(params))
-                agents = cur.fetchall()  # list of (name, email) tuples
+                    if req.target_role != "ALL":
+                        query += " AND agent_type = %s"
+                        params.append(req.target_role)
 
+                    if req.target_branch != "ALL":
+                        query += " AND branch = %s"
+                        params.append(req.target_branch)
+
+                    cur.execute(query, tuple(params))
+                    agents = cur.fetchall()
+                    print(f"[broadcast] role/branch mode: role={req.target_role}, branch={req.target_branch}, targeting {len(agents)} agent(s)")
+
+                # 3. Send emails via SendGrid
                 sg_api_key = os.getenv("SENDGRID_API_KEY")
                 sg_from_email = os.getenv("SENDGRID_FROM_EMAIL")
 

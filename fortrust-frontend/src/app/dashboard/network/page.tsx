@@ -33,6 +33,7 @@ interface CommissionProgram {
   part1_pct: number | null;
   part2_pct: number | null;
   partial_service_fee: number | null;
+  partial_service_currency: string;  // NEW
   notes: string;
 }
 
@@ -41,31 +42,33 @@ const emptyProgram: CommissionProgram = {
   part1_pct: null,
   part2_pct: null,
   partial_service_fee: null,
+  partial_service_currency: "USD",  // NEW
   notes: ""
 };
-
 // --- AUTO-CALC HELPER ---
 function calculateCommission(
   program: CommissionProgram | null,
   tuition: number,
   semesters: number
-): { total: number; breakdown: string } {
-  if (!program) return { total: 0, breakdown: "Select a program first" };
+): { total: number; breakdown: string; currency: string } {
+  if (!program) return { total: 0, breakdown: "Select a program first", currency: "USD" };
+  const currency = program.partial_service_currency || "USD";
   if (program.partial_service_fee !== null && program.partial_service_fee > 0) {
     const total = program.partial_service_fee * semesters;
     return {
       total,
-      breakdown: `Flat fee: $${program.partial_service_fee} × ${semesters} semester(s) = $${total.toLocaleString()}`
+      currency,
+      breakdown: `Flat fee: ${currency} ${program.partial_service_fee.toLocaleString()} × ${semesters} semester(s) = ${currency} ${total.toLocaleString()}`
     };
   }
   const p1 = program.part1_pct ? (tuition * program.part1_pct / 100) : 0;
   const p2 = program.part2_pct ? (tuition * program.part2_pct / 100) : 0;
   const total = (p1 + p2) * semesters;
   const parts: string[] = [];
-  if (p1) parts.push(`Part 1: ${program.part1_pct}% × $${tuition.toLocaleString()} = $${p1.toLocaleString()}`);
-  if (p2) parts.push(`Part 2: ${program.part2_pct}% × $${tuition.toLocaleString()} = $${p2.toLocaleString()}`);
-  parts.push(`× ${semesters} semester(s) = $${total.toLocaleString()}`);
-  return { total, breakdown: parts.join("\n") };
+  if (p1) parts.push(`1st Semester: ${program.part1_pct}% × ${tuition.toLocaleString()} = ${p1.toLocaleString()}`);
+  if (p2) parts.push(`2nd Semester: ${program.part2_pct}% × ${tuition.toLocaleString()} = ${p2.toLocaleString()}`);
+  parts.push(`× ${semesters} semester(s) = ${total.toLocaleString()}`);
+  return { total, currency, breakdown: parts.join("\n") };
 }
 
 export default function InstitutionPartners() {
@@ -724,7 +727,7 @@ export default function InstitutionPartners() {
                 </div>
               )}
 
-              {/* TAB D: COMMISSION PROGRAMS (NEW!) */}
+{/* TAB D: COMMISSION PROGRAMS */}
               {modalTab === 'programs' && (
                 <div className="space-y-4">
                   <div className="bg-purple-50 border border-purple-200 rounded-xl p-5">
@@ -733,7 +736,7 @@ export default function InstitutionPartners() {
                       <h3 className="font-black text-purple-900 text-lg">Per-Program Commission Structure</h3>
                     </div>
                     <p className="text-xs text-purple-700">
-                      Break down commission rates by program type. Different programs may have different Part 1 / Part 2 percentages, or fixed flat fees (Partial Service). E.g., ANU has 9 program rows.
+                      Break down commission rates by program type. Different programs may have different 1st Semester / 2nd Semester percentages, or fixed flat fees with their own currency (Partial Service).
                     </p>
                   </div>
 
@@ -749,9 +752,9 @@ export default function InstitutionPartners() {
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-wider">
                           <tr>
                             <th className="px-4 py-3 text-left">Program Name</th>
-                            <th className="px-4 py-3 text-center w-24">Part 1 %</th>
-                            <th className="px-4 py-3 text-center w-24">Part 2 %</th>
-                            <th className="px-4 py-3 text-center w-32">Flat Fee ($)</th>
+                            <th className="px-4 py-3 text-center w-28">1st Semester %</th>
+                            <th className="px-4 py-3 text-center w-28">2nd Semester %</th>
+                            <th className="px-4 py-3 text-center w-44">Flat Fee</th>
                             <th className="px-4 py-3 text-left">Notes</th>
                             <th className="px-2 py-3 w-12"></th>
                           </tr>
@@ -772,7 +775,7 @@ export default function InstitutionPartners() {
                                 <input
                                   type="number"
                                   step="0.5"
-                                  placeholder="10"
+                                  placeholder="00"
                                   className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center font-mono outline-none focus:border-purple-400"
                                   value={prog.part1_pct ?? ""}
                                   onChange={(e) => handleUpdateProgram(idx, "part1_pct", e.target.value)}
@@ -782,21 +785,41 @@ export default function InstitutionPartners() {
                                 <input
                                   type="number"
                                   step="0.5"
-                                  placeholder="10"
+                                  placeholder="00"
                                   className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center font-mono outline-none focus:border-purple-400"
                                   value={prog.part2_pct ?? ""}
                                   onChange={(e) => handleUpdateProgram(idx, "part2_pct", e.target.value)}
                                 />
                               </td>
                               <td className="px-2 py-2">
-                                <input
-                                  type="number"
-                                  step="100"
-                                  placeholder="2500"
-                                  className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center font-mono outline-none focus:border-purple-400"
-                                  value={prog.partial_service_fee ?? ""}
-                                  onChange={(e) => handleUpdateProgram(idx, "partial_service_fee", e.target.value)}
-                                />
+                                <div className="flex gap-1">
+                                  <select
+                                    className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs font-bold bg-white outline-none focus:border-purple-400 cursor-pointer"
+                                    value={prog.partial_service_currency || "USD"}
+                                    onChange={(e) => handleUpdateProgram(idx, "partial_service_currency", e.target.value)}
+                                    title="Currency"
+                                  >
+                                    <option value="USD">USD</option>
+                                    <option value="AUD">AUD</option>
+                                    <option value="GBP">GBP</option>
+                                    <option value="EUR">EUR</option>
+                                    <option value="CAD">CAD</option>
+                                    <option value="NZD">NZD</option>
+                                    <option value="SGD">SGD</option>
+                                    <option value="CHF">CHF</option>
+                                    <option value="CNY">CNY</option>
+                                    <option value="MYR">MYR</option>
+                                    <option value="IDR">IDR</option>
+                                  </select>
+                                  <input
+                                    type="number"
+                                    step="100"
+                                    placeholder="0000"
+                                    className="flex-1 min-w-0 px-2 py-1.5 border border-slate-200 rounded-lg text-sm text-center font-mono outline-none focus:border-purple-400"
+                                    value={prog.partial_service_fee ?? ""}
+                                    onChange={(e) => handleUpdateProgram(idx, "partial_service_fee", e.target.value)}
+                                  />
+                                </div>
                               </td>
                               <td className="px-3 py-2">
                                 <input
@@ -833,10 +856,11 @@ export default function InstitutionPartners() {
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-600">
                     <p className="font-bold text-[#282860] mb-2">💡 How to fill this:</p>
                     <ul className="space-y-1 list-disc list-inside">
-                      <li><strong>Percentage programs:</strong> Fill Part 1 % and/or Part 2 % (leave Flat Fee blank)</li>
-                      <li><strong>Flat fee programs</strong> (e.g. MChD $2,500/sem): Fill only the Flat Fee column</li>
-                      <li><strong>Single-payment programs:</strong> Fill only Part 1 %, leave Part 2 blank</li>
-                      <li><strong>Notes:</strong> Add timing, conditions, exclusions</li>
+                      <li><strong>Percentage programs:</strong> Fill 1st Semester % and/or 2nd Semester % (leave Flat Fee as 0000)</li>
+                      <li><strong>Flat fee programs</strong> (e.g. MChD AUD 2,500/sem): Pick currency, fill Flat Fee, leave semester %s as 00</li>
+                      <li><strong>Single-payment programs:</strong> Fill only 1st Semester %, leave 2nd Semester as 00</li>
+                      <li><strong>"00" / "0000" placeholder</strong> means "not yet filled" — clear it and type the actual number</li>
+                      <li><strong>Currency matters:</strong> the AI uses it for accurate calculations regardless of the school's country</li>
                     </ul>
                   </div>
                 </div>
