@@ -1962,11 +1962,11 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, name, notes, documents, field_interests,
-                       program_interest, country_interest
+                       program_interest, country_interest, budget
                 FROM students WHERE id = %s
             """, (req.case_id,))
             student = cur.fetchone()
- 
+
         if not student:
             return {"status": "error", "report": "Student not found."}
  
@@ -2077,16 +2077,16 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
  
         # ---------- Generate report ----------
         try:
+            raw_budget = student.get('budget') or ""
             premium_report = generate_strategic_report(
                 student_name=student['name'],
                 destination=student.get('country_interest') or "Global (AI Recommended)",
-                budget=30000,
+                budget=raw_budget,
                 notes=student.get('notes') or "No notes provided.",
                 pdf_data=combined_text,
                 field_interests=field_interests,
                 program_interest=student.get('program_interest') or ""
             )
-
             # Sprint A: persist report to DB so it survives dossier close/reopen
             try:
                 with conn.cursor() as save_cur:

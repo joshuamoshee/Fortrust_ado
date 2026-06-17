@@ -1,4 +1,5 @@
 import os
+import re
 from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -8,7 +9,7 @@ _client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 def generate_strategic_report(
     student_name: str,
     destination: str = "Global (AI Recommended)",
-    budget: float = 30000,
+    budget=None,  # Can be string ("USD 11,000-28,000/Year") OR number — we handle both
     notes: str = "No notes provided.",
     pdf_data: str = "No documents uploaded.",
     field_interests: list = None,
@@ -22,7 +23,17 @@ def generate_strategic_report(
     if len(pdf_data) > MAX_PDF_CHARS:
         pdf_excerpt += "\n\n[... documents truncated for length ...]"
 
-    # Format field interests
+    # --- BUDGET PARSING ---
+    # Accept either a string ("USD 11,000-28,000/Year") or a number (30000) or None.
+    if budget is None or budget == "" or budget == 0:
+        budget_display = "Not specified — agent should capture this during consultation"
+    elif isinstance(budget, (int, float)):
+        budget_display = f"USD ${budget:,.0f}/year"
+    else:
+        # It's a string — use it as-is (already formatted by the agent)
+        budget_display = str(budget).strip() or "Not specified"
+
+    # --- FIELD INTERESTS ---
     if field_interests and len(field_interests) > 0:
         interests_list = ", ".join(field_interests)
         interests_text = (
@@ -33,7 +44,7 @@ def generate_strategic_report(
     else:
         interests_text = (
             "⚠️ Agent has not yet captured the student's declared field interests. "
-            "Factor this gap into recommendations and flag it clearly in the report."
+            "Factor this gap into recommendations and flag it clearly."
         )
 
     program_text = (
@@ -44,167 +55,109 @@ def generate_strategic_report(
 
     prompt = f"""You are an Elite Career Strategist, Educational Futurist, and Talent Assessor operating within Fortrust Education Services.
 
-You have been given assessment data for a student. Your task is to generate a **comprehensive, structured Strategic Assessment Report** — formatted exactly as specified below — that can be shared with the student and their parents.
+Generate a **comprehensive, clean Strategic Assessment Report** that can be shared with the student and parents.
 
-Base your analysis ONLY on raw data provided (report cards, profiling test results, agent notes). Use your knowledge and information from the web and psychological/educational journals to enrich recommendations. Disregard any prior analysis already written inside the uploaded documents — re-analyze from raw data only.
+Base analysis ONLY on raw data provided (report cards, profiling test results, agent notes). Use your knowledge from the web and psychological/educational journals to enrich recommendations. Disregard any prior analysis already inside the uploaded documents — re-analyze from raw data only.
 
----
+# CRITICAL FORMATTING RULES
+1. Use `##` for major sections, `###` for sub-sections.
+2. **DO NOT use `---` horizontal rule separators between sections.** They make the PDF look cluttered. Use blank lines instead.
+3. Tables should use clean markdown without surrounding `---` lines.
+4. Keep paragraphs tight. No walls of text.
+5. Bullets within a group should not have blank lines between them.
 
 # STUDENT BRIEF
 - **Name:** {student_name}
 - **Target Destination:** {destination}
-- **Annual Budget (USD):** ${budget:,.0f}{program_text}
+- **Annual Budget:** {budget_display}{program_text}
 - **Agent Notes:** {notes}
 - **Student's Declared Interests:** {interests_text}
 
----
+# HOW TO READ THE UPLOADED DOCUMENTS
+Documents may be in English OR Bahasa Indonesia. Extract data from BOTH languages equally.
 
-# CRITICAL: HOW TO READ THE UPLOADED DOCUMENTS
-Documents may be in **English OR Bahasa Indonesia**. You MUST extract data from BOTH languages with equal effort. Never skip a document because it is in Indonesian.
+## Indonesian Report Card (Rapor/Rapot) Recognition
 
-## Indonesian Report Card (Rapor/Rapot) — Recognition Guide
-
-A document IS a report card if it contains ANY of these patterns:
-
-| Indonesian Term | English Meaning |
+| Indonesian | Meaning |
 |---|---|
 | Rapor / Rapot / Buku Rapor | Report card |
 | Mata Pelajaran / Pelajaran | Subject name |
 | Nilai / Nilai Akhir / Nilai Raport | Grade / Score |
-| Rata-rata / Rerata | Class/subject average |
-| Semester | Semester (same word) |
+| Rata-rata / Rerata | Average |
+| Semester | Semester |
 | Tahun Ajaran / TA | Academic year |
-| Peringkat Kelas / Peringkat | Class rank |
-| Nama Siswa / Nama Peserta Didik | Student name |
-| SMA / SMK / MA / MAN | Senior high school types |
-| IPA | Science track (Ilmu Pengetahuan Alam) |
-| IPS | Social science track (Ilmu Pengetahuan Sosial) |
-| UAS / PAS / UTS / PTS | Final exam / mid-term exam |
-| KKM | Minimum passing grade threshold |
-| Wali Kelas | Homeroom teacher |
+| Peringkat Kelas | Class rank |
+| SMA / SMK / MA / MAN | Senior high school |
+| IPA | Science track |
+| IPS | Social science track |
+| UAS / PAS / UTS / PTS | Final / mid-term exam |
+| KKM | Minimum passing grade |
 
-**RULE: If you see a table with "Mata Pelajaran" and "Nilai" columns → that IS a report card. Extract ALL subject names and scores immediately. Do NOT say "no report card found."**
+**Rule: If you see a table with "Mata Pelajaran" and "Nilai" columns → that IS a report card. Extract ALL subject names and scores. Do NOT say "no report card found."**
 
-## Profiling / Psychology Test — Recognition Guide
-Look for: IQ scores, cognitive subscores, personality dimensions, HCC letterhead, Holland Code (RIASEC), MBTI types, "Logika", "Verbal", "Numerik", aptitude scores, interest inventories, stress tolerance scores, learning style assessments.
-
-## General Rule
-- Search ALL document sections including "OTHER DOCUMENTS" for grades and profiling data
-- If a document section has any numbers next to subject names → extract them as grades
-- Only say "no data found" if a section is completely blank or has zero relevant content
-- Partial or garbled text → do your best with what is visible
-
----
+## Profiling Test Recognition
+Look for IQ scores, cognitive subscores, personality dimensions, HCC letterhead, Holland Code (RIASEC), MBTI types, "Logika", "Verbal", "Numerik", aptitude scores.
 
 # UPLOADED DOCUMENTS
-The text below was extracted from ALL documents uploaded for this student.
-Analyze every section — report cards may appear in any category including OTHER DOCUMENTS.
-
 ```
 {pdf_excerpt}
 ```
 
----
-
 # REPORT STRUCTURE — FOLLOW EXACTLY
 
-Generate the full report using this precise structure. Every section is required.
+Use this structure. Every section required. Use blank lines between sections — NEVER `---` separators.
 
----
+## Executive Summary
 
-## EXECUTIVE SUMMARY
+Strictly under 200 words. Include:
 
-Write a high-impact executive summary strictly under 200 words. Base this entirely on the provided data. You must include:
+- **Cognitive Profile Label:** A memorable archetype name based on their strongest cognitive pattern (e.g., "The Visual-Systematic Profile", "The Methodical Social Connector").
+- **IQ & Abilities:** Explain their IQ context. Identify their distinct **Superpower** and main **Struggle**. Cite specific scores.
+- **Strategic Direction:** Ideal career trajectory. How it leverages their superpower while aligning with their declared interests and constraints.
 
-- **Cognitive Profile Label:** Give the student a specific profile archetype name based on their strongest cognitive pattern (e.g., "The Visual-Systematic Profile", "The Analytical-Enterprising Profile", "The Verbal-Creative Profile"). Make it memorable and specific to their data.
-- **IQ & Abilities:** Explain their IQ context. Identify their distinct **Superpower** (primary cognitive/behavioral strength) and main **Struggle** (primary weakness or blind spot). Cite specific scores if available from the profiling test.
-- **Strategic Direction:** Describe their ideal career trajectory. Explain exactly how this direction leverages their superpower while aligning with their declared interests and constraints.
+## Top 3 Recommended University Majors & Career Paths
 
----
+Three options. For each:
 
-## TOP 3 RECOMMENDED UNIVERSITY MAJORS & CAREER PATHS
-
-Present exactly 3 options. For each option use this exact format:
-
-### OPTION [1] (ONE): [MAJOR NAME IN CAPS]
+### Option 1: [MAJOR NAME IN CAPS]
 **Category:** The Sweet Spot (Best Fit) — Low/Moderate Cost, High Value (Optimal ROI)
 
-**Best Fit Summary:** One sentence explaining why this is the optimal choice for this specific student.
+**Best Fit Summary:** One sentence why this is optimal for this specific student.
 
-| CRITERIA | ANALYSIS | SCORE (1-10) |
+| Criteria | Analysis | Score (1-10) |
 |---|---|---|
-| Cognitive Fit | [Max 2 sentences. How well this major matches their IQ profile and superpower. Cite specific scores.] | X/10 |
-| Interest Alignment | [Max 2 sentences. How closely it maps to their declared interests and Holland/RIASEC profile if available.] | X/10 |
-| Personality Fit | [Max 2 sentences. How day-to-day work in this field matches their behavioral traits and work style.] | X/10 |
-| Career Outlook | [Max 2 sentences. Projected market demand and industry growth in {destination}.] | X/10 |
-| Risk Factor | [Max 2 sentences. Risk of academic failure, career mismatch, or automation threat.] | Low / Med / High |
+| Cognitive Fit | Max 2 sentences. Cite specific scores. | X/10 |
+| Interest Alignment | Max 2 sentences. Map to declared interests. | X/10 |
+| Personality Fit | Max 2 sentences. Day-to-day match. | X/10 |
+| Career Outlook | Max 2 sentences. Demand in {destination}. | X/10 |
+| Risk Factor | Max 2 sentences. Mismatch or automation risk. | Low / Med / High |
 
-**FUTURE PROOFING STRATEGY (5-9 Years)**
+**Future Proofing Strategy (5-9 Years)**
 
 | | |
 |---|---|
-| THE SHIFT | [What specific technological or industry disruption will reshape this field in 5-9 years?] |
-| ACTIONABLE ADVICE | [What specific skills, minors, certifications, or tools should the student pursue NOW to stay ahead?] |
-| SALARY EXPECTATION | [Realistic entry to senior compensation. Use the currency of {destination}. Format: "Entry: [currency] X / year. Senior ([role]): [currency] Y / year"] |
+| The Shift | What disruption will reshape this field? |
+| Actionable Advice | Specific skills/certs to pursue now |
+| Salary Expectation | Entry to senior, in currency of {destination} |
 
----
-
-### OPTION [2] (TWO): [MAJOR NAME IN CAPS]
+### Option 2: [MAJOR NAME IN CAPS]
 **Category:** The Strong Contender — High Value, High Cost (Recommended with financial capability)
 
-**Best Fit Summary:** One sentence.
+[Same table structure as Option 1]
 
-| CRITERIA | ANALYSIS | SCORE (1-10) |
-|---|---|---|
-| Cognitive Fit | [Max 2 sentences.] | X/10 |
-| Interest Alignment | [Max 2 sentences.] | X/10 |
-| Personality Fit | [Max 2 sentences.] | X/10 |
-| Career Outlook | [Max 2 sentences.] | X/10 |
-| Risk Factor | [Max 2 sentences.] | Low / Med / High |
-
-**FUTURE PROOFING STRATEGY (5-9 Years)**
-
-| | |
-|---|---|
-| THE SHIFT | [Disruption specific to this field] |
-| ACTIONABLE ADVICE | [Specific skills/certs to pursue] |
-| SALARY EXPECTATION | [Entry to senior in {destination} currency] |
-
----
-
-### OPTION [3] (THREE): [MAJOR NAME IN CAPS]
+### Option 3: [MAJOR NAME IN CAPS]
 **Category:** The Safety Backup — Pragmatic Choice (Lower risk, steady demand)
 
-**Best Fit Summary:** One sentence.
+[Same table structure as Option 1]
 
-| CRITERIA | ANALYSIS | SCORE (1-10) |
-|---|---|---|
-| Cognitive Fit | [Max 2 sentences.] | X/10 |
-| Interest Alignment | [Max 2 sentences.] | X/10 |
-| Personality Fit | [Max 2 sentences.] | X/10 |
-| Career Outlook | [Max 2 sentences.] | X/10 |
-| Risk Factor | [Max 2 sentences.] | Low / Med / High |
+## Critical Success Factors
 
-**FUTURE PROOFING STRATEGY (5-9 Years)**
-
-| | |
-|---|---|
-| THE SHIFT | [Disruption specific to this field] |
-| ACTIONABLE ADVICE | [Specific skills/certs to pursue] |
-| SALARY EXPECTATION | [Entry to senior in {destination} currency] |
-
----
-
-## CRITICAL SUCCESS FACTORS
-
-The data reveals specific risks for {student_name}. Identify 3 Critical Success Factors (CSFs) — the behaviors or mindset shifts they MUST adopt for any of the above paths to succeed.
+Identify 3 Critical Success Factors {student_name} MUST adopt for any of the above paths to succeed.
 
 Format each as:
-- **[CSF Name]:** [Explain the specific risk from their data → then give a precise, behavioral, actionable step to mitigate it. Be direct. No vague advice.]
+- **[CSF Name]:** [Specific risk from their data] → [Precise, behavioral action to mitigate]
 
----
-
-## 5-YEAR DEVELOPMENT ROADMAP
+## 5-Year Development Roadmap
 
 | Year | Focus Area | Actionable Steps for {student_name} |
 |---|---|---|
@@ -214,99 +167,101 @@ Format each as:
 | Year 4 (Uni Year 2 / Sophomore) | Specialization | • [Action 1] • [Action 2] |
 | Year 5 (Uni Year 3 / Junior) | Professionalism | • [Action 1] • [Action 2] |
 
----
+## Academic Performance Analysis
 
-## ACADEMIC PERFORMANCE ANALYSIS
+Search ALL document sections (including OTHER DOCUMENTS) for subject-score pairs.
 
-**Before writing this section, search ALL uploaded document sections (including OTHER DOCUMENTS) for subject-score pairs.**
-
-Extract and present:
-- **Strongest subjects** with specific evidence ("Ekonomi — consistent 85+ across 3 semesters")
+Extract:
+- **Strongest subjects** with specific evidence
 - **Weakest subjects** with specific evidence
 - **Semester trends** — improving, stable, or declining
-- **Track** — IPA (Science) or IPS (Social) if identifiable
-- **Class rank or GPA** if mentioned in any document
+- **Track** — IPA or IPS if identifiable
+- **Class rank or GPA** if mentioned
 
-If after checking ALL sections you find zero subject-score pairs anywhere, state:
-"⚠️ No report card data was extractable from the uploaded documents. Recommendations are based on profiling test results and declared interests only. Agent should upload Rapor/report cards for a complete analysis."
+If zero subject-score pairs exist anywhere: "⚠️ No report card data was extractable. Recommendations are based on profiling test and declared interests only. Agent should upload Rapor/report cards for a complete analysis."
 
----
+## City & University Matching
 
-## CITY & UNIVERSITY MATCHING
-
-Use Google Search to find 4-5 REAL, currently-operating universities or institutions in **{destination}** that match the recommended majors.
+Use Google Search to find 4-5 REAL, currently-operating universities in **{destination}** that match the recommended majors AND fit within the student's actual budget of **{budget_display}**.
 
 For each institution:
 - **University name** and city
 - **Focus:** Specific relevant program offered
-- **Why fit:** Cite the student's specific cognitive/interest profile — not generic praise
-- **Cost note:** Approximate annual international tuition in local currency (verify via search)
+- **Why fit:** Cite the student's cognitive/interest profile
+- **Cost note:** Approximate annual international tuition in local currency. **CRITICAL: respect the student's stated budget range. If their budget is USD 11,000-28,000/Year, DO NOT recommend universities costing USD $40,000/year. Find ones within range.**
 
-Then present a **City & University Matching Matrix**:
+Then present a matching matrix:
 
 | City | Key Institution(s) | Primary Vibe | Best Fit for {student_name} | Risk / Cost |
 |---|---|---|---|---|
-| [City] | [University] | [Urban/Creative/Academic/etc] | [Specific fit reason] | [Cost level + key risk] |
 
 End with:
-**Top Pick (Balanced):** [University + City + one sentence why]
-**Top Pick (Safety/Budget):** [University + City + one sentence why]
+- **Top Pick (Balanced):** [University + City + one sentence why]
+- **Top Pick (Safety/Budget):** [University + City + one sentence why]
 
----
+## Scholarship Match List
 
-## SCHOLARSHIP MATCH LIST
+This section is critical. Use Google Search to find 5-7 REAL, currently-available scholarships for Indonesian international students studying in {destination}. Mix government, university-specific, and private foundation scholarships.
 
-List 3-5 real scholarships available to Indonesian international students studying in {destination}. For each:
-- **Scholarship name**
-- **Amount** (in local currency)
-- **Key eligibility requirement**
+For each scholarship, format as a sub-heading:
 
-Use Google Search to verify these are current and real.
+### [Scholarship Name]
+- **Provider:** [Government / University / Foundation name]
+- **Amount:** [Value in local currency]
+- **Eligibility:** [Key requirements — GPA cutoff, nationality, program type, age]
+- **Deadline:** [Application window — be specific if possible, otherwise note "annual intake"]
+- **Application Process:** [Brief: "Apply via [portal]" or "Automatic upon admission"]
+- **Fit for {student_name}:** [Realistic assessment — "Achievable if GPA improves to 85%+" or "Strong fit, matches profile"]
 
----
+Include a mix of:
+- **Government scholarships** (e.g., Chevening for UK, Australia Awards for AU, Fulbright for US, Canada-ASEAN SEED, MEXT for Japan, China Government Scholarship/CSC, Swiss Government Excellence)
+- **University-specific entrance scholarships** for the 4-5 universities you recommended above
+- **Private/foundation scholarships** open to Indonesian students
 
-## BUDGET-OPTIMIZED STRATEGY
+For Indonesia-specific options also consider: LPDP (Indonesian government), Beasiswa Indonesia Maju.
 
-Based on budget of **USD ${budget:,.0f}** and destination **{destination}**:
+## Budget-Optimized Strategy
+
+Based on the student's actual budget of **{budget_display}** and destination **{destination}**:
 
 **Strategy 1: [Name]**
-[Recommended primary pathway. Include: institution type, program, estimated annual cost, why it fits this student's risk profile]
+Primary pathway. Include: institution type, program, estimated annual cost in target currency, why it fits the risk profile.
 
 **Strategy 2: [Name]**
-[Lower-cost alternative. Include: institution, pathway, estimated cost, tradeoffs]
+Lower-cost alternative. Include: institution, pathway, estimated cost, tradeoffs.
 
-**Strategy 3: [Name — Foundation/Bridge if applicable]**
-[Bridge or foundation pathway. Include: estimated cost, how it leads to the main degree]
+**Strategy 3: [Name]**
+Scholarship-heavy strategy OR foundation/diploma-to-degree bridge pathway.
 
 **Summary of Savings Potential**
 
 | Strategy | Est. Annual Tuition | Risk Factor | Notes |
 |---|---|---|---|
-| [Strategy 1 name] | [Amount] | [Low/Med/High] | [Key tradeoff] |
+| [Strategy 1 name] | [Amount in target currency] | [Low/Med/High] | [Key tradeoff] |
 | [Strategy 2 name] | [Amount] | [Low/Med/High] | [Key tradeoff] |
+| [Strategy 3 name] | [Amount] | [Low/Med/High] | [Key tradeoff] |
 | Total Potential Savings | [Range] | — | [Overall conclusion] |
 
----
+## Conclusion
 
-## CONCLUSION
-
-Write a definitive, encouraging conclusion (max 120 words). Include:
+Definitive, encouraging conclusion (max 120 words). Include:
 - Their cognitive sweet spot in one sentence
 - What fields they should avoid and exactly why (tie to their data)
 - Single best degree recommendation
-- One final motivational note grounded in their specific profile data
+- One final motivational note grounded in their specific profile
 
----
-
-# GLOBAL FORMATTING RULES
-- Use the exact markdown table formats shown — they render into a formatted PDF
-- Be SPECIFIC — cite actual grades, test scores, declared interests throughout
-- Use Google Search to verify real tuition fees, scholarship amounts, and university programs for {destination}
-- Never invent data — if something is missing from documents, flag it explicitly
+# GLOBAL RULES
+- Use `##` for major sections, `###` for sub-sections
+- **NO `---` separators between sections** — they look ugly in the PDF render
+- Tables use clean markdown
+- Be SPECIFIC — cite actual grades, test scores, declared interests
+- Use Google Search to verify tuition fees, scholarship amounts, and university programs for {destination}
+- **Respect the student's stated budget** ({budget_display}) — recommend universities and pathways that fit within it
+- Never invent data — flag missing info explicitly
 - Length: 1,800–2,500 words
-- Tone: Professional, direct, data-driven — like a McKinsey consultant writing a report for parents and the student together
+- Tone: Professional, direct, data-driven
 
-Begin the report now for {student_name}.
+Begin the report for {student_name} now.
 """
 
     try:
@@ -320,7 +275,15 @@ Begin the report now for {student_name}.
         report_text = (response.text or "").strip()
         if not report_text:
             raise Exception("AI returned an empty response.")
-        return report_text
+
+        # POST-PROCESS: strip any --- horizontal rules the AI added anyway.
+        # These render as ugly black lines in the PDF.
+        # Remove standalone --- lines (3 or more dashes alone on a line)
+        report_text = re.sub(r'^\s*-{3,}\s*$', '', report_text, flags=re.MULTILINE)
+        # Collapse multiple blank lines into max 2
+        report_text = re.sub(r'\n{3,}', '\n\n', report_text)
+
+        return report_text.strip()
 
     except Exception as e:
         print(f"Gemini API Error: {e}")
