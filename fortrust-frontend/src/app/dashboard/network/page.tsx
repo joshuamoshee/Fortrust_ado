@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { 
   Building2, UploadCloud, Plus, 
   Sparkles, X, Loader2, Trash2, Building, FileText, Phone, Calculator,
-  Search, Filter, Globe, AlertCircle, DollarSign, Percent
+  Search, Filter, Globe, AlertCircle, DollarSign, Percent, CheckCircle2
 } from "lucide-react";
 
 // --- AGREEMENT EXPIRY HELPERS ---
@@ -121,55 +121,102 @@ export default function InstitutionPartners() {
   };
 
   const handleSaveInstitution = async () => {
-    try {
-      const token = localStorage.getItem("fortrust_token");
-      const isEditing = !!formData.id;
-      const url = isEditing
-        ? `${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${formData.id}`
-        : `${process.env.NEXT_PUBLIC_API_URL}/api/institutions`;
-      const method = isEditing ? "PUT" : "POST";
+      try {
+        // --- SANITIZE commission_programs to prevent type errors ---
+        const cleanPrograms = (formData.commission_programs || []).map((p: any) => ({
+          program_name: String(p.program_name || ""),
+          part1_pct: p.part1_pct === null || p.part1_pct === "" ? null : Number(p.part1_pct),
+          part2_pct: p.part2_pct === null || p.part2_pct === "" ? null : Number(p.part2_pct),
+          partial_service_fee: p.partial_service_fee === null || p.partial_service_fee === "" ? null : Number(p.partial_service_fee),
+          partial_service_currency: String(p.partial_service_currency || "USD"),
+          notes: String(p.notes || "")
+        }));
 
-      const payload: any = {
-        name: formData.institution_name,
-        type: formData.institution_type,
-        country: formData.country,
-        website: formData.website,
-        status: formData.status,
-        student_intake: formData.student_intake,
-        programs_offered: formData.programs_offered,
-        agreement_id: formData.agreement_id,
-        agreement_date: formData.agreement_date || null,
-        agreement_type: formData.agreement_type,
-        base_commission: formData.base_commission,
-        performance_bonus: formData.performance_bonus,
-        tiered_levels: formData.tiered_levels,
-        duration_start: formData.duration_start || null,
-        duration_end: formData.duration_end || null,
-        terms_conditions: formData.terms_conditions,
-        document_link: formData.document_link,
-        contacts: formData.contacts,
-        commission_programs: formData.commission_programs,
-      };
+        // --- SANITIZE contacts ---
+        const cleanContacts = (formData.contacts || []).map((c: any) => ({
+          id: c.id || `C-${Date.now()}-${Math.random()}`,
+          full_name: String(c.full_name || c.name || ""),
+          title: String(c.title || ""),
+          department: String(c.department || ""),
+          email: String(c.email || ""),
+          phone: String(c.phone || ""),
+          mobile: String(c.mobile || ""),
+          whatsapp: String(c.whatsapp || ""),
+          office_address: String(c.office_address || ""),
+          method: String(c.method || "Email"),
+          primary: String(c.primary || "No"),
+          status: String(c.status || "Active")
+        }));
 
-      if (!isEditing) delete payload.id;
+        // --- SANITIZE dates: strip any non-YYYY-MM-DD garbage ---
+        const cleanDate = (d: any): string | null => {
+          if (!d) return null;
+          const str = String(d).trim();
+          // Match YYYY-MM-DD at start of string
+          const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+          return match ? match[1] : null;
+        };
 
-      const res = await fetch(url, {
-        method,
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+        const token = localStorage.getItem("fortrust_token");
+        const isEditing = !!formData.id;
+        const url = isEditing
+          ? `${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${formData.id}`
+          : `${process.env.NEXT_PUBLIC_API_URL}/api/institutions`;
+        const method = isEditing ? "PUT" : "POST";
 
-      if (res.ok) {
-        setIsEditModalOpen(false);
-        fetchInstitutions();
-      } else {
-        const errorData = await res.json();
-        alert(`Backend Error:\n\n${JSON.stringify(errorData.detail || errorData, null, 2)}`);
+        const payload: any = {
+          name: formData.institution_name,
+          type: formData.institution_type,
+          country: formData.country,
+          website: formData.website,
+          status: formData.status,
+          student_intake: formData.student_intake,
+          programs_offered: formData.programs_offered,
+          agreement_id: formData.agreement_id,
+          agreement_date: cleanDate(formData.agreement_date),
+          agreement_type: formData.agreement_type,
+          base_commission: formData.base_commission,
+          performance_bonus: formData.performance_bonus,
+          tiered_levels: formData.tiered_levels,
+          duration_start: cleanDate(formData.duration_start),
+          duration_end: cleanDate(formData.duration_end),
+          terms_conditions: formData.terms_conditions,
+          document_link: formData.document_link,
+          contacts: cleanContacts,
+          commission_programs: cleanPrograms,
+        };
+
+        if (!isEditing) delete payload.id;
+
+        // --- DEBUG: log what we're sending ---
+        console.log("[SAVE INSTITUTION] Sending payload:", JSON.stringify(payload, null, 2));
+
+        const res = await fetch(url, {
+          method,
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const responseText = await res.text();
+        console.log("[SAVE INSTITUTION] Response status:", res.status);
+        console.log("[SAVE INSTITUTION] Response body:", responseText);
+
+        if (res.ok) {
+          setIsEditModalOpen(false);
+          fetchInstitutions();
+        } else {
+          let errorMsg = responseText;
+          try {
+            const errorData = JSON.parse(responseText);
+            errorMsg = JSON.stringify(errorData.detail || errorData, null, 2);
+          } catch {}
+          alert(`Backend Error (${res.status}):\n\n${errorMsg}`);
+        }
+      } catch (error: any) {
+        console.error("[SAVE INSTITUTION] Network error:", error);
+        alert(`Network Error: ${error.message || "Could not connect to backend."}`);
       }
-    } catch (error) {
-      alert("Network Error: Could not connect to the backend.");
-    }
-  };
+    };
 
   const handleDeleteInstitution = async (id: string) => {
     if (!window.confirm("Delete this institution?")) return;
@@ -220,19 +267,31 @@ export default function InstitutionPartners() {
     setFormData({ ...formData, commission_programs: updated });
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (files.length > 5) {
+      alert("Maximum 5 PDFs at a time. Please select fewer files.");
+      e.target.value = ""; // reset input
+      return;
+    }
+
     setIsScanning(true);
     try {
       const payload = new FormData();
-      payload.append("contract", file);
+      // Append each file under the same field name 'contracts'
+      for (let i = 0; i < files.length; i++) {
+        payload.append("contracts", files[i]);
+      }
+
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/extract-commission`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${localStorage.getItem("fortrust_token")}` },
         body: payload
       });
       const result = await res.json();
+
       if (result.status === "success") {
         setFormData(prev => ({
           ...prev,
@@ -249,22 +308,38 @@ export default function InstitutionPartners() {
           duration_end: result.data.duration_end || prev.duration_end,
           terms_conditions: result.data.terms_conditions || prev.terms_conditions,
           contacts: result.data.contacts || prev.contacts,
-          // KEY UPGRADE: pull commission_programs from AI extraction
           commission_programs: (result.data.commission_programs && result.data.commission_programs.length > 0)
             ? result.data.commission_programs
             : prev.commission_programs,
         }));
         setScanSuccess(true);
-        setTimeout(() => setScanSuccess(false), 3000);
-        // Auto-switch to programs tab so user sees what was extracted
+        setTimeout(() => setScanSuccess(false), 4000);
+
+        // Log amendment history to console for debugging
+        if (result.data.amendment_history && result.data.amendment_history.length > 1) {
+          console.log(`[AI Extraction] Merged ${result.data.amendment_history.length} documents:`, result.data.amendment_history);
+        }
+
         if (result.data.commission_programs && result.data.commission_programs.length > 0) {
           setModalTab("programs");
+        }
+
+        // Friendly toast if multi-file
+        const fileCount = result.files_processed || files.length;
+        if (fileCount > 1) {
+          setTimeout(() => {
+            alert(`✅ Successfully merged ${fileCount} documents into one agreement.\n\n${result.data.amendment_history?.length || 0} amendments tracked. Check the Programs tab.`);
+          }, 500);
         }
       } else {
         alert(result.message || "AI extraction failed.");
       }
+    } catch (err) {
+      console.error(err);
+      alert("Network error. Could not reach AI extraction service.");
     } finally {
       setIsScanning(false);
+      e.target.value = ""; // reset so user can re-upload same file
     }
   };
 
@@ -516,10 +591,17 @@ export default function InstitutionPartners() {
                 <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><Sparkles size={20} /></div>
                 <div>
                   <p className="text-sm font-bold text-[#282860]">AI Contract Auto-Fill</p>
-                  <p className="text-xs text-slate-500">Upload a PDF agreement to extract terms + program-by-program commission table instantly.</p>
+                  <p className="text-xs text-slate-500">Upload up to <strong>5 PDFs</strong> (original + amendments/variations). AI merges them with later dates winning conflicts.</p>
                 </div>
               </div>
-              <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".pdf" className="hidden" />
+              <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileUpload} 
+                    accept=".pdf" 
+                    multiple 
+                    className="hidden" 
+                  />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isScanning}
@@ -529,8 +611,9 @@ export default function InstitutionPartners() {
               </button>
             </div>
             {scanSuccess && (
-              <div className="bg-green-50 text-green-700 p-2 text-center text-xs font-bold border-b border-green-100 shrink-0">
-                ✅ AI extracted contract data + {formData.commission_programs.length} program rows!
+              <div className="bg-green-50 text-green-700 p-3 text-center text-xs font-bold border-b border-green-100 shrink-0 flex items-center justify-center gap-2">
+                <CheckCircle2 size={16}/>
+                AI extracted {formData.commission_programs.length} program row{formData.commission_programs.length !== 1 ? 's' : ''} from the agreement documents — verify in the Programs tab below.
               </div>
             )}
 

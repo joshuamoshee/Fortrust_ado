@@ -1,6 +1,8 @@
 import os
 import re
+from typing import List, Tuple, Optional, Union
 from google import genai
+from google.genai import types
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 _client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
@@ -9,28 +11,35 @@ _client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 def generate_strategic_report(
     student_name: str,
     destination: str = "Global (AI Recommended)",
-    budget=None,  # Can be string ("USD 11,000-28,000/Year") OR number — we handle both
+    budget=None,  # str ("USD 11,000-28,000/Year") or number or None
     notes: str = "No notes provided.",
-    pdf_data: str = "No documents uploaded.",
+    pdf_data: str = "",  # Optional text fallback (e.g. extracted text or document summaries)
+    pdf_files: Optional[List[Tuple[str, bytes]]] = None,  # NEW: list of (filename, raw_pdf_bytes)
     field_interests: list = None,
     program_interest: str = ""
 ) -> str:
+    """
+    Generate a strategic assessment report.
+    
+    Args:
+        student_name: Student's full name
+        destination: Target country / "Global"
+        budget: Free-text or numeric budget
+        notes: Agent's free-text notes
+        pdf_data: (Optional) Pre-extracted text from documents — used as supplementary context
+        pdf_files: (NEW, preferred) List of (filename, bytes) tuples. Gemini reads PDFs natively.
+        field_interests: List of declared interest fields
+        program_interest: Free-text initial program interest
+    """
     if not _client:
         raise Exception("GEMINI_API_KEY is not configured on the server.")
 
-    MAX_PDF_CHARS = 60000
-    pdf_excerpt = pdf_data[:MAX_PDF_CHARS] if pdf_data else "No documents uploaded."
-    if len(pdf_data) > MAX_PDF_CHARS:
-        pdf_excerpt += "\n\n[... documents truncated for length ...]"
-
     # --- BUDGET PARSING ---
-    # Accept either a string ("USD 11,000-28,000/Year") or a number (30000) or None.
     if budget is None or budget == "" or budget == 0:
         budget_display = "Not specified — agent should capture this during consultation"
     elif isinstance(budget, (int, float)):
         budget_display = f"USD ${budget:,.0f}/year"
     else:
-        # It's a string — use it as-is (already formatted by the agent)
         budget_display = str(budget).strip() or "Not specified"
 
     # --- FIELD INTERESTS ---
@@ -53,7 +62,35 @@ def generate_strategic_report(
         else ""
     )
 
-    prompt = f"""You are an Elite Career Strategist, Educational Futurist, and Talent Assessor operating within Fortrust Education Services.
+    # --- BUILD DOCUMENT CONTEXT BLOCK ---
+    has_pdf_files = pdf_files and len(pdf_files) > 0
+    has_pdf_text = pdf_data and pdf_data.strip()
+
+    if has_pdf_files:
+        doc_count = len(pdf_files)
+        file_names = ", ".join([fn for fn, _ in pdf_files])
+        doc_block = f"""I have attached {doc_count} document file(s) directly to this request: {file_names}
+
+You will see them as PDF attachments in this conversation. They may include:
+- Indonesian high school report cards (Rapor / Rapot) — often as scanned images
+- Psychological profiling tests (HCC, MBTI, IQ, RIASEC)
+- Other supporting transcripts
+
+**IMPORTANT for scanned PDFs:** If a PDF appears to be a scanned image (low text quality, CamScanner watermark, photographs of paper documents), use your native vision capability to READ THE IMAGES. Indonesian rapors are almost always scanned — you must visually read the tables to extract subject names and scores. Do NOT report "no report card found" if the document is visibly a rapor — extract the data from the image directly."""
+    elif has_pdf_text:
+        MAX_PDF_CHARS = 60000
+        pdf_excerpt = pdf_data[:MAX_PDF_CHARS]
+        if len(pdf_data) > MAX_PDF_CHARS:
+            pdf_excerpt += "\n\n[... documents truncated for length ...]"
+        doc_block = f"""Documents (text extracted from uploaded files):
+```
+{pdf_excerpt}
+```"""
+    else:
+        doc_block = "⚠️ No documents have been uploaded for this student yet. Flag this clearly in the report — recommendations will be limited."
+
+    # --- BUILD THE PROMPT TEXT ---
+    prompt_text = f"""You are an Elite Career Strategist, Educational Futurist, and Talent Assessor operating within Fortrust Education Services.
 
 Generate a **comprehensive, clean Strategic Assessment Report** that can be shared with the student and parents.
 
@@ -74,34 +111,42 @@ Base analysis ONLY on raw data provided (report cards, profiling test results, a
 - **Student's Declared Interests:** {interests_text}
 
 # HOW TO READ THE UPLOADED DOCUMENTS
+
 Documents may be in English OR Bahasa Indonesia. Extract data from BOTH languages equally.
 
 ## Indonesian Report Card (Rapor/Rapot) Recognition
 
-| Indonesian | Meaning |
-|---|---|
-| Rapor / Rapot / Buku Rapor | Report card |
-| Mata Pelajaran / Pelajaran | Subject name |
-| Nilai / Nilai Akhir / Nilai Raport | Grade / Score |
-| Rata-rata / Rerata | Average |
-| Semester | Semester |
-| Tahun Ajaran / TA | Academic year |
-| Peringkat Kelas | Class rank |
-| SMA / SMK / MA / MAN | Senior high school |
-| IPA | Science track |
-| IPS | Social science track |
-| UAS / PAS / UTS / PTS | Final / mid-term exam |
-| KKM | Minimum passing grade |
+The most common Indonesian rapor format has this exact structure that you MUST recognize:
 
-**Rule: If you see a table with "Mata Pelajaran" and "Nilai" columns → that IS a report card. Extract ALL subject names and scores. Do NOT say "no report card found."**
+| Header field | Meaning |
+|---|---|
+| Nama Sekolah | School name (e.g., SMA SANTA THERESIA) |
+| Nama Siswa | Student name |
+| NIS / NISN | Student ID number |
+| Kelas / No. Absen | Class / Roll number |
+| Fase | Phase (E = grade 10, F = grade 11) |
+| Semester | Ganjil (odd/1st) or Genap (even/2nd) |
+| Tahun Pelajaran | Academic year (e.g., 2024/2025) |
+| LAPORAN HASIL BELAJAR | "Learning Results Report" — the TITLE of a rapor |
+| Mata Pelajaran | Subject name |
+| Nilai Akhir | Final grade (numeric, usually 0-100) |
+| Capaian Kompetensi | Competency description (text narrative per subject) |
+| KETIDAKHADIRAN | Absences (Sakit/Izin/Tanpa Keterangan) |
+| EKSTRAKURIKULER | Extracurriculars with Predikat (A/B/C grade) |
+| CATATAN WALI KELAS | Homeroom teacher's notes |
+| PRESTASI | Achievements |
+| Wali Kelas | Homeroom teacher (signature block) |
+
+**Common subjects (Mata Pelajaran) you should recognize:**
+Pendidikan Agama, Pendidikan Pancasila, Bahasa Indonesia, Bahasa Inggris, Matematika, Sejarah, Fisika, Kimia, Biologi, Informatika, Ekonomi, Geografi, Sosiologi, Prakarya dan Kewirausahaan, Pendidikan Jasmani (PJOK), Seni Budaya, Bahasa Mandarin, Sejarah Tingkat Lanjut.
+
+**Rule: If you see "LAPORAN HASIL BELAJAR" or a table with Mata Pelajaran + Nilai Akhir columns, that IS a rapor. Extract EVERY single subject-score pair, the semester, and the academic year. Do NOT say "no report card found." Multiple rapors from different semesters tell you the trend over time — track this carefully.**
 
 ## Profiling Test Recognition
-Look for IQ scores, cognitive subscores, personality dimensions, HCC letterhead, Holland Code (RIASEC), MBTI types, "Logika", "Verbal", "Numerik", aptitude scores.
+Look for IQ scores, cognitive subscores, personality dimensions, HCC (Human Care Consulting) letterhead, Holland Code (RIASEC), MBTI types, terms like "Logika Verbal/Numerik/Figural/Keteknikan", "Daya Analisa", "Kepatuhan", "Sistematika Belajar", "Motivasi Belajar", "Kesigapan", "Minat Sosial", "Kepekaan & Kepedulian".
 
 # UPLOADED DOCUMENTS
-```
-{pdf_excerpt}
-```
+{doc_block}
 
 # REPORT STRUCTURE — FOLLOW EXACTLY
 
@@ -169,16 +214,41 @@ Format each as:
 
 ## Academic Performance Analysis
 
-Search ALL document sections (including OTHER DOCUMENTS) for subject-score pairs.
+**MANDATORY STEP-BY-STEP PROCESS:**
 
-Extract:
-- **Strongest subjects** with specific evidence
-- **Weakest subjects** with specific evidence
-- **Semester trends** — improving, stable, or declining
-- **Track** — IPA or IPS if identifiable
-- **Class rank or GPA** if mentioned
+1. **Open each attached PDF** and look for "LAPORAN HASIL BELAJAR" header or any table with subject names + numeric grades.
+2. **For each rapor found, extract ALL subject-score pairs into a working table.** Note the semester (Ganjil/Genap) and academic year for each.
+3. **List EVERY subject** found across all rapors. Do not summarize — be exhaustive.
+4. **Compare across semesters** for the same subject. Compute trend per subject (improving / stable / declining).
+5. **Rank subjects by average score** to identify strongest and weakest.
+6. **Identify the academic track** (IPA / IPS / Bahasa) from class designation (e.g., X-3, XI-4) and subject mix.
 
-If zero subject-score pairs exist anywhere: "⚠️ No report card data was extractable. Recommendations are based on profiling test and declared interests only. Agent should upload Rapor/report cards for a complete analysis."
+**Present the analysis as:**
+
+**Extracted Grade Data**
+
+| Subject (Mata Pelajaran) | [Semester 1 grade] | [Semester 2 grade] | [Semester 3 grade] | Trend | Avg |
+|---|---|---|---|---|---|
+| Matematika | 79 | 76 | 68 | ⬇️ Declining sharply | 74.3 |
+| Informatika | 93 | 95 | 93 | ➡️ Excellent & stable | 93.7 |
+
+(Build the full table with EVERY subject across ALL available semesters.)
+
+**Strongest subjects (with evidence):** [Top 3 with average scores]
+
+**Weakest subjects (with evidence):** [Bottom 3 with average scores, especially anything declining]
+
+**Semester trends:** [Overall pattern — is overall GPA improving, declining, mixed?]
+
+**Track:** [IPA / IPS / Bahasa — based on class and subject mix]
+
+**Class rank / GPA:** [Only if explicitly stated in rapor]
+
+**Attendance pattern:** [Sakit (sick) / Izin (excused) / Tanpa Keterangan (unexcused) — flag if absences spiking]
+
+**Extracurriculars & achievements:** [Cite specific activities and predikat ratings]
+
+If — and only if — after careful visual inspection of EVERY page of EVERY PDF you genuinely find ZERO subject-score data anywhere, then write: "⚠️ No report card data was extractable from uploaded files. The rapors may be missing or unreadable. Agent should re-upload clearer scans."
 
 ## City & University Matching
 
@@ -187,8 +257,8 @@ Use Google Search to find 4-5 REAL, currently-operating universities in **{desti
 For each institution:
 - **University name** and city
 - **Focus:** Specific relevant program offered
-- **Why fit:** Cite the student's cognitive/interest profile
-- **Cost note:** Approximate annual international tuition in local currency. **CRITICAL: respect the student's stated budget range. If their budget is USD 11,000-28,000/Year, DO NOT recommend universities costing USD $40,000/year. Find ones within range.**
+- **Why fit:** Cite the student's cognitive/interest profile AND specific grade data
+- **Cost note:** Approximate annual international tuition in local currency. **CRITICAL: respect the student's stated budget range. If their budget is USD 11,000-28,000/Year, DO NOT recommend universities costing USD $40,000/year.**
 
 Then present a matching matrix:
 
@@ -201,7 +271,7 @@ End with:
 
 ## Scholarship Match List
 
-This section is critical. Use Google Search to find 5-7 REAL, currently-available scholarships for Indonesian international students studying in {destination}. Mix government, university-specific, and private foundation scholarships.
+Use Google Search to find 5-7 REAL, currently-available scholarships for Indonesian international students studying in {destination}. Mix government, university-specific, and private foundation scholarships.
 
 For each scholarship, format as a sub-heading:
 
@@ -209,16 +279,16 @@ For each scholarship, format as a sub-heading:
 - **Provider:** [Government / University / Foundation name]
 - **Amount:** [Value in local currency]
 - **Eligibility:** [Key requirements — GPA cutoff, nationality, program type, age]
-- **Deadline:** [Application window — be specific if possible, otherwise note "annual intake"]
+- **Deadline:** [Application window]
 - **Application Process:** [Brief: "Apply via [portal]" or "Automatic upon admission"]
-- **Fit for {student_name}:** [Realistic assessment — "Achievable if GPA improves to 85%+" or "Strong fit, matches profile"]
+- **Fit for {student_name}:** [Realistic assessment based on their actual extracted grades]
 
 Include a mix of:
-- **Government scholarships** (e.g., Chevening for UK, Australia Awards for AU, Fulbright for US, Canada-ASEAN SEED, MEXT for Japan, China Government Scholarship/CSC, Swiss Government Excellence)
+- **Government scholarships** (Chevening for UK, Australia Awards for AU, Fulbright for US, Canada-ASEAN SEED, MEXT for Japan, China Government Scholarship/CSC, Swiss Government Excellence)
 - **University-specific entrance scholarships** for the 4-5 universities you recommended above
 - **Private/foundation scholarships** open to Indonesian students
 
-For Indonesia-specific options also consider: LPDP (Indonesian government), Beasiswa Indonesia Maju.
+For Indonesia-specific options: LPDP (Indonesian government), Beasiswa Indonesia Maju.
 
 ## Budget-Optimized Strategy
 
@@ -252,22 +322,45 @@ Definitive, encouraging conclusion (max 120 words). Include:
 
 # GLOBAL RULES
 - Use `##` for major sections, `###` for sub-sections
-- **NO `---` separators between sections** — they look ugly in the PDF render
+- **NO `---` separators between sections**
 - Tables use clean markdown
-- Be SPECIFIC — cite actual grades, test scores, declared interests
-- Use Google Search to verify tuition fees, scholarship amounts, and university programs for {destination}
-- **Respect the student's stated budget** ({budget_display}) — recommend universities and pathways that fit within it
-- Never invent data — flag missing info explicitly
+- Be SPECIFIC — cite actual extracted grades, test scores, declared interests
+- Use Google Search to verify tuition fees, scholarship amounts, university programs
+- **Respect the student's stated budget** ({budget_display})
+- **READ THE ATTACHED PDFS VISUALLY** — do not skip rapor analysis just because the PDF is a scan
 - Length: 1,800–2,500 words
 - Tone: Professional, direct, data-driven
 
 Begin the report for {student_name} now.
 """
 
+    # --- BUILD CONTENTS FOR GEMINI ---
+    # When PDF files are provided, build a multipart content list:
+    # [Part(text=prompt), Part(file=pdf1), Part(file=pdf2), ...]
+    if has_pdf_files:
+        parts = [types.Part.from_text(text=prompt_text)]
+        for filename, file_bytes in pdf_files:
+            try:
+                parts.append(
+                    types.Part.from_bytes(
+                        data=file_bytes,
+                        mime_type="application/pdf"
+                    )
+                )
+                print(f"[ai_report] Attached PDF to Gemini: {filename} ({len(file_bytes):,} bytes)")
+            except Exception as part_err:
+                print(f"[ai_report] Failed to attach {filename}: {part_err}")
+                continue
+        contents = parts
+    else:
+        # Text-only path (backward compat)
+        contents = prompt_text
+
+    # --- CALL GEMINI ---
     try:
         response = _client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=prompt,
+            contents=contents,
             config={
                 "tools": [{"google_search": {}}],
             }
@@ -276,11 +369,9 @@ Begin the report for {student_name} now.
         if not report_text:
             raise Exception("AI returned an empty response.")
 
-        # POST-PROCESS: strip any --- horizontal rules the AI added anyway.
-        # These render as ugly black lines in the PDF.
-        # Remove standalone --- lines (3 or more dashes alone on a line)
+        # POST-PROCESS: strip --- horizontal rules
         report_text = re.sub(r'^\s*-{3,}\s*$', '', report_text, flags=re.MULTILINE)
-        # Collapse multiple blank lines into max 2
+        # Collapse multiple blank lines
         report_text = re.sub(r'\n{3,}', '\n\n', report_text)
 
         return report_text.strip()

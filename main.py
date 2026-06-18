@@ -15,7 +15,7 @@ import jwt
 import PyPDF2
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta
 from dotenv import load_dotenv
 from google import genai
 from supabase import create_client, Client
@@ -2150,15 +2150,15 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
     """
     Generates a strategic placement report by:
     1. Fetching the student record
-    2. Re-extracting text from ALL uploaded PDFs in Supabase
-    3. Grouping them by category (Report Card, Profiling Test, Other)
-    4. Combining with student's declared field_interests
-    5. Calling Gemini with all three variables
+    2. Downloading ALL uploaded PDFs from Supabase (raw bytes + extracted text)
+    3. Passing PDFs natively to Gemini so it can OCR scanned rapors with vision
+    4. Grouping extracted text by category (Report Card, Profiling Test, Other)
+    5. Combining with student's declared field_interests
     """
     conn = None
     try:
         conn = get_db_connection()
- 
+
         # Fetch student
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
@@ -2170,11 +2170,11 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
 
         if not student:
             return {"status": "error", "report": "Student not found."}
- 
-        # Access check (so agents can't pull each other's students' reports)
+
+        # Access check
         if not check_student_access(conn, str(student['id']), user_data):
             raise HTTPException(status_code=403, detail="Not authorized for this student.")
- 
+
         # ---------- Parse documents JSONB ----------
         raw_docs = student.get('documents')
         if raw_docs is None:
@@ -2186,65 +2186,80 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
             docs = raw_docs
         else:
             docs = []
- 
-        # ---------- Re-extract text from every PDF in Supabase ----------
-        # This is the key fix: instead of relying on cached pdf_text in the
-        # students table (which can be stale or partial), we pull fresh
-        # text from each file every time the AI report is generated.
+
+        # ---------- Download PDFs and extract text ----------
+        # KEY CHANGE: We now collect BOTH raw PDF bytes AND extracted text.
+        # - Raw bytes → passed to Gemini for native vision (OCRs scanned rapors)
+        # - Extracted text → supplementary context for fast-readable PDFs
         rapot_texts = []
         profiling_texts = []
         other_texts = []
- 
+        pdf_files_for_gemini = []  # list of (filename, raw_bytes) tuples
+
         if not supabase:
             print("[ai-strategy] WARNING: Supabase not configured; cannot extract PDFs.")
- 
+
         for doc in docs:
             filename = doc.get('filename')
             if not filename or not filename.lower().endswith('.pdf'):
                 continue
             if not supabase:
                 continue
- 
+
             try:
                 file_bytes = supabase.storage.from_("student-documents").download(filename)
                 if not file_bytes:
                     print(f"[ai-strategy] {filename} returned empty from Supabase")
                     continue
- 
-                reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-                pages = []
-                for page in reader.pages:
-                    try:
-                        t = page.extract_text() or ""
-                        if t.strip():
-                            pages.append(t)
-                    except Exception:
-                        continue
-                pdf_text = "\n".join(pages).strip()
- 
+
+                # === STEP 1: Save raw bytes for Gemini's native vision ===
+                # This is what fixes the scanned-rapor problem. Gemini will
+                # OCR these PDFs directly even if PyPDF2 can't read them.
+                doc_label = doc.get('title') or filename
+                pdf_files_for_gemini.append((doc_label, file_bytes))
+
+                # === STEP 2: ALSO try text extraction as supplementary context ===
+                # This still works for text-based PDFs (typed/digital documents)
+                # and helps Gemini cross-reference. For scanned rapors this
+                # returns empty string — that's fine, vision handles it.
+                pdf_text = ""
+                try:
+                    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                    pages = []
+                    for page in reader.pages:
+                        try:
+                            t = page.extract_text() or ""
+                            if t.strip():
+                                pages.append(t)
+                        except Exception:
+                            continue
+                    pdf_text = "\n".join(pages).strip()
+                except Exception as text_err:
+                    print(f"[ai-strategy] Text extraction failed for {filename} (likely a scanned PDF — Gemini vision will handle it): {text_err}")
+
                 if not pdf_text:
-                    print(f"[ai-strategy] {filename} had no extractable text")
-                    continue
- 
-                # Classify by title (which we set from doc_type at upload time)
+                    print(f"[ai-strategy] {filename} had no extractable text (scanned PDF — vision will OCR it)")
+                    # Don't skip — still classify so the section headers exist
+                    pdf_text = f"[This document is a scanned PDF — see attached file '{doc_label}' for visual content]"
+
+                # Classify by title/filename
                 title = (doc.get('title') or '').upper()
                 fname_upper = filename.upper()
-                doc_label = doc.get('title') or filename
- 
-                if ("REPORT CARD" in title or "RAPOT" in title or
-                    "REPORT_CARD" in fname_upper or "RAPOT" in fname_upper):
+
+                if ("REPORT CARD" in title or "RAPOT" in title or "RAPOR" in title or
+                    "REPORT_CARD" in fname_upper or "RAPOT" in fname_upper or "RAPOR" in fname_upper):
                     rapot_texts.append(f"--- {doc_label} ---\n{pdf_text}")
                 elif ("PROFILING" in title or "PSYCHOLOGY" in title or "PSIKOLOG" in title or
                       "HCC" in title or "PROFILING" in fname_upper or "PSYCHOLOGY" in fname_upper):
                     profiling_texts.append(f"--- {doc_label} ---\n{pdf_text}")
                 else:
                     other_texts.append(f"--- {doc_label} ---\n{pdf_text}")
- 
+
             except Exception as e:
-                print(f"[ai-strategy] Extract failed for {filename}: {e}")
+                print(f"[ai-strategy] Download/extract failed for {filename}: {e}")
                 continue
- 
-        # Combine into structured text
+
+        # Combine extracted text into structured blob (supplementary)
         combined_parts = []
         if rapot_texts:
             combined_parts.append("========== REPORT CARDS (RAPOT) ==========\n" + "\n\n".join(rapot_texts))
@@ -2252,9 +2267,9 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
             combined_parts.append("========== PROFILING TEST RESULTS ==========\n" + "\n\n".join(profiling_texts))
         if other_texts:
             combined_parts.append("========== OTHER DOCUMENTS ==========\n" + "\n\n".join(other_texts))
- 
-        combined_text = "\n\n".join(combined_parts) if combined_parts else "No PDF documents could be extracted."
- 
+
+        combined_text = "\n\n".join(combined_parts) if combined_parts else "No PDF text extracted. Refer to attached PDF files directly."
+
         # ---------- Parse field_interests ----------
         field_interests_raw = student.get('field_interests')
         field_interests = []
@@ -2267,15 +2282,15 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     else:
                         field_interests = [str(parsed)]
                 except Exception:
-                    # Fallback: comma-separated
                     field_interests = [f.strip() for f in field_interests_raw.split(',') if f.strip()]
             elif isinstance(field_interests_raw, list):
                 field_interests = field_interests_raw
- 
+
         print(f"[ai-strategy] Student {student['name']} — "
               f"rapot files: {len(rapot_texts)}, profiling: {len(profiling_texts)}, "
-              f"other: {len(other_texts)}, interests: {field_interests}")
- 
+              f"other: {len(other_texts)}, total PDFs sent to Gemini: {len(pdf_files_for_gemini)}, "
+              f"interests: {field_interests}")
+
         # ---------- Generate report ----------
         try:
             raw_budget = student.get('budget') or ""
@@ -2284,10 +2299,12 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                 destination=student.get('country_interest') or "Global (AI Recommended)",
                 budget=raw_budget,
                 notes=student.get('notes') or "No notes provided.",
-                pdf_data=combined_text,
+                pdf_data=combined_text,                # text fallback (supplementary)
+                pdf_files=pdf_files_for_gemini,        # NEW: raw PDF bytes for native vision
                 field_interests=field_interests,
                 program_interest=student.get('program_interest') or ""
             )
+
             # Sprint A: persist report to DB so it survives dossier close/reopen
             try:
                 with conn.cursor() as save_cur:
@@ -2307,11 +2324,12 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     "rapot_files": len(rapot_texts),
                     "profiling_files": len(profiling_texts),
                     "other_files": len(other_texts),
+                    "pdfs_sent_to_gemini": len(pdf_files_for_gemini),
                     "field_interests": field_interests
                 }
             )
             conn.commit()
- 
+
             return {
                 "status": "success",
                 "report": premium_report,
@@ -2319,15 +2337,16 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     "rapot_files": len(rapot_texts),
                     "profiling_files": len(profiling_texts),
                     "other_files": len(other_texts),
+                    "pdfs_sent_to_gemini": len(pdf_files_for_gemini),
                     "field_interests": field_interests
                 }
             }
- 
+
         except Exception as e:
             print(f"[ai-strategy] AI generation error: {e}")
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=str(e))
- 
+
     except HTTPException:
         raise
     except Exception as e:
@@ -3072,200 +3091,318 @@ MAX_AGREEMENT_CHARS = 80000  # ~80K chars, safe for Gemini 2.5 Flash
  
  
 @app.post("/api/admin/extract-commission")
-async def extract_commission_agreement(contract: UploadFile = File(...)):
+async def extract_commission_agreement(contracts: List[UploadFile] = File(...)):
     if not client:
         raise HTTPException(status_code=500, detail="Gemini API key not configured.")
- 
-    # --- 1. Read PDF ---
-    try:
-        if not contract.filename or not contract.filename.lower().endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="Please upload a PDF file.")
- 
-        content = await contract.read()
-        if not content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
- 
-        reader = PyPDF2.PdfReader(io.BytesIO(content))
-        pages = []
-        for i, page in enumerate(reader.pages):
-            try:
-                t = page.extract_text() or ""
-                if t.strip():
-                    pages.append(f"\\n--- PAGE {i+1} ---\\n{t}")
-            except Exception as pe:
-                print(f"[extract-commission] page {i+1} skipped: {pe}")
+
+    if not contracts or len(contracts) == 0:
+        raise HTTPException(status_code=400, detail="No files uploaded.")
+
+    if len(contracts) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 files allowed at once.")
+
+    # --- 1. Read ALL PDFs and combine into one labeled text block ---
+    combined_sections = []
+    
+    for file_idx, contract in enumerate(contracts):
+        try:
+            if not contract.filename or not contract.filename.lower().endswith('.pdf'):
+                raise HTTPException(status_code=400, detail=f"File '{contract.filename}' is not a PDF.")
+
+            content = await contract.read()
+            if not content:
+                continue  # Skip empty files
+
+            reader = PyPDF2.PdfReader(io.BytesIO(content))
+            pages = []
+            for i, page in enumerate(reader.pages):
+                try:
+                    t = page.extract_text() or ""
+                    if t.strip():
+                        pages.append(f"\n--- PAGE {i+1} ---\n{t}")
+                except Exception as pe:
+                    print(f"[extract-commission] {contract.filename} page {i+1} skipped: {pe}")
+                    continue
+
+            file_text = "\n".join(pages).strip()
+            if not file_text:
+                print(f"[extract-commission] {contract.filename} had no extractable text, skipping.")
                 continue
- 
-        extracted_text = "\\n".join(pages).strip()
-        if not extracted_text:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not extract text. PDF may be scanned/image-only."
-            )
- 
-        if len(extracted_text) > MAX_AGREEMENT_CHARS:
-            extracted_text = extracted_text[:MAX_AGREEMENT_CHARS] + "\\n\\n[...truncated...]"
- 
+
+            # Label each file clearly so the AI knows which one is which
+            section_header = f"""
+================================================================
+FILE {file_idx + 1} of {len(contracts)}: {contract.filename}
+================================================================
+"""
+            combined_sections.append(section_header + file_text)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"[extract-commission] Failed reading {contract.filename}: {e}")
+            traceback.print_exc()
+            raise HTTPException(status_code=400, detail=f"Could not read PDF '{contract.filename}': {str(e)}")
+
+    if not combined_sections:
+        raise HTTPException(
+            status_code=400,
+            detail="None of the uploaded files contained extractable text. PDFs may be scanned/image-only."
+        )
+
+    extracted_text = "\n\n".join(combined_sections)
+
+    # Cap total text size to avoid hitting Gemini token limits
+    MAX_COMBINED_CHARS = 200000  # ~50k tokens, well under Gemini Flash limits
+    if len(extracted_text) > MAX_COMBINED_CHARS:
+        extracted_text = extracted_text[:MAX_COMBINED_CHARS] + "\n\n[...truncated due to length...]"
+
+    file_count = len(combined_sections)
+    file_list = ", ".join([c.filename for c in contracts if c.filename])
+
+    # --- 2. Build the multi-file extraction prompt ---
+    prompt = f"""You are a senior contract analyst at Fortrust Education Services.
+You are extracting structured data from a University/College partnership/commission agreement that may span MULTIPLE FILES (original agreement + variation letters / amendments / addendums).
+
+# DOCUMENTS PROVIDED
+You have been given {file_count} file(s): {file_list}
+Each file is clearly labeled with "FILE N of M" headers in the text below.
+
+# CRITICAL MULTI-FILE STRATEGY
+
+When multiple files are provided, follow these rules:
+
+1. **Identify each document's role.** Look at each file's content and decide:
+   - Is it the ORIGINAL master agreement?
+   - Is it a VARIATION LETTER / AMENDMENT / ADDENDUM that modifies the original?
+   - Is it a RENEWAL replacing an older agreement?
+
+2. **Find dates.** Locate the signing/effective date in EACH file. Variations/amendments will typically be signed AFTER the original.
+
+3. **Latest-by-date wins for conflicts.** If File A (signed 2021) says base commission is 10% and File B (signed 2024) says it's 12%, the FINAL extracted state should reflect 12% — because File B is more recent and supersedes the older clause.
+
+4. **Merge non-conflicting clauses.** If the original specifies Bachelor commission and a variation adds a new "English Pathway" program, BOTH should appear in the final commission_programs array.
+
+5. **Track amendment history in terms_conditions.** Always note: "[Original dated YYYY-MM-DD; amended by variation dated YYYY-MM-DD which changed X to Y]" so Mami can see what was overridden.
+
+6. **For dates fields:**
+   - `duration_start` = effective start of the CURRENT (post-amendment) agreement
+   - `duration_end` = end date as modified by the LATEST amendment (if variations extended it, use the extended date)
+
+# DOCUMENT TEXT
+    {extracted_text}
+
+# FAIL-SAFE CHECK
+If NONE of the documents are partnership/commission agreements (e.g., all are invoices, brochures, transcripts), return EXACTLY:
+{{"is_valid": false, "error_message": "These documents do not appear to be partnership or commission agreements."}}
+
+# IF VALID, RETURN THIS EXACT JSON STRUCTURE
+Every field is required. Use null when a value cannot be found.
+
+{{
+  "is_valid": true,
+  "institution_name": "Full official name as written",
+  "institution_type": "One of: University | College | Vocational | Language School | Other",
+  "country": "Country where the institution is based",
+  "city": "City where the institution is based",
+  "website": "Official institution website URL if mentioned, else null",
+  "agreement_id": "Agreement number or reference ID — use the LATEST/CURRENT one",
+  "agreement_type": "One of: Commission-based | Fixed Fee | Tiered | Hybrid",
+  "base_commission": "Headline commission rate after all amendments, as a short string like '10%' or 'Variable - see programs'",
+  "performance_bonus": "Bonus structure as of latest amendment, e.g. 'Visa assistance $500 one-off', else null",
+  "tiered_levels": "Plain-text summary of FINAL commission tiers (after all amendments)",
+  "commission_programs": [
+    {{
+      "program_name": "Bachelor / Honours / Masters / PhD / Diploma",
+      "part1_pct": 10,
+      "part2_pct": 10,
+      "partial_service_fee": null,
+      "partial_service_currency": "AUD",
+      "notes": "10% 1st Semester + 10% 2nd Semester. [From original agreement dated 2021-11-01]"
+    }}
+  ],
+  "duration_start": "YYYY-MM-DD (effective start of the current agreement)",
+  "duration_end": "YYYY-MM-DD (end date as modified by latest amendment, or null if open-ended)",
+  "terms_conditions": "2-5 sentence summary INCLUDING amendment history. Example: 'Original agreement dated 2021-11-01 for 5 years. Variation letter dated 2024-03-15 added UC English Pathway at 20% and extended termination notice to 90 days.'",
+  "contacts": [
+    {{
+      "name": "Full name",
+      "title": "Job title",
+      "department": "Department or division",
+      "email": "Email address or null",
+      "phone": "Phone number or null"
+    }}
+  ],
+  "amendment_history": [
+    {{
+      "file_name": "Original_ANU_2021.pdf",
+      "document_date": "2021-11-01",
+      "role": "Original Master Agreement",
+      "summary": "Establishes 10% commission on all undergraduate and postgraduate programs"
+    }},
+    {{
+      "file_name": "ANU_Variation_2024.pdf",
+      "document_date": "2024-03-15",
+      "role": "Variation Letter",
+      "summary": "Added UC English Language Pathway at 20% commission. Adjusted MChD to flat AUD 2,500/sem (was percentage). Extended agreement to 2028."
+    }}
+  ]
+}}
+
+# CRITICAL: HOW TO FILL commission_programs
+
+This is the most important field. Break out EACH distinct program type into its own entry, reflecting the FINAL state after all amendments.
+
+For each program, identify:
+- **program_name**: What kind of program. Group similar programs if they share the same rate.
+- **part1_pct**: 1st Semester payment percentage. Otherwise null.
+- **part2_pct**: 2nd Semester payment percentage. If only one payment, leave null.
+- **partial_service_fee**: Flat fee amount if program is paid as flat (not percentage). Otherwise null.
+- **partial_service_currency**: Currency code. AUTO-DETECT using:
+  1. If the document EXPLICITLY states currency next to the amount (e.g. "$2,500 AUD" → "AUD"), use that.
+  2. Otherwise infer from the institution's COUNTRY:
+     - Australia → "AUD"
+     - United Kingdom / UK → "GBP"
+     - United States / USA → "USD"
+     - Canada → "CAD"
+     - New Zealand → "NZD"
+     - Singapore → "SGD"
+     - Switzerland → "CHF"
+     - China → "CNY"
+     - Malaysia → "MYR"
+     - Indonesia → "IDR"
+     - Japan → "JPY"
+     - EU country → "EUR"
+     - Default fallback → "USD"
+- **notes**: Specific conditions PLUS source attribution. Example: "Flat AUD 2,500 per semester. [Originally percentage-based, changed by variation dated 2024-03-15]"
+
+# EXTRACTION RULES
+
+1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01".
+2. **Multi-file conflict resolution**: When two files disagree, the LATER-DATED document wins. Always.
+3. **Multi-file merging**: Programs added by later amendments must appear in the array alongside originals.
+4. **Track provenance**: In each program's `notes` field, note which document defined it (especially if amended).
+5. **Amendment history is mandatory**: Always populate `amendment_history` array — it gives Mami a paper trail of what changed and when.
+6. **Contacts**: Include the latest authorized signatory + operational contacts. If amendments listed new contacts, prefer those. Skip generic info@.
+
+# OUTPUT FORMAT
+Return ONLY the JSON object. No preamble, no markdown fences, no commentary.
+Begin extraction now."""
+
+    # --- 3. Call Gemini ---
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "temperature": 0.1,
+            }
+        )
+
+        raw = (response.text or "").strip()
+        if not raw:
+            raise Exception("Gemini returned an empty response.")
+
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as je:
+            print(f"[extract-commission] JSON parse error: {je}")
+            print(f"[extract-commission] Raw response: {raw[:1000]}")
+            raise Exception(f"AI returned malformed JSON: {raw[:200]}")
+
+        if not data.get("is_valid"):
+            return {
+                "status": "error",
+                "data": data,
+                "message": data.get("error_message", "Documents are not valid agreements.")
+            }
+
+        # Fill defaults
+        defaults = {
+            "institution_name": None,
+            "institution_type": None,
+            "country": None,
+            "city": None,
+            "website": None,
+            "agreement_id": None,
+            "agreement_type": None,
+            "base_commission": None,
+            "performance_bonus": None,
+            "tiered_levels": None,
+            "commission_programs": [],
+            "duration_start": None,
+            "duration_end": None,
+            "terms_conditions": None,
+            "contacts": [],
+            "amendment_history": [],
+        }
+        for k, v in defaults.items():
+            if k not in data:
+                data[k] = v
+
+        # Normalize empty strings to null
+        for k in list(data.keys()):
+            if isinstance(data[k], str) and data[k].strip() in ("", "Unknown", "N/A", "null", "None"):
+                data[k] = None
+
+        # Ensure lists
+        if not isinstance(data.get("contacts"), list):
+            data["contacts"] = []
+        if not isinstance(data.get("commission_programs"), list):
+            data["commission_programs"] = []
+        if not isinstance(data.get("amendment_history"), list):
+            data["amendment_history"] = []
+
+        # Defensive: backfill partial_service_currency for any program missing it
+        country_to_currency = {
+            "australia": "AUD",
+            "united kingdom": "GBP", "uk": "GBP", "england": "GBP", "scotland": "GBP", "wales": "GBP",
+            "united states": "USD", "usa": "USD", "us": "USD", "america": "USD",
+            "canada": "CAD",
+            "new zealand": "NZD",
+            "singapore": "SGD",
+            "switzerland": "CHF",
+            "china": "CNY",
+            "malaysia": "MYR",
+            "indonesia": "IDR",
+            "japan": "JPY",
+            "south korea": "KRW", "korea": "KRW",
+            "india": "INR",
+            "hong kong": "HKD",
+            "uae": "AED", "dubai": "AED",
+            "germany": "EUR", "france": "EUR", "netherlands": "EUR", "spain": "EUR",
+            "italy": "EUR", "ireland": "EUR", "belgium": "EUR", "austria": "EUR", "portugal": "EUR",
+        }
+        inst_country = (data.get("country") or "").strip().lower()
+        default_currency = country_to_currency.get(inst_country, "USD")
+
+        for prog in data.get("commission_programs", []):
+            if isinstance(prog, dict) and not prog.get("partial_service_currency"):
+                prog["partial_service_currency"] = default_currency
+
+        print(f"[extract-commission] Extracted: {data.get('institution_name')} "
+              f"({data.get('country')}) — {len(data.get('contacts', []))} contacts, "
+              f"{len(data.get('commission_programs', []))} programs, "
+              f"{len(data.get('amendment_history', []))} amendment(s) merged from {file_count} file(s)")
+
+        return {"status": "success", "data": data, "files_processed": file_count}
+
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[extract-commission] PDF read failed: {e}")
+        print(f"[extract-commission] AI extraction failed: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
- 
-    # --- 2. Build the upgraded extraction prompt ---
-    prompt = f"""You are a senior contract analyst at Fortrust Education Services.
-
-    You are extracting structured data from a University/College partnership or commission agreement.
-
-    # DOCUMENT TEXT
-    {extracted_text}
-
-    # FAIL-SAFE CHECK
-    If the document is clearly NOT a partnership/commission agreement (e.g., a random PDF, invoice, brochure, transcript), return EXACTLY:
-    {{"is_valid": false, "error_message": "This document does not appear to be a partnership or commission agreement."}}
-
-    # IF VALID, RETURN THIS EXACT JSON STRUCTURE
-    Every field is required. Use null when a value cannot be found.
-
-    {{
-    "is_valid": true,
-    "institution_name": "Full official name as written",
-    "institution_type": "One of: University | College | Vocational | Language School | Other",
-    "country": "Country where the institution is based",
-    "city": "City where the institution is based",
-    "website": "Official institution website URL if mentioned, else null",
-    "agreement_id": "Agreement number or reference ID if visible",
-    "agreement_type": "One of: Commission-based | Fixed Fee | Tiered | Hybrid",
-    "base_commission": "Headline commission rate as a short string like '10%' or 'Variable - see programs'",
-    "performance_bonus": "Bonus structure if any, e.g. 'Visa assistance $500 one-off', else null",
-    "tiered_levels": "Plain-text summary of commission tiers (keep as backup, also fill commission_programs below)",
-    "commission_programs": [
-        {{
-        "program_name": "Bachelor / Honours / Masters / PhD / Diploma",
-        "part1_pct": 10,
-        "part2_pct": 10,
-        "partial_service_fee": null,
-        "partial_service_currency": "AUD",
-        "notes": "10% 1st Semester + 10% 2nd Semester of semester tuition, paid after each Census Date"
-        }},
-        {{
-        "program_name": "Graduate Certificate",
-        "part1_pct": 10,
-        "part2_pct": null,
-        "partial_service_fee": null,
-        "partial_service_currency": "AUD",
-        "notes": "Single payment for 6-month program"
-        }},
-        {{
-        "program_name": "MChD (Medicine)",
-        "part1_pct": null,
-        "part2_pct": null,
-        "partial_service_fee": 2500,
-        "partial_service_currency": "AUD",
-        "notes": "Flat AUD 2,500 per semester (not percentage based)"
-        }}
-    ],
-    "duration_start": "YYYY-MM-DD format",
-    "duration_end": "YYYY-MM-DD format, or null if open-ended",
-    "terms_conditions": "2-4 sentence summary of key terms: invoice deadlines, payment timing, restrictions, exclusivity, territory, termination notice",
-    "contacts": [
-        {{
-        "name": "Full name",
-        "title": "Job title",
-        "department": "Department or division",
-        "email": "Email address or null",
-        "phone": "Phone number or null"
-        }}
-    ]
-    }}
-
-    # CRITICAL: HOW TO FILL commission_programs
-
-    This is the most important field. Read the commission section of the agreement carefully and break out EACH distinct program type into its own entry.
-
-    For each program, identify:
-    - **program_name**: What kind of program (Bachelor, Masters, PhD, Diploma, English Pathway, Foundation, Specific Medical degree, etc.). Group similar programs (e.g. "Bachelor / Masters / PhD" if they share the same rate).
-    - **part1_pct**: If commission is paid in 2 parts after Census Date, the percentage for Part 1 (1st Semester). Otherwise null.
-    - **part2_pct**: The percentage for Part 2 (2nd Semester). If only one payment, leave null.
-    - **partial_service_fee**: If the program pays a FLAT FEE (not percentage), put the amount here. Otherwise null.
-    - **partial_service_currency**: The currency code for the flat fee. AUTO-DETECT using this priority:
-    1. If the document EXPLICITLY states a currency next to the amount (e.g. "$2,500 AUD" → "AUD", "£1,500" → "GBP", "¥10,000" → "CNY", "€2,000" → "EUR"), use that.
-    2. Otherwise infer from the institution's COUNTRY:
-        - Australia → "AUD"
-        - United Kingdom / UK / England / Scotland / Wales → "GBP"
-        - United States / USA → "USD"
-        - Canada → "CAD"
-        - New Zealand → "NZD"
-        - Singapore → "SGD"
-        - Switzerland → "CHF"
-        - China → "CNY"
-        - Malaysia → "MYR"
-        - Indonesia → "IDR"
-        - Japan → "JPY"
-        - South Korea / Korea → "KRW"
-        - India → "INR"
-        - Hong Kong → "HKD"
-        - UAE / Dubai → "AED"
-        - Any EU country (Germany, France, Netherlands, Spain, Italy, Belgium, Austria, Portugal, Ireland, etc.) → "EUR"
-        - Default fallback → "USD"
-    3. ALWAYS set this field even if partial_service_fee is null. Use the country-based currency as the default so the system knows what currency to use later if a flat fee is added.
-
-    - **notes**: Any specific conditions: "paid per semester", "single payment", "6-month program", "after Census Date 1 only", etc.
-
-    WORKED EXAMPLES:
-
-    For an ANU-style Australian agreement (Australia → AUD), the commission_programs array would look like:
-    [
-
-    {{"program_name": "Bachelor / Honours / Masters / PhD / Diploma", "part1_pct": 10, "part2_pct": 10, "partial_service_fee": null, "partial_service_currency": "AUD", "notes": "10% 1st Semester + 10% 2nd Semester of respective semester tuition, paid after each Census Date"}},
-
-    {{"program_name": "Graduate Certificate", "part1_pct": 10, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "AUD", "notes": "Single payment, 6-month program"}},
-
-    {{"program_name": "MChD (Doctor of Medicine and Surgery)", "part1_pct": null, "part2_pct": null, "partial_service_fee": 2500, "partial_service_currency": "AUD", "notes": "Flat AUD 2,500 per semester"}},
-
-    {{"program_name": "UC English Language Pathway", "part1_pct": 20, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "AUD", "notes": "Added via 2024 variation. Single 20% payment."}},
-
-    {{"program_name": "Partial Service Cases", "part1_pct": null, "part2_pct": null, "partial_service_fee": 1000, "partial_service_currency": "AUD", "notes": "AUD 1,000 one-off for partial service (e.g., student already enrolled, agent assists with visa only)"}},
-
-    {{"program_name": "Visa Assistance Only", "part1_pct": null, "part2_pct": null, "partial_service_fee": 500, "partial_service_currency": "AUD", "notes": "AUD 500 one-off when agent only helps with visa, not application"}}
-
-    ]
-
-    For a simple UK agreement (UK → GBP):
-    [
-
-    {{"program_name": "All Programs", "part1_pct": 15, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "GBP", "notes": "Standard 15% on first-year tuition for all programs"}}
-
-    ]
-
-    For a Chinese university with a flat per-student fee (China → CNY):
-    [
-
-    {{"program_name": "All Bachelor Programs", "part1_pct": null, "part2_pct": null, "partial_service_fee": 8000, "partial_service_currency": "CNY", "notes": "Flat CNY 8,000 per enrolled student"}}
-
-    ]
-
-    For a US college with tiered percentages (USA → USD):
-    [
-
-    {{"program_name": "Undergraduate (1-5 students/year)", "part1_pct": 10, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "USD", "notes": "Tier 1: 10% on first-year tuition"}},
-
-    {{"program_name": "Undergraduate (6+ students/year)", "part1_pct": 15, "part2_pct": null, "partial_service_fee": null, "partial_service_currency": "USD", "notes": "Tier 2: 15% bonus rate after 5 enrollments"}}
-
-    ]
-
-    # EXTRACTION RULES
-    1. **Dates**: ALWAYS normalize to YYYY-MM-DD. "01/11/21" → "2021-11-01".
-    2. **Amendments / Variation Letters**: Extract POST-amendment state. Note variations in `terms_conditions` like "[Variation dated YYYY-MM-DD: ...]".
-    3. **Multiple rates**: If different programs have different rates, populate commission_programs FULLY. base_commission can be "Variable - see programs".
-    4. **Contacts**: Include the authorized signatory + operational contacts (admissions email, payments email). Skip generic info@.
-    5. **Currency consistency**: All flat fees within the same agreement should use the same currency unless the document explicitly states otherwise. Mention any non-USD currency context in `terms_conditions`.
-    6. **Always set partial_service_currency**: Even when partial_service_fee is null, set the currency based on the country so future entries inherit the right default.
-
-    # OUTPUT FORMAT
-    Return ONLY the JSON object. No preamble, no markdown fences, no commentary.
-    Begin extraction now."""
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI extraction failed: {str(e)}"
+        )
     # --- 3. Call Gemini ---
     try:
         response = client.models.generate_content(
