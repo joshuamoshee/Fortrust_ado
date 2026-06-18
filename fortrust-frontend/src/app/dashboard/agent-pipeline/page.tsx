@@ -46,6 +46,12 @@ export default function AgentManagement() {
   const [reassignTarget, setReassignTarget] = useState("");
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [isProcessingDelete, setIsProcessingDelete] = useState(false);
+  // === ARCHIVE REASSIGN FLOW ===
+  const [archiveFlowAgent, setArchiveFlowAgent] = useState<any>(null);
+  const [archiveFlowStudents, setArchiveFlowStudents] = useState<any[]>([]);
+  const [archiveFlowMode, setArchiveFlowMode] = useState<"loading" | "needs_reassign" | "confirm">("loading");
+  const [archiveReassignTarget, setArchiveReassignTarget] = useState("");
+  const [isProcessingArchive, setIsProcessingArchive] = useState(false);
 
   // --- HELPER FUNCTIONS ---
   const getAgentStudents = (agentName: string) => allStudents.filter(s => s.assignee === agentName && s.status !== 'COMPLETED' && s.status !== 'REJECTED');
@@ -227,34 +233,95 @@ const handleEditUser = async (e: React.FormEvent) => {
   };
 
   const handleArchiveUser = async (userId: string, agentName: string) => {
-    // 1. Client-side check before hitting API
-    const activeCount = getAgentStudents(agentName).length;
-    if (activeCount > 0) {
-      alert(`Cannot archive ${agentName}: They have ${activeCount} active students. Please reassign their pipeline first.`);
-      return;
+  // Open the new modal flow
+  setArchiveFlowAgent({ id: userId, name: agentName });
+  setArchiveFlowMode("loading");
+  setArchiveFlowStudents([]);
+  setArchiveReassignTarget("");
+
+  try {
+    const token = localStorage.getItem("fortrust_token");
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/agents/${encodeURIComponent(agentName)}/students`,
+      { headers: { "Authorization": `Bearer ${token}` } }
+    );
+    const data = await res.json();
+    
+    if (res.ok && data.status === "success") {
+      const students = data.data || [];
+      setArchiveFlowStudents(students);
+      // If they have NO active students, skip straight to confirm
+      setArchiveFlowMode(students.length === 0 ? "confirm" : "needs_reassign");
+    } else {
+      setNotification({type: 'error', message: "Could not fetch agent's students."});
+      setArchiveFlowAgent(null);
     }
-    if (!window.confirm(`Move ${agentName} to the Archive? They will lose system access.`)) return;
-    try {
-      const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/users/${userId}`, { 
-        method: "PUT", 
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ is_archived: true, is_active: false })
-      });
-      const data = await res.json();
-      
-      if (res.ok) {
-        setNotification({type: 'success', message: `${agentName} moved to Archive.`});
-        fetchData();
-      } else {
-        // Now you will actually see the error if the DB rejects it
-        console.error("Archive Error Details:", data);
-        alert(`Failed to archive: ${data.detail || "Database error."}`);
+  } catch (e) {
+    setNotification({type: 'error', message: "Network error."});
+    setArchiveFlowAgent(null);
+  }
+};
+
+const executeArchiveFlow = async () => {
+  if (!archiveFlowAgent) return;
+  setIsProcessingArchive(true);
+  try {
+    const token = localStorage.getItem("fortrust_token");
+
+    // Step 1: Reassign students if needed
+    if (archiveFlowMode === "needs_reassign") {
+      if (!archiveReassignTarget) {
+        setNotification({type: 'error', message: "Select an agent to reassign to."});
+        setIsProcessingArchive(false);
+        return;
       }
-    } catch (err) { 
-      alert("Network error: Check your connection to the server."); 
+      const reassignRes = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/reassign-students`,
+        {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from_agent: archiveFlowAgent.name,
+            to_agent: archiveReassignTarget,
+            mode: "replace"
+          })
+        }
+      );
+      if (!reassignRes.ok) {
+        const errData = await reassignRes.json().catch(() => ({}));
+        setNotification({type: 'error', message: errData.detail || "Reassignment failed."});
+        setIsProcessingArchive(false);
+        return;
+      }
     }
-  };
+
+    // Step 2: Archive the agent
+    const archiveRes = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/users/${archiveFlowAgent.id}`,
+      {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ is_archived: true, is_active: false })
+      }
+    );
+
+    if (archiveRes.ok) {
+      const msg = archiveFlowMode === "needs_reassign"
+        ? `${archiveFlowAgent.name} archived. ${archiveFlowStudents.length} student(s) reassigned to ${archiveReassignTarget}.`
+        : `${archiveFlowAgent.name} moved to Archive.`;
+      setNotification({type: 'success', message: msg});
+      setArchiveFlowAgent(null);
+      fetchData();
+    } else {
+      const errData = await archiveRes.json().catch(() => ({}));
+      setNotification({type: 'error', message: errData.detail || "Archive failed."});
+    }
+  } catch (e) {
+    setNotification({type: 'error', message: "Network error during archive."});
+  } finally {
+    setIsProcessingArchive(false);
+  }
+};
 
   const handleRestoreUser = async (userId: string, agentName: string) => {
     if (!window.confirm(`Activate ${agentName}?`)) return;
@@ -545,6 +612,198 @@ const handleEditUser = async (e: React.FormEvent) => {
           </div>
         </div>
       )}
+
+    {/* === ARCHIVE WITH REASSIGN MODAL === */}
+    {archiveFlowAgent && (
+      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+
+          {/* Loading state */}
+          {archiveFlowMode === "loading" && (
+            <div className="p-12 flex flex-col items-center">
+              <Loader2 size={32} className="animate-spin text-[#BAD133] mb-4"/>
+              <p className="text-sm font-bold text-slate-500">Checking {archiveFlowAgent.name}'s pipeline...</p>
+            </div>
+          )}
+
+          {/* Needs reassignment */}
+          {archiveFlowMode === "needs_reassign" && (
+            <>
+              <div className="bg-amber-50 p-6 border-b border-amber-100 flex items-center gap-4 shrink-0">
+                <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center shrink-0">
+                  <AlertTriangle size={24}/>
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-xl font-black text-amber-800">Reassign Students First</h2>
+                  <p className="text-sm text-amber-700 mt-1 font-medium">
+                    {archiveFlowAgent.name} has <strong>{archiveFlowStudents.length}</strong> active student{archiveFlowStudents.length === 1 ? '' : 's'}. 
+                    Pick a counsellor to receive them before archiving.
+                  </p>
+                </div>
+                <button onClick={() => setArchiveFlowAgent(null)} className="p-2 text-amber-600 hover:bg-amber-100 rounded-full transition-colors shrink-0">
+                  <X size={20}/>
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 space-y-5">
+                {/* Reassign target picker */}
+                <div className="bg-blue-50 border border-blue-200 p-5 rounded-2xl">
+                  <label className="text-xs font-bold text-blue-700 uppercase tracking-widest mb-2 block">
+                    Reassign All Students To
+                  </label>
+                  <select
+                    value={archiveReassignTarget}
+                    onChange={(e) => setArchiveReassignTarget(e.target.value)}
+                    className="w-full px-4 py-3 border border-blue-300 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 bg-white cursor-pointer transition-all"
+                  >
+                    <option value="" disabled>-- Select a Counsellor / Agent --</option>
+                    {systemUsers
+                      .filter(a => 
+                        a.name !== archiveFlowAgent.name && 
+                        !a.is_archived && 
+                        a.is_active !== false
+                      )
+                      .map(agent => (
+                        <option key={agent.id} value={agent.name}>
+                          {agent.name} — {agent.role} {agent.branch ? `(${agent.branch})` : ''}
+                        </option>
+                      ))
+                    }
+                  </select>
+                  <p className="text-[11px] text-blue-600 mt-2 font-medium">
+                    💡 If a student has multiple assignees, {archiveFlowAgent.name} will be removed and the new agent will be added.
+                  </p>
+                </div>
+
+                {/* Student list preview */}
+                <div>
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Users size={14} className="text-slate-400"/> 
+                    Affected Students ({archiveFlowStudents.length})
+                  </h3>
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 max-h-64 overflow-y-auto custom-scrollbar">
+                    {archiveFlowStudents.map((s, idx) => {
+                      // Normalize assignees array
+                      let theirAssignees: string[] = [];
+                      if (Array.isArray(s.assignees)) theirAssignees = s.assignees;
+                      else if (typeof s.assignees === 'string') {
+                        try { theirAssignees = JSON.parse(s.assignees); } catch { theirAssignees = []; }
+                      }
+                      if (theirAssignees.length === 0 && s.assignee) theirAssignees = [s.assignee];
+
+                      const hasOthers = theirAssignees.filter(a => a !== archiveFlowAgent.name).length > 0;
+
+                      return (
+                        <div key={s.id} className="p-3 flex items-center justify-between bg-white hover:bg-slate-50 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs shrink-0">
+                              {(s.name || "S").charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-sm text-[#282860] truncate">{s.name}</p>
+                              <p className="text-[11px] text-slate-500 truncate">
+                                {s.program_interest || 'No program set'}
+                                {s.country_interest ? ` · ${s.country_interest}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded ${
+                              s.lead_temperature?.toLowerCase().includes('hot') ? 'bg-red-50 text-red-700' :
+                              s.lead_temperature?.toLowerCase().includes('warm') ? 'bg-amber-50 text-amber-700' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>
+                              {s.lead_temperature || 'Cold'}
+                            </span>
+                            {hasOthers && (
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded" title="Has co-assignees who will remain">
+                                +shared
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
+                <button
+                  onClick={() => setArchiveFlowAgent(null)}
+                  type="button"
+                  className="px-5 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executeArchiveFlow}
+                  disabled={!archiveReassignTarget || isProcessingArchive}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2.5 rounded-xl transition-all disabled:opacity-50 shadow-md flex items-center gap-2"
+                >
+                  {isProcessingArchive 
+                    ? <><Loader2 size={16} className="animate-spin"/> Processing...</> 
+                    : <><Archive size={16}/> Reassign & Archive</>
+                  }
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Direct confirm — no students to reassign */}
+          {archiveFlowMode === "confirm" && (
+            <>
+              <div className="bg-slate-100 p-6 border-b border-slate-200 flex items-center gap-4 shrink-0">
+                <div className="w-12 h-12 bg-slate-200 text-slate-600 rounded-full flex items-center justify-center shrink-0">
+                  <Archive size={24}/>
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-xl font-black text-[#282860]">Archive Agent</h2>
+                  <p className="text-sm text-slate-600 mt-1 font-medium">
+                    {archiveFlowAgent.name} has no active students. Safe to archive.
+                  </p>
+                </div>
+                <button onClick={() => setArchiveFlowAgent(null)} className="p-2 text-slate-500 hover:bg-slate-200 rounded-full transition-colors shrink-0">
+                  <X size={20}/>
+                </button>
+              </div>
+
+              <div className="p-8">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-emerald-600 shrink-0 mt-0.5"/>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-800">No pipeline conflicts</p>
+                    <p className="text-xs text-emerald-700 mt-1">
+                      {archiveFlowAgent.name} will be moved to the Archived tab. They can be reactivated anytime.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-5 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
+                <button
+                  onClick={() => setArchiveFlowAgent(null)}
+                  type="button"
+                  className="px-5 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executeArchiveFlow}
+                  disabled={isProcessingArchive}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-6 py-2.5 rounded-xl transition-all disabled:opacity-50 shadow-md flex items-center gap-2"
+                >
+                  {isProcessingArchive 
+                    ? <><Loader2 size={16} className="animate-spin"/> Archiving...</> 
+                    : <><Archive size={16}/> Confirm Archive</>
+                  }
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    )}
 
       {/* --- SLIDE-OUT PANEL (DETAILED DOSSIER) --- */}
       {selectedAgent && (

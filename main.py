@@ -107,7 +107,16 @@ def verify_schema():
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS career_goal TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS campus_env TEXT DEFAULT '';")
             cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS country_interest TEXT DEFAULT '';")
-            
+            cur.execute("ALTER TABLE students ADD COLUMN IF NOT EXISTS assignees JSONB DEFAULT '[]'::jsonb;")
+            # Backfill: copy existing single assignee values into the new JSONB array
+            cur.execute("""
+                UPDATE students 
+                SET assignees = jsonb_build_array(assignee)
+                WHERE (assignees IS NULL OR assignees = '[]'::jsonb)
+                AND assignee IS NOT NULL 
+                AND assignee != '' 
+                AND assignee != 'Unassigned'
+            """)
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -528,6 +537,7 @@ class StudentUpdate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     assignee: Optional[str] = None
+    assignees: Optional[List[str]] = None  # NEW: multi-assignee support
     status: Optional[str] = None
     notes: Optional[str] = None
     program_interest: Optional[str] = None
@@ -1439,6 +1449,13 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
             if new_assignee is not None:
                 updates.append("assignee = %s")
                 params.append(new_assignee)
+                # Also sync the assignees JSONB array so multi-assignee UI stays consistent
+                if new_assignee and new_assignee != "Unassigned":
+                    updates.append("assignees = %s::jsonb")
+                    params.append(json.dumps([new_assignee]))
+                else:
+                    updates.append("assignees = %s::jsonb")
+                    params.append(json.dumps([]))
                 audit_details["new_assignee"] = new_assignee
 
             if req.tuition is not None and req.commission_rate is not None:
@@ -2877,7 +2894,8 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
             cur.execute("""
                 SELECT academic_field, career_goal, campus_env, country_interest,
                        father_name, father_email, father_whatsapp,
-                       mother_name, mother_email, mother_whatsapp
+                       mother_name, mother_email, mother_whatsapp,
+                       assignee, assignees
                 FROM students WHERE id = %s
             """, (student_id,))
             old_profile = cur.fetchone()
@@ -2886,8 +2904,43 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
             data = student.dict(exclude_unset=True)
             if not data:
                 raise HTTPException(status_code=400, detail="No data provided to update.")
-            updates = [f"{k} = %s" for k in data]
-            params = list(data.values()) + [student_id]
+
+            # === MULTI-ASSIGNEE HANDLING ===
+            # If assignees array is provided, sync the legacy assignee field with the FIRST entry
+            # This keeps backward compatibility with everything reading from `assignee`
+            if "assignees" in data:
+                assignees_list = data.get("assignees") or []
+                # Clean: remove empties and dupes while preserving order
+                seen = set()
+                clean_list = []
+                for a in assignees_list:
+                    if a and a.strip() and a not in seen:
+                        seen.add(a)
+                        clean_list.append(a.strip())
+                data["assignees"] = clean_list
+                # Sync primary
+                data["assignee"] = clean_list[0] if clean_list else "Unassigned"
+
+            # If only legacy assignee was provided, mirror it into assignees too
+            elif "assignee" in data and data.get("assignee"):
+                single = data["assignee"]
+                if single and single != "Unassigned":
+                    data["assignees"] = [single]
+                else:
+                    data["assignees"] = []
+
+            # Build the UPDATE statement, casting assignees to jsonb
+            updates = []
+            params = []
+            for k, v in data.items():
+                if k == "assignees":
+                    updates.append(f"{k} = %s::jsonb")
+                    params.append(json.dumps(v))
+                else:
+                    updates.append(f"{k} = %s")
+                    params.append(v)
+            params.append(student_id)
+
             cur.execute(f"UPDATE students SET {', '.join(updates)} WHERE id = %s", tuple(params))
             if cur.rowcount == 0:
                 conn.rollback()
@@ -2899,30 +2952,48 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
             parent_profile_updated = False
             campus_env_changed = False
             country_interest_changed = False
+            assignees_changed = False
             new_campus_env = ""
             new_country_interest = ""
+            new_assignees_pretty = ""
 
             if old_profile:
                 old_acad_field, old_career_goal, old_campus_env, old_country_interest, \
                 old_f_name, old_f_email, old_f_whatsapp, \
-                old_m_name, old_m_email, old_m_whatsapp = old_profile
+                old_m_name, old_m_email, old_m_whatsapp, \
+                old_assignee, old_assignees_raw = old_profile
 
-                # Check if academic profile changed
+                # Normalize old assignees
+                if old_assignees_raw is None:
+                    old_assignees = []
+                elif isinstance(old_assignees_raw, list):
+                    old_assignees = old_assignees_raw
+                elif isinstance(old_assignees_raw, str):
+                    try: old_assignees = json.loads(old_assignees_raw)
+                    except: old_assignees = []
+                else:
+                    old_assignees = []
+
+                # Check assignee change
+                if "assignees" in data:
+                    new_set = set(data["assignees"])
+                    old_set = set(old_assignees)
+                    if new_set != old_set:
+                        assignees_changed = True
+                        new_assignees_pretty = ", ".join(data["assignees"]) if data["assignees"] else "Unassigned"
+
                 if (student.academic_field is not None and student.academic_field != old_acad_field) or \
                    (student.career_goal is not None and student.career_goal != old_career_goal):
                     academic_profile_updated = True
 
-                # Check if campus environment changed
                 if student.campus_env is not None and student.campus_env != old_campus_env:
                     campus_env_changed = True
                     new_campus_env = student.campus_env
 
-                # Check if country interest changed
                 if student.country_interest is not None and student.country_interest != old_country_interest:
                     country_interest_changed = True
                     new_country_interest = student.country_interest
 
-                # Check if parent profile changed
                 if (student.father_name is not None and student.father_name != old_f_name) or \
                    (student.father_email is not None and student.father_email != old_f_email) or \
                    (student.father_whatsapp is not None and student.father_whatsapp != old_f_whatsapp) or \
@@ -2930,6 +3001,13 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
                    (student.mother_email is not None and student.mother_email != old_m_email) or \
                    (student.mother_whatsapp is not None and student.mother_whatsapp != old_m_whatsapp):
                     parent_profile_updated = True
+
+            # System messages
+            if assignees_changed:
+                cur.execute("""
+                    INSERT INTO chat_messages (student_id, sender, message, is_system)
+                    VALUES (%s, 'System', %s, TRUE)
+                """, (student_id, f"{user_name} updated assignees to: {new_assignees_pretty}"))
 
             if academic_profile_updated:
                 cur.execute("""
@@ -2961,6 +3039,7 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
         raise
     except Exception as e:
         conn.rollback()
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         conn.close()
@@ -2985,10 +3064,171 @@ def delete_student(student_id: int):
     finally:
         conn.close()
 
+# =====================================================================
+# --- MULTI-ASSIGNEE: ARCHIVE FLOW HELPERS ---
+# =====================================================================
+@app.get("/api/agents/{agent_name}/students")
+def get_agent_students(agent_name: str, user_data: dict = Depends(verify_token)):
+    """
+    Return all ACTIVE students assigned to this agent (in either single assignee or
+    multi-assignee field). Used by the agent-archive reassign modal.
+    """
+    if user_data.get("role") != "MASTER_ADMIN":
+        raise HTTPException(status_code=403, detail="Master Admin access required.")
 
-# =====================================================================
-# --- 9. NETWORK DIRECTORY & INSTITUTIONS ---
-# =====================================================================
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Match either old single field OR the array contains the name
+            cur.execute("""
+                SELECT id, name, email, status, lead_temperature, assignee, assignees,
+                       program_interest, country_interest
+                FROM students
+                WHERE (
+                    assignee = %s
+                    OR assignees @> %s::jsonb
+                )
+                AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
+                ORDER BY name ASC
+            """, (agent_name, json.dumps([agent_name])))
+            students = cur.fetchall()
+            for s in students:
+                s['id'] = str(s['id'])
+                # Normalize assignees to a real list
+                if s.get('assignees') is None:
+                    s['assignees'] = []
+            return {"status": "success", "data": students, "count": len(students)}
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+class ReassignBulkRequest(BaseModel):
+    from_agent: str
+    to_agent: str
+    student_ids: Optional[List[str]] = None  # If None → reassign ALL students from this agent
+    mode: Optional[str] = "replace"  # "replace" = swap; "remove_only" = just drop from_agent (multi-assignee case)
+
+
+@app.post("/api/admin/reassign-students", dependencies=[Depends(get_current_master_admin)])
+def reassign_students_bulk(req: ReassignBulkRequest, user_data: dict = Depends(verify_token)):
+    """
+    Bulk-reassign students from one agent to another.
+    - mode='replace': remove from_agent from each student's assignees, add to_agent
+    - mode='remove_only': just remove from_agent (used when student already has other assignees)
+    """
+    conn = get_db_connection()
+    actor = user_data.get("name", "Master Admin")
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Get the students to update
+            if req.student_ids:
+                # Use specific list
+                cur.execute("""
+                    SELECT id, name, assignee, assignees FROM students
+                    WHERE id::text = ANY(%s)
+                """, ([str(i) for i in req.student_ids],))
+            else:
+                # Get ALL active students of this agent
+                cur.execute("""
+                    SELECT id, name, assignee, assignees FROM students
+                    WHERE (assignee = %s OR assignees @> %s::jsonb)
+                      AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
+                """, (req.from_agent, json.dumps([req.from_agent])))
+            
+            students = cur.fetchall()
+            updated_count = 0
+
+            for s in students:
+                # Normalize current assignees
+                current_assignees_raw = s.get('assignees')
+                if current_assignees_raw is None:
+                    current_assignees = []
+                elif isinstance(current_assignees_raw, list):
+                    current_assignees = list(current_assignees_raw)
+                elif isinstance(current_assignees_raw, str):
+                    try: current_assignees = json.loads(current_assignees_raw)
+                    except: current_assignees = []
+                else:
+                    current_assignees = []
+
+                # If legacy single field has a value not in the array, include it
+                old_single = s.get('assignee')
+                if old_single and old_single != 'Unassigned' and old_single not in current_assignees:
+                    current_assignees.insert(0, old_single)
+
+                # Remove from_agent
+                new_assignees = [a for a in current_assignees if a != req.from_agent]
+
+                # Replace mode: add to_agent if not present and not "Unassigned"
+                if req.mode == "replace" and req.to_agent and req.to_agent != "Unassigned":
+                    if req.to_agent not in new_assignees:
+                        new_assignees.append(req.to_agent)
+
+                # New primary = first in array
+                new_primary = new_assignees[0] if new_assignees else "Unassigned"
+
+                cur.execute("""
+                    UPDATE students
+                    SET assignee = %s, assignees = %s::jsonb
+                    WHERE id = %s
+                """, (new_primary, json.dumps(new_assignees), s['id']))
+
+                # Timeline note
+                if req.mode == "replace":
+                    note_msg = f"Reassigned by {actor}: {req.from_agent} → {req.to_agent}"
+                else:
+                    note_msg = f"Assignee removed by {actor}: {req.from_agent}"
+
+                timeline_note = {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "author": actor,
+                    "note": note_msg
+                }
+                cur.execute("""
+                    UPDATE students 
+                    SET timeline = COALESCE(timeline, '[]'::jsonb) || %s::jsonb 
+                    WHERE id = %s
+                """, (json.dumps([timeline_note]), s['id']))
+
+                # Chat system message
+                try:
+                    cur.execute("""
+                        INSERT INTO chat_messages (student_id, sender, message, is_system)
+                        VALUES (%s, 'System', %s, TRUE)
+                    """, (s['id'], note_msg))
+                except Exception:
+                    pass
+
+                updated_count += 1
+
+            log_audit_event(
+                conn=conn, action="BULK_REASSIGN", entity="System",
+                entity_id=req.from_agent, changed_by=actor,
+                details={
+                    "from": req.from_agent,
+                    "to": req.to_agent,
+                    "mode": req.mode,
+                    "count": updated_count
+                }
+            )
+            conn.commit()
+
+            return {
+                "status": "success",
+                "message": f"Reassigned {updated_count} student(s) from {req.from_agent} to {req.to_agent}.",
+                "updated_count": updated_count
+            }
+    except Exception as e:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 # =====================================================================
 # --- 9. NETWORK DIRECTORY & INSTITUTIONS ---
 # =====================================================================

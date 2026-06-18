@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import AssigneePicker from "@/components/AssigneePicker";
 import { 
   Search, Filter, GraduationCap, Building, MapPin, 
   FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
@@ -255,7 +256,11 @@ export default function GlobalStudentDatabase() {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newStudent, assignee: newStudent.assignee || "Unassigned" })
+        body: JSON.stringify({ 
+          ...newStudent, 
+          assignee: newStudent.assignee ? newStudent.assignee.split("||")[0] : "Unassigned",
+          assignees: newStudent.assignee ? newStudent.assignee.split("||").filter(Boolean) : []
+          })
       });
       const data = await res.json();
       if (res.ok) {
@@ -274,25 +279,32 @@ export default function GlobalStudentDatabase() {
     }
   };
 
-  const handleInlineReassign = async (studentId: string, newAgentName: string) => {
-    setEditingAgentForId(null);
-    try {
-      const token = localStorage.getItem("fortrust_token");
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentId}`, {
-        method: "PUT",
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ assignee: newAgentName }) 
-      });
-      if (res.ok) {
-        setNotification({type: 'success', message: `Student reassigned to ${newAgentName}.`});
-        fetchData(); 
-      } else {
-        setNotification({type: 'error', message: "Failed to reassign student."});
-      }
-    } catch (error) {
-      setNotification({type: 'error', message: "Network error."});
+  const handleInlineReassign = async (studentId: string, newAssignees: string[]) => {
+  try {
+    const token = localStorage.getItem("fortrust_token");
+    // Use the /students endpoint which now handles `assignees` array
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${studentId}`, {
+      method: "PUT",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ assignees: newAssignees }) 
+    });
+    if (res.ok) {
+      const primary = newAssignees[0] || "Unassigned";
+      const others = newAssignees.length - 1;
+      const message = newAssignees.length === 0
+        ? "Student unassigned."
+        : others > 0
+        ? `${primary} (+${others} more) now assigned.`
+        : `${primary} now assigned.`;
+      setNotification({type: 'success', message});
+      fetchData(); 
+    } else {
+      setNotification({type: 'error', message: "Failed to update assignees."});
     }
-  };
+  } catch (error) {
+    setNotification({type: 'error', message: "Network error."});
+  }
+};
 
   const handleArchiveSubmit = async () => {
     if (!studentToArchive || !archiveReason) return;
@@ -800,39 +812,23 @@ export default function GlobalStudentDatabase() {
                     <td className="px-6 py-4 font-bold text-slate-600">
                       {student.budget ? `$${student.budget}` : "TBD"}
                     </td>
-                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                      {/* INLINE AGENT REASSIGNMENT */}
-                      {editingAgentForId === student.id ? (
-                        <select 
-                          className="px-3 py-1.5 border border-blue-400 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200"
-                          autoFocus
-                          onChange={(e) => handleInlineReassign(student.id, e.target.value)}
-                          onBlur={() => setEditingAgentForId(null)}
-                          defaultValue={student.assignee || ""}
-                        >
-                          <option value="" disabled>Select Agent...</option>
-                          {agents.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
-                        </select>
-                      ) : (
-                        <div 
-                          className="flex items-center gap-2 cursor-pointer hover:bg-blue-50 p-1.5 rounded-lg transition-colors border border-transparent hover:border-blue-100"
-                          onClick={() => setEditingAgentForId(student.id)}
-                          title="Click to reassign"
-                        >
-                          {!student.assignee || student.assignee === "Unassigned" ? (
-                            <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-lg text-xs font-bold">
-                              <UserMinus size={14}/> Unassigned
-                            </span>
-                          ) : (
-                            <>
-                              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-[10px]">
-                                {student.assignee.charAt(0).toUpperCase()}
-                              </div>
-                              <span className="font-bold text-slate-700 text-sm hover:text-blue-600 underline decoration-dashed decoration-slate-300 underline-offset-4">{student.assignee}</span>
-                            </>
-                          )}
-                        </div>
-                      )}
+                    <td className="px-6 py-4 min-w-[280px]" onClick={(e) => e.stopPropagation()}>
+                      <AssigneePicker
+                        agents={agents}
+                        value={(() => {
+                          // Normalize: prefer `assignees` array, fall back to single `assignee`
+                          let arr = student.assignees;
+                          if (typeof arr === "string") {
+                            try { arr = JSON.parse(arr); } catch { arr = []; }
+                          }
+                          if (Array.isArray(arr) && arr.length > 0) return arr.filter(Boolean);
+                          if (student.assignee && student.assignee !== "Unassigned") return [student.assignee];
+                          return [];
+                        })()}
+                        onChange={(newAssignees) => handleInlineReassign(student.id, newAssignees)}
+                        placeholder="Unassigned"
+                        compact
+                      />
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
@@ -885,13 +881,16 @@ export default function GlobalStudentDatabase() {
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4 pt-2">
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 flex items-center gap-2"><MapPin size={14} className="text-emerald-500"/> Pipeline Routing</h3>
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Assign To Agent</label>
-                      <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all cursor-pointer font-bold text-[#282860]" value={newStudent.assignee} onChange={e => setNewStudent({...newStudent, assignee: e.target.value})}>
-                        <option value="">Unassigned (Open Pool)</option>
-                        {agents.map(a => <option key={a.id} value={a.name}>{a.name} ({a.branch})</option>)}
-                      </select>
-                    </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Assign To Agent(s)</label>
+                    <AssigneePicker
+                        agents={agents}
+                        value={newStudent.assignee ? newStudent.assignee.split("||").filter(Boolean) : []}
+                        onChange={(newAssignees) => setNewStudent({...newStudent, assignee: newAssignees.join("||")})}
+                        placeholder="Leave empty for Open Pool"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1.5">First selected agent becomes the primary. Add more for shared accounts.</p>
+                </div>
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><DollarSign size={12}/> Budget</label>
                       <input type="text" placeholder="e.g. 50,000" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.budget} onChange={e => setNewStudent({...newStudent, budget: e.target.value})} />
