@@ -2376,25 +2376,26 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
 
 @app.get("/api/pipeline/{case_id}/ai-report/pdf")
 def download_ai_report_pdf(case_id: str, user_data: dict = Depends(verify_token)):
-    """Sprint A.1: Generate a Fortrust-branded PDF of the saved AI report."""
+    """Generate a Fortrust-branded PDF — premium template with section title pages."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
+        KeepTogether, Flowable
     )
-    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER
     from fastapi.responses import StreamingResponse
     import io, os, re
     from datetime import datetime
- 
+
     conn = None
     try:
         conn = get_db_connection()
         if not check_student_access(conn, case_id, user_data):
             raise HTTPException(status_code=403, detail="Not authorized.")
- 
+
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, name, email, program_interest, country_interest,
@@ -2402,7 +2403,7 @@ def download_ai_report_pdf(case_id: str, user_data: dict = Depends(verify_token)
                 FROM students WHERE id = %s
             """, (case_id,))
             student = cur.fetchone()
- 
+
         if not student:
             raise HTTPException(status_code=404, detail="Student not found.")
         if not student.get("ai_report"):
@@ -2410,226 +2411,518 @@ def download_ai_report_pdf(case_id: str, user_data: dict = Depends(verify_token)
                 status_code=404,
                 detail="No AI report generated yet. Click 'Run AI Analysis' first."
             )
- 
-        # Fortrust brand palette
+
+        # --- Fortrust brand palette ---
         NAVY = colors.HexColor("#282860")
         DARK_NAVY = colors.HexColor("#1b1b42")
         LIME = colors.HexColor("#BAD133")
+        SLATE_700 = colors.HexColor("#334155")
         SLATE_500 = colors.HexColor("#64748b")
         SLATE_400 = colors.HexColor("#94a3b8")
         SLATE_100 = colors.HexColor("#f1f5f9")
+        SLATE_50 = colors.HexColor("#f8fafc")
         SLATE_BORDER = colors.HexColor("#e2e8f0")
         BODY_DARK = colors.HexColor("#1e293b")
- 
-        # Locate logo - try a few common paths
+
+        # --- Locate logo ---
         logo_path = None
         here = os.path.dirname(os.path.abspath(__file__))
         for candidate in [
-            "fortrust_logo.png",
-            "fortrust_logo.jpg",
-            "assets/fortrust_logo.png",
-            "static/fortrust_logo.png",
+            "fortrust_logo.png", "fortrust_logo.jpg",
+            "assets/fortrust_logo.png", "static/fortrust_logo.png",
         ]:
             full = os.path.join(here, candidate)
             if os.path.exists(full):
                 logo_path = full
                 break
- 
+
+        # =====================================================
+        # PAGE DECORATIONS — header + footer on EVERY page
+        # =====================================================
         def add_page_decorations(canv, doc):
-            """Header + footer on every page."""
             canv.saveState()
             page_w, page_h = A4
- 
-            # Logo (top-left)
+
+            # Logo top-left
             if logo_path:
                 try:
                     canv.drawImage(
                         logo_path,
-                        0.75 * inch, page_h - 1.0 * inch,
-                        width=1.7 * inch, height=0.6 * inch,
+                        0.6 * inch, page_h - 0.95 * inch,
+                        width=1.5 * inch, height=0.55 * inch,
                         preserveAspectRatio=True, mask='auto'
                     )
                 except Exception as logo_err:
-                    print(f"[pdf] could not draw logo: {logo_err}")
- 
-            # Right-side title in header
-            canv.setFont("Helvetica-Bold", 12)
+                    print(f"[pdf] logo draw failed: {logo_err}")
+
+            # Title top-right
+            canv.setFont("Helvetica-Bold", 13)
             canv.setFillColor(NAVY)
             canv.drawRightString(
-                page_w - 0.75 * inch,
+                page_w - 0.6 * inch,
                 page_h - 0.65 * inch,
-                "STRATEGIC ASSESSMENT REPORT"
+                "FORTRUST ASSESSMENT REPORT"
             )
-            canv.setFont("Helvetica", 8)
-            canv.setFillColor(SLATE_500)
-            canv.drawRightString(
-                page_w - 0.75 * inch,
-                page_h - 0.82 * inch,
-                "Fortrust Education Services"
-            )
- 
-            # Lime accent line under header
-            canv.setStrokeColor(LIME)
-            canv.setLineWidth(2)
-            canv.line(
-                0.75 * inch, page_h - 1.1 * inch,
-                page_w - 0.75 * inch, page_h - 1.1 * inch
-            )
- 
-            # Footer
+
+            # Footer page number
             canv.setFont("Helvetica", 8)
             canv.setFillColor(SLATE_400)
-            canv.drawString(0.75 * inch, 0.5 * inch, "Confidential - For Internal Use Only")
             canv.drawRightString(
-                page_w - 0.75 * inch, 0.5 * inch,
-                f"Page {doc.page}"
+                page_w - 0.6 * inch, 0.4 * inch,
+                f"{doc.page}"
             )
- 
+
             canv.restoreState()
- 
-        # Build the PDF in memory
+
+        # =====================================================
+        # DOCUMENT SETUP
+        # =====================================================
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
             buffer, pagesize=A4,
-            leftMargin=0.75 * inch, rightMargin=0.75 * inch,
-            topMargin=1.35 * inch, bottomMargin=0.75 * inch,
+            leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+            topMargin=1.1 * inch, bottomMargin=0.6 * inch,
             title=f"Fortrust Assessment - {student['name']}",
             author="Fortrust Education Services"
         )
- 
+
         styles = getSampleStyleSheet()
-        h1_style = ParagraphStyle(
-            'H1Style', parent=styles['Heading1'],
-            fontSize=15, textColor=NAVY, spaceAfter=8, spaceBefore=18,
-            fontName='Helvetica-Bold'
+
+        # --- Custom paragraph styles ---
+        section_title_style = ParagraphStyle(
+            'SectionTitle', parent=styles['Normal'],
+            fontSize=14, textColor=NAVY, fontName='Helvetica-Bold',
+            spaceAfter=8, spaceBefore=14, leading=18,
+            alignment=TA_LEFT
         )
-        h2_style = ParagraphStyle(
-            'H2Style', parent=styles['Heading2'],
-            fontSize=12, textColor=DARK_NAVY, spaceAfter=6, spaceBefore=12,
-            fontName='Helvetica-Bold'
+        subsection_style = ParagraphStyle(
+            'SubSection', parent=styles['Normal'],
+            fontSize=11, textColor=DARK_NAVY, fontName='Helvetica-Bold',
+            spaceAfter=6, spaceBefore=10, leading=14,
+            alignment=TA_LEFT
         )
         body_style = ParagraphStyle(
-            'BodyStyle', parent=styles['Normal'],
+            'Body', parent=styles['Normal'],
             fontSize=10, textColor=BODY_DARK,
-            spaceAfter=6, leading=15, fontName='Helvetica',
-            alignment=TA_JUSTIFY
+            spaceAfter=6, leading=14, fontName='Helvetica',
+            alignment=TA_LEFT  # NOT justified — avoids ugly word gaps
         )
         bullet_style = ParagraphStyle(
-            'BulletStyle', parent=body_style,
-            leftIndent=20, bulletIndent=8, spaceAfter=4, alignment=0
+            'Bullet', parent=body_style,
+            leftIndent=22, bulletIndent=10, spaceAfter=4, leading=14
         )
- 
+        table_cell = ParagraphStyle(
+            'TableCell', parent=styles['Normal'],
+            fontSize=9, textColor=BODY_DARK,
+            leading=12, fontName='Helvetica', alignment=TA_LEFT
+        )
+        table_cell_bold = ParagraphStyle(
+            'TableCellBold', parent=styles['Normal'],
+            fontSize=9, textColor=NAVY,
+            leading=12, fontName='Helvetica-Bold', alignment=TA_LEFT
+        )
+        table_header_white = ParagraphStyle(
+            'TableHdrWhite', parent=styles['Normal'],
+            fontSize=9, textColor=colors.white,
+            leading=12, fontName='Helvetica-Bold', alignment=TA_LEFT
+        )
+
+        # Title page styles
+        title_page_label = ParagraphStyle(
+            'TPLabel', parent=styles['Normal'],
+            fontSize=10, textColor=SLATE_500, fontName='Helvetica',
+            alignment=TA_CENTER, spaceAfter=6
+        )
+        title_page_heading = ParagraphStyle(
+            'TPHeading', parent=styles['Normal'],
+            fontSize=28, textColor=NAVY, fontName='Helvetica-Bold',
+            alignment=TA_CENTER, leading=34, spaceAfter=12
+        )
+
+        # =====================================================
+        # MARKDOWN PARSING HELPERS
+        # =====================================================
+        def process_inline(text):
+            """Convert **bold**, *italic*, `code` and escape XML."""
+            text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            text = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', text)
+            text = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<i>\1</i>', text)
+            text = re.sub(r'`([^`]+)`', r'<font face="Courier" color="#1b1b42">\1</font>', text)
+            return text
+
+        def parse_table_row(line):
+            line = line.strip()
+            if line.startswith('|'):
+                line = line[1:]
+            if line.endswith('|'):
+                line = line[:-1]
+            return [c.strip() for c in line.split('|')]
+
+        def is_table_separator(line):
+            stripped = line.strip()
+            if not stripped or '|' not in stripped:
+                return False
+            content = stripped.replace('|', '').replace(' ', '')
+            if not content:
+                return False
+            return all(c in '-:' for c in content)
+
+        def is_table_row(line):
+            stripped = line.strip()
+            return stripped.count('|') >= 2 and not is_table_separator(stripped)
+
+        def build_table(header_cells, body_rows, col_count):
+            """Branded table — navy header, alternating slate-50 row bg, slate borders."""
+            if col_count == 0:
+                return None
+
+            def normalize(row):
+                return (row + [''] * col_count)[:col_count]
+
+            data = []
+            has_header = len(header_cells) > 0 and any(c.strip() for c in header_cells)
+
+            if has_header:
+                data.append([
+                    Paragraph(process_inline(c) or '&nbsp;', table_header_white)
+                    for c in normalize(header_cells)
+                ])
+
+            for row_idx, row in enumerate(body_rows):
+                # First column: bold navy (label column like reference)
+                cells = []
+                for col_idx, c in enumerate(normalize(row)):
+                    if col_idx == 0 and has_header:
+                        cells.append(Paragraph(process_inline(c) or '&nbsp;', table_cell_bold))
+                    else:
+                        cells.append(Paragraph(process_inline(c) or '&nbsp;', table_cell))
+                data.append(cells)
+
+            if not data:
+                return None
+
+            # Distribute widths: first col narrower if header, otherwise equal
+            available_width = 7.2 * inch
+            if has_header and col_count >= 3:
+                first_w = available_width * 0.18
+                remaining = (available_width - first_w) / (col_count - 1)
+                col_widths = [first_w] + [remaining] * (col_count - 1)
+            else:
+                col_widths = [available_width / col_count] * col_count
+
+            tbl = Table(data, colWidths=col_widths, repeatRows=1 if has_header else 0)
+
+            style_cmds = [
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, SLATE_BORDER),
+            ]
+
+            if has_header:
+                style_cmds.extend([
+                    ('BACKGROUND', (0, 0), (-1, 0), NAVY),
+                    ('TOPPADDING', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+                ])
+                # Zebra striping body rows
+                for i in range(1, len(data)):
+                    if i % 2 == 0:
+                        style_cmds.append(('BACKGROUND', (0, i), (-1, i), SLATE_50))
+            else:
+                for i in range(len(data)):
+                    if i % 2 == 1:
+                        style_cmds.append(('BACKGROUND', (0, i), (-1, i), SLATE_50))
+
+            tbl.setStyle(TableStyle(style_cmds))
+            return tbl
+
+        # =====================================================
+        # SECTION TITLE PAGE BUILDER
+        # Shows: Name + (optional Country) card, big section heading, lime underline.
+        # =====================================================
+        def make_section_title_page(section_title, show_country=False):
+            """Returns a list of flowables for a section divider page."""
+            elements = [Spacer(1, 1.2 * inch)]
+
+            # Student card (matches the reference's "NAME / REPORT SOURCE" card)
+            student_name = (student.get('name') or 'Student').upper()
+            label_left_col = "NAME"
+            value_left = student_name
+
+            if show_country:
+                country_val = (student.get('country_interest') or 'Global').upper()
+                info_data = [
+                    [label_left_col, value_left],
+                    ["CHOICE of COUNTRY", country_val],
+                ]
+            else:
+                info_data = [
+                    [label_left_col, value_left],
+                    ["REPORT SOURCE", "FORTRUST AI STRATEGIC ENGINE"],
+                ]
+
+            info_table = Table(info_data, colWidths=[1.9 * inch, 5.3 * inch])
+            info_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), SLATE_100),
+                ('TEXTCOLOR', (0, 0), (0, -1), NAVY),
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('TEXTCOLOR', (1, 0), (1, -1), BODY_DARK),
+                ('LEFTPADDING', (0, 0), (-1, -1), 14),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 14),
+                ('TOPPADDING', (0, 0), (-1, -1), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                ('GRID', (0, 0), (-1, -1), 0.5, SLATE_BORDER),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ]))
+            elements.append(info_table)
+
+            elements.append(Spacer(1, 1.5 * inch))
+
+            # Big centered title with lime underline
+            elements.append(Paragraph(section_title.upper(), title_page_heading))
+
+            # Lime accent underline drawn as a colored table-line
+            accent_data = [['']]
+            accent = Table(accent_data, colWidths=[3.0 * inch], rowHeights=[6])
+            accent.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, -1), LIME),
+                ('LINEABOVE', (0, 0), (-1, 0), 0, LIME),
+                ('LINEBELOW', (0, 0), (-1, 0), 0, LIME),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ]))
+
+            # Wrap accent in centering table
+            centering = Table([[accent]], colWidths=[7.2 * inch])
+            centering.setStyle(TableStyle([
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            elements.append(centering)
+
+            elements.append(PageBreak())
+            return elements
+
+        # =====================================================
+        # SECTION SPLITTER
+        # Detect "## Major Section" headings and break the report into chunks.
+        # Insert title pages before the BIG four.
+        # =====================================================
+        BIG_SECTIONS_KEYWORDS = {
+            "top 3 recommended": ("Top 3 Recommended Majors", False),
+            "recommended university majors": ("Top 3 Recommended Majors", False),
+            "5-year development": ("5 Year Development Map", False),
+            "5 year development": ("5 Year Development Map", False),
+            "development roadmap": ("5 Year Development Map", False),
+            "city & university": ("City & University Matching", True),
+            "city and university": ("City & University Matching", True),
+            "university matching": ("City & University Matching", True),
+            "budget-optimized": ("The Budget-Optimized Strategy", True),
+            "budget optimized": ("The Budget-Optimized Strategy", True),
+        }
+
+        def matches_big_section(heading_text):
+            """Return (title, show_country) if heading is a BIG section, else None."""
+            lower = heading_text.lower()
+            for kw, info in BIG_SECTIONS_KEYWORDS.items():
+                if kw in lower:
+                    return info
+            return None
+
+        # =====================================================
+        # MAIN MARKDOWN RENDERER
+        # =====================================================
+        def render_markdown(text):
+            elements = []
+            lines = (text or "").split("\n")
+            current_bullets = []
+            i = 0
+            seen_big_sections = set()  # don't repeat the same title page
+
+            def flush_bullets():
+                if current_bullets:
+                    for b in current_bullets:
+                        elements.append(Paragraph(
+                            f'<font color="#282860">●</font>&nbsp;&nbsp;{b}',
+                            bullet_style
+                        ))
+                    current_bullets.clear()
+
+            while i < len(lines):
+                line = lines[i].rstrip()
+                stripped = line.strip()
+
+                # === TABLE DETECTION ===
+                if is_table_row(line):
+                    if i + 1 < len(lines) and is_table_separator(lines[i + 1]):
+                        # Standard table with header
+                        header_cells = parse_table_row(line)
+                        col_count = len(header_cells)
+                        i += 2
+                        body_rows = []
+                        while i < len(lines) and is_table_row(lines[i]):
+                            body_rows.append(parse_table_row(lines[i]))
+                            i += 1
+                        flush_bullets()
+                        tbl = build_table(header_cells, body_rows, col_count)
+                        if tbl:
+                            elements.append(Spacer(1, 6))
+                            elements.append(tbl)
+                            elements.append(Spacer(1, 10))
+                        continue
+                    else:
+                        # Headerless table — only treat as table if 2+ consecutive rows
+                        peek_count = 0
+                        j = i
+                        while j < len(lines) and is_table_row(lines[j]):
+                            peek_count += 1
+                            j += 1
+                        if peek_count >= 2:
+                            first_row = parse_table_row(line)
+                            col_count = len(first_row)
+                            body_rows = [first_row]
+                            i += 1
+                            while i < len(lines) and is_table_row(lines[i]):
+                                body_rows.append(parse_table_row(lines[i]))
+                                i += 1
+                            flush_bullets()
+                            tbl = build_table([], body_rows, col_count)
+                            if tbl:
+                                elements.append(Spacer(1, 6))
+                                elements.append(tbl)
+                                elements.append(Spacer(1, 10))
+                            continue
+
+                # === BLANK LINE ===
+                if not stripped:
+                    flush_bullets()
+                    elements.append(Spacer(1, 4))
+                    i += 1
+                    continue
+
+                # === HEADINGS — H2 (##) ===
+                if line.startswith("## "):
+                    flush_bullets()
+                    heading_text = line[3:].strip()
+
+                    # Is this a BIG section? Insert a title page first.
+                    big = matches_big_section(heading_text)
+                    if big and big[0] not in seen_big_sections:
+                        seen_big_sections.add(big[0])
+                        title_text, show_country = big
+                        # Add page break before, then the title page block
+                        elements.append(PageBreak())
+                        elements.extend(make_section_title_page(title_text, show_country))
+                        # Skip the H2 itself — the title page already covered it
+                        i += 1
+                        continue
+                    else:
+                        elements.append(Paragraph(process_inline(heading_text), section_title_style))
+                        i += 1
+                        continue
+
+                # === HEADINGS — H3 (###) ===
+                if line.startswith("### "):
+                    flush_bullets()
+                    elements.append(Paragraph(process_inline(line[4:]), subsection_style))
+                    i += 1
+                    continue
+
+                # === H1 (#) ===
+                if line.startswith("# "):
+                    flush_bullets()
+                    elements.append(Paragraph(process_inline(line[2:]), section_title_style))
+                    i += 1
+                    continue
+
+                # === Bold-only line as heading ===
+                if re.match(r'^\*\*[^*]+\*\*\s*$', line):
+                    flush_bullets()
+                    elements.append(Paragraph(line.strip("* ").strip(), subsection_style))
+                    i += 1
+                    continue
+
+                # === BULLETS ===
+                if stripped.startswith(("- ", "* ", "• ")):
+                    current_bullets.append(process_inline(stripped[2:].strip()))
+                    i += 1
+                    continue
+
+                # === NUMBERED LISTS ===
+                num_match = re.match(r'^\s*(\d+)\.\s+(.+)', line)
+                if num_match:
+                    flush_bullets()
+                    elements.append(Paragraph(
+                        f'<font color="#282860"><b>{num_match.group(1)}.</b></font>&nbsp;&nbsp;{process_inline(num_match.group(2))}',
+                        bullet_style
+                    ))
+                    i += 1
+                    continue
+
+                # === DEFAULT PARAGRAPH ===
+                flush_bullets()
+                elements.append(Paragraph(process_inline(line), body_style))
+                i += 1
+
+            flush_bullets()
+            return elements
+
+        # =====================================================
+        # ASSEMBLE THE STORY
+        # =====================================================
         story = []
- 
-        # Student info card
+
+        # --- COVER / EXECUTIVE INFO PAGE ---
+        story.append(Spacer(1, 0.2 * inch))
+
         gen_dt = student.get('ai_report_generated_at')
         gen_str = gen_dt.strftime('%d %B %Y, %H:%M') if gen_dt else datetime.now().strftime('%d %B %Y, %H:%M')
- 
-        info_data = [
-            ["NAME", student['name'] or "Unknown Student"],
-            ["REPORT SOURCE", "Fortrust AI Strategic Engine"],
+
+        cover_data = [
+            ["NAME", (student.get('name') or 'Unknown Student').upper()],
+            ["REPORT SOURCE", "FORTRUST AI STRATEGIC ENGINE"],
             ["GENERATED", gen_str],
             ["PROGRAM INTEREST", student.get('program_interest') or "Not specified"],
-            ["TARGET DESTINATION", student.get('country_interest') or "Global (AI Recommended)"],
+            ["CHOICE OF COUNTRY", (student.get('country_interest') or "Global (AI Recommended)").upper()],
         ]
-        info_table = Table(info_data, colWidths=[1.9 * inch, 4.3 * inch])
-        info_table.setStyle(TableStyle([
+        cover_table = Table(cover_data, colWidths=[1.9 * inch, 5.3 * inch])
+        cover_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), SLATE_100),
             ('TEXTCOLOR', (0, 0), (0, -1), NAVY),
             ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
             ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 0), (-1, -1), 9),
             ('TEXTCOLOR', (1, 0), (1, -1), BODY_DARK),
-            ('LEFTPADDING', (0, 0), (-1, -1), 12),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
-            ('TOPPADDING', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 14),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 14),
+            ('TOPPADDING', (0, 0), (-1, -1), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 11),
             ('GRID', (0, 0), (-1, -1), 0.5, SLATE_BORDER),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]))
-        story.append(info_table)
-        story.append(Spacer(1, 0.25 * inch))
- 
-        # --- Render the AI report text (lightweight markdown parser) ---
-        def process_inline(text):
-            """Convert **bold**, *italic*, `code` to reportlab markup. Escapes XML."""
-            text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            text = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', text)
-            text = re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)', r'<i>\1</i>', text)
-            text = re.sub(r'`([^`]+)`', r'<font face="Courier" color="#1b1b42">\1</font>', text)
-            return text
- 
-        def render_markdown(text):
-            elements = []
-            lines = (text or "").split("\n")
-            current_bullets = []
- 
-            def flush_bullets():
-                if current_bullets:
-                    for b in current_bullets:
-                        elements.append(Paragraph(f"&bull;&nbsp;&nbsp;{b}", bullet_style))
-                    current_bullets.clear()
- 
-            for raw in lines:
-                line = raw.rstrip()
-                if not line.strip():
-                    flush_bullets()
-                    elements.append(Spacer(1, 4))
-                    continue
- 
-                # Headings
-                if line.startswith("### "):
-                    flush_bullets()
-                    elements.append(Paragraph(process_inline(line[4:]), h2_style))
-                    continue
-                if line.startswith("## "):
-                    flush_bullets()
-                    elements.append(Paragraph(process_inline(line[3:]), h1_style))
-                    continue
-                if line.startswith("# "):
-                    flush_bullets()
-                    elements.append(Paragraph(process_inline(line[2:]), h1_style))
-                    continue
-                if re.match(r'^\*\*[^*]+\*\*\s*$', line):
-                    flush_bullets()
-                    heading_text = line.strip("* ").strip()
-                    elements.append(Paragraph(heading_text, h2_style))
-                    continue
- 
-                # Bullets
-                stripped = line.lstrip()
-                if stripped.startswith(("- ", "* ", "• ")):
-                    current_bullets.append(process_inline(stripped[2:].strip()))
-                    continue
- 
-                # Numbered list
-                num_match = re.match(r'^\s*(\d+)\.\s+(.+)', line)
-                if num_match:
-                    flush_bullets()
-                    elements.append(Paragraph(
-                        f"{num_match.group(1)}.&nbsp;&nbsp;{process_inline(num_match.group(2))}",
-                        bullet_style
-                    ))
-                    continue
- 
-                # Default paragraph
-                flush_bullets()
-                elements.append(Paragraph(process_inline(line), body_style))
- 
-            flush_bullets()
-            return elements
- 
+        story.append(cover_table)
+        story.append(Spacer(1, 0.3 * inch))
+
+        # --- RENDER THE REPORT BODY ---
         story.extend(render_markdown(student['ai_report']))
- 
-        # Build PDF with header/footer on every page
+
+        # =====================================================
+        # BUILD PDF
+        # =====================================================
         doc.build(story, onFirstPage=add_page_decorations, onLaterPages=add_page_decorations)
         buffer.seek(0)
- 
-        # Sanitize filename
-        safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', student['name'] or 'student')
+
+        safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', student.get('name') or 'student')
         filename = f"Fortrust_Report_{safe_name}.pdf"
- 
-        # Audit log
+
         try:
             log_audit_event(
                 conn=conn, action="DOWNLOAD_AI_PDF", entity="Student",
@@ -2639,15 +2932,13 @@ def download_ai_report_pdf(case_id: str, user_data: dict = Depends(verify_token)
             conn.commit()
         except Exception:
             pass
- 
+
         return StreamingResponse(
             buffer,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"'
-            }
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
         )
- 
+
     except HTTPException:
         raise
     except Exception as e:
