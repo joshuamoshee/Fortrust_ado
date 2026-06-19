@@ -32,16 +32,16 @@ const STANDARD_CATEGORIES = [
 
 // Academic fields for the "Field of Interest" selector - 3rd AI variable
 const ACADEMIC_FIELDS = [
-  { label: "Business & Management", emoji: "\uD83D\uDCBC" },
-  { label: "Economics & Finance", emoji: "\uD83D\uDCC8" },
-  { label: "Marketing & Communication", emoji: "\uD83D\uDCE3" },
-  { label: "Computer Science & IT", emoji: "\uD83D\uDCBB" },
-  { label: "Engineering", emoji: "\u2699\uFE0F" },
-  { label: "Medicine & Health Sciences", emoji: "\uD83E\uDE7A" },
-  { label: "Sciences (Bio/Chem/Physics)", emoji: "\uD83D\uDD2C" },
-  { label: "Design & Creative Arts", emoji: "\uD83C\uDFA8" },
-  { label: "Hospitality & Tourism", emoji: "\uD83C\uDFE8" },
-  { label: "Other", emoji: "\u2728" },
+  "Business & Management",
+  "Computer Science & IT",
+  "Design & Creative Arts",
+  "Economics & Finance",
+  "Engineering",
+  "Hospitality & Tourism",
+  "Marketing & Communication",
+  "Medicine & Health Sciences",
+  "Sciences (Bio/Chem/Physics)",
+  "Other", // Always last
 ];
 
 const CAREER_GOALS = [
@@ -77,6 +77,44 @@ const FORTRUST_COUNTRIES = [
   { value: "usa", label: "🇺🇸 United States" },
   { value: "other", label: "🌍 Other" },
 ];
+
+const BUDGET_CURRENCIES = [
+  { code: "USD", symbol: "$", label: "USD - US Dollar" },
+  { code: "AUD", symbol: "A$", label: "AUD - Australian Dollar" },
+  { code: "GBP", symbol: "£", label: "GBP - British Pound" },
+  { code: "EUR", symbol: "€", label: "EUR - Euro" },
+  { code: "CAD", symbol: "C$", label: "CAD - Canadian Dollar" },
+  { code: "NZD", symbol: "NZ$", label: "NZD - New Zealand Dollar" },
+  { code: "SGD", symbol: "S$", label: "SGD - Singapore Dollar" },
+  { code: "CHF", symbol: "CHF", label: "CHF - Swiss Franc" },
+  { code: "CNY", symbol: "¥", label: "CNY - Chinese Yuan" },
+  { code: "MYR", symbol: "RM", label: "MYR - Malaysian Ringgit" },
+  { code: "IDR", symbol: "Rp", label: "IDR - Indonesian Rupiah" },
+];
+
+// Default currency picked based on the student's country interest
+function getDefaultCurrency(countryValue: string): string {
+  const map: Record<string, string> = {
+    australia: "AUD", uk: "GBP", usa: "USD", canada: "CAD",
+    new_zealand: "NZD", singapore: "SGD", switzerland: "CHF",
+    china: "CNY", malaysia: "MYR",
+  };
+  return map[countryValue] || "USD";
+}
+
+// Parse "USD 50000" or "50000 USD" or just "50000" from stored budget string
+function parseBudget(budgetStr: string): { amount: string; currency: string } {
+  if (!budgetStr) return { amount: "", currency: "USD" };
+  const trimmed = budgetStr.trim();
+  // Try "USD 50000" pattern
+  const m1 = trimmed.match(/^([A-Z]{3})\s+(.+)$/);
+  if (m1) return { currency: m1[1], amount: m1[2].trim() };
+  // Try "50000 USD" pattern
+  const m2 = trimmed.match(/^(.+?)\s+([A-Z]{3})$/);
+  if (m2) return { currency: m2[2], amount: m2[1].trim() };
+  // No currency code found — assume USD
+  return { amount: trimmed, currency: "USD" };
+}
 
 const MAX_FIELD_INTERESTS = 3;
 
@@ -127,6 +165,7 @@ export default function GlobalStudentDatabase() {
   const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
   const [studentToArchive, setStudentToArchive] = useState<any>(null);
   const [archiveReason, setArchiveReason] = useState("");
+  const [archiveOtherText, setArchiveOtherText] = useState("");
   const [isArchiving, setIsArchiving] = useState(false);
 
   const [editingStudent, setEditingStudent] = useState<any>(null);
@@ -144,7 +183,7 @@ export default function GlobalStudentDatabase() {
 
   // Expanded Academic Profile States
   const [fieldInterests, setFieldInterests] = useState<string[]>([]);
-  const [careerGoal, setCareerGoal] = useState<string>("");
+  const [careerGoals, setCareerGoals] = useState<string[]>([]);
   const [campusEnv, setCampusEnv] = useState<string>("");
   const [customFieldInterest, setCustomFieldInterest] = useState("");
   const [customCareerGoal, setCustomCareerGoal] = useState("");
@@ -175,7 +214,7 @@ export default function GlobalStudentDatabase() {
     if (!editingStudent?.id) {
       setAiReport("");
       setFieldInterests([]);
-      setCareerGoal("");
+      setCareerGoals([]);
       setCampusEnv("");
       setCountryInterest("");
       setCustomFieldInterest("");
@@ -196,8 +235,21 @@ export default function GlobalStudentDatabase() {
     } catch {
       setFieldInterests([]);
     }
-    setCareerGoal(editingStudent.career_goal || "");
-    setCampusEnv(editingStudent.campus_env || "");
+    // Convert career_goal to array (backward compat with old single-value records)
+    try {
+      const cg = editingStudent.career_goal;
+      if (!cg) {
+        setCareerGoals([]);
+      } else if (typeof cg === "string" && cg.startsWith("[")) {
+        const parsed = JSON.parse(cg);
+        setCareerGoals(Array.isArray(parsed) ? parsed : []);
+      } else {
+        setCareerGoals([cg]);  // legacy single string
+      }
+    } catch {
+      setCareerGoals(editingStudent.career_goal ? [editingStudent.career_goal] : []);
+    }
+        setCampusEnv(editingStudent.campus_env || "");
     setCountryInterest(editingStudent.country_interest || "");
 
     const loadSavedReport = async () => {
@@ -325,11 +377,22 @@ export default function GlobalStudentDatabase() {
         if (token) { const payload = JSON.parse(atob(token.split('.')[1])); authorName = payload.name || "Master Admin"; }
       } catch (e) {}
 
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToArchive.id}/notes`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ note: `SYSTEM: Student was archived. Reason: ${archiveReason}`, author: authorName })
-      });
+      const finalReason = archiveReason === "Other" && archiveOtherText.trim() 
+        ? `Other: ${archiveOtherText.trim()}` 
+        : archiveReason;
+
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToArchive.id}/notes`, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ note: `SYSTEM: Student was archived. Reason: ${finalReason}`, author: authorName })
+          });
+
+          // Also save the full reason text into archive_reason column
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToArchive.id}`, {
+            method: "PUT",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ archive_reason: finalReason })
+          });
 
       setNotification({type: 'success', message: `${studentToArchive.name} has been archived.`});
       setIsArchiveModalOpen(false);
@@ -354,7 +417,11 @@ export default function GlobalStudentDatabase() {
     if (finalFields.includes("Other") && customFieldInterest) {
       finalFields = finalFields.map(f => f === "Other" ? customFieldInterest : f);
     }
-    const finalCareer = careerGoal === "Other" ? customCareerGoal : careerGoal;
+    let finalCareerGoals = [...careerGoals];
+    if (finalCareerGoals.includes("Other") && customCareerGoal.trim()) {
+      finalCareerGoals = finalCareerGoals.map(g => g === "Other" ? customCareerGoal.trim() : g);
+    }
+    const finalCareer = JSON.stringify(finalCareerGoals);  // store as JSON string
     const finalCampus = campusEnv === "Other" ? customCampusEnv : campusEnv;
 
     try {
@@ -672,7 +739,7 @@ export default function GlobalStudentDatabase() {
             <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
               <GraduationCap className="text-[#BAD133]" size={28} />
             </div>
-            Student Management
+            Student
           </h1>
           <p className="text-slate-500 mt-2 font-medium text-sm">
             View, search, and manage all student applications across the entire network.
@@ -810,7 +877,7 @@ export default function GlobalStudentDatabase() {
                       <p className="text-[10px] text-slate-400 font-medium mt-1">Updated: {new Date(student.updated_at || student.created_at).toLocaleDateString()}</p>
                     </td>
                     <td className="px-6 py-4 font-bold text-slate-600">
-                      {student.budget ? `$${student.budget}` : "TBD"}
+                      {student.budget || <span className="text-slate-400 italic font-normal">TBD</span>}
                     </td>
                     <td className="px-6 py-4 min-w-[280px]" onClick={(e) => e.stopPropagation()}>
                       <AssigneePicker
@@ -892,8 +959,27 @@ export default function GlobalStudentDatabase() {
                       <p className="text-[10px] text-slate-400 mt-1.5">First selected agent becomes the primary. Add more for shared accounts.</p>
                 </div>
                     <div>
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><DollarSign size={12}/> Budget</label>
-                      <input type="text" placeholder="e.g. 50,000" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={newStudent.budget} onChange={e => setNewStudent({...newStudent, budget: e.target.value})} />
+                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><DollarSign size={12}/> Budget per Year</label>
+                      {(() => {
+                        const parsed = parseBudget(newStudent.budget || "");
+                        return (
+                          <div className="flex gap-2">
+                            <select 
+                              value={parsed.currency} 
+                              onChange={e => setNewStudent({...newStudent, budget: `${e.target.value} ${parsed.amount}`.trim()})}
+                              className="px-3 py-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer w-28">
+                              {BUDGET_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+                            </select>
+                            <input 
+                              type="text" 
+                              placeholder="e.g. 50,000" 
+                              className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" 
+                              value={parsed.amount} 
+                              onChange={e => setNewStudent({...newStudent, budget: `${parsed.currency} ${e.target.value}`.trim()})} 
+                            />
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -933,7 +1019,8 @@ export default function GlobalStudentDatabase() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-red-100">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-red-50">
               <h2 className="text-xl font-bold text-red-700 flex items-center gap-2"><Archive size={22} className="text-red-500" /> Archive Student Data</h2>
-              <button onClick={() => { setIsArchiveModalOpen(false); setArchiveReason(""); }} className="p-2 text-slate-400 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
+              <button onClick={() => { setIsArchiveModalOpen(false); setArchiveReason(""); setArchiveOtherText(""); }} 
+                className="p-2 text-slate-400 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="p-8 space-y-6">
               <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-center">
@@ -951,19 +1038,35 @@ export default function GlobalStudentDatabase() {
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Reason for dropping/archiving <span className="text-red-500">*</span></label>
-                <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/20 bg-white cursor-pointer transition-all shadow-sm">
-                  <option value="" disabled>-- Select a Reason --</option>
-                  <option value="Apply through other agent">Apply through other agent</option>
-                  <option value="Financial Issues">Financial Issues</option>
-                  <option value="Changed Mind / Not Proceeding">Changed Mind / Not Proceeding</option>
-                  <option value="Unresponsive">Unresponsive</option>
-                  <option value="Other">Other</option>
-                </select>
+                <select value={archiveReason} onChange={(e) => { setArchiveReason(e.target.value); if (e.target.value !== "Other") setArchiveOtherText(""); }}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold text-[#282860] outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/20 bg-white cursor-pointer transition-all shadow-sm">
+                <option value="" disabled>-- Select a Reason --</option>
+                <option value="Apply through other agent">Apply through other agent</option>
+                <option value="Financial Issues">Financial Issues</option>
+                <option value="Changed Mind / Not Proceeding">Changed Mind / Not Proceeding</option>
+                <option value="Unresponsive">Unresponsive</option>
+                <option value="Other">Other</option>
+              </select>
+
+              {archiveReason === "Other" && (
+                <div className="mt-3 animate-in fade-in slide-in-from-top-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                    Please specify <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={archiveOtherText}
+                    onChange={(e) => setArchiveOtherText(e.target.value)}
+                    placeholder="Describe why this student is being archived..."
+                    rows={3}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-400/20 bg-white transition-all shadow-sm resize-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Required when "Other" is selected. This helps Master Admin understand patterns of student loss.</p>
+                </div>
+              )}
               </div>
               <div className="pt-2 flex justify-end gap-3">
                 <button onClick={() => setIsArchiveModalOpen(false)} className="px-5 py-3 text-slate-500 hover:text-slate-800 font-bold text-sm transition-colors">Cancel</button>
-                <button disabled={!archiveReason || isArchiving} onClick={handleArchiveSubmit} 
+                <button disabled={!archiveReason || isArchiving || (archiveReason === "Other" && !archiveOtherText.trim())} onClick={handleArchiveSubmit}
                   className="bg-red-600 hover:bg-red-700 text-white font-bold px-8 py-3 rounded-xl transition-all disabled:opacity-50 shadow-md flex items-center justify-center gap-2">
                   {isArchiving ? <><Loader2 size={16} className="animate-spin"/> Archiving...</> : "Confirm Archive"}
                 </button>
@@ -1139,8 +1242,28 @@ export default function GlobalStudentDatabase() {
                           <input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.program_interest || ""} onChange={e => setEditingStudent({...editingStudent, program_interest: e.target.value})} />
                         </div>
                         <div>
-                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><DollarSign size={12}/> Budget</label>
-                          <input type="text" className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" value={editingStudent.budget || ""} onChange={e => setEditingStudent({...editingStudent, budget: e.target.value})} />
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><DollarSign size={12}/> Budget per Year</label>
+                          {(() => {
+                            const parsed = parseBudget(editingStudent.budget || "");
+                            return (
+                              <div className="flex gap-2">
+                                <select 
+                                  value={parsed.currency} 
+                                  onChange={e => setEditingStudent({...editingStudent, budget: `${e.target.value} ${parsed.amount}`.trim()})}
+                                  className="px-3 py-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer w-28">
+                                  {BUDGET_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+                                </select>
+                                <input 
+                                  type="text" 
+                                  placeholder="e.g. 50,000 or 30,000-50,000"
+                                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" 
+                                  value={parsed.amount} 
+                                  onChange={e => setEditingStudent({...editingStudent, budget: `${parsed.currency} ${e.target.value}`.trim()})} 
+                                />
+                              </div>
+                            );
+                          })()}
+                          <p className="text-[10px] text-slate-400 mt-1.5">Used by AI to recommend universities within range.</p>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -1181,19 +1304,18 @@ export default function GlobalStudentDatabase() {
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           {ACADEMIC_FIELDS.map((field) => {
-                            const isSelected = fieldInterests.includes(field.label);
+                            const isSelected = fieldInterests.includes(field);
                             const isMaxed = fieldInterests.length >= MAX_FIELD_INTERESTS && !isSelected;
                             return (
-                              <button key={field.label} type="button" disabled={isMaxed && field.label !== "Other"}
+                              <button key={field} type="button" disabled={isMaxed && field !== "Other"}
                                 onClick={() => {
-                                  if (isSelected) setFieldInterests(prev => prev.filter(f => f !== field.label));
-                                  else if (fieldInterests.length < MAX_FIELD_INTERESTS) setFieldInterests(prev => [...prev, field.label]);
+                                  if (isSelected) setFieldInterests(prev => prev.filter(f => f !== field));
+                                  else if (fieldInterests.length < MAX_FIELD_INTERESTS) setFieldInterests(prev => [...prev, field]);
                                 }}
-                                className={`p-3 rounded-xl text-xs font-bold transition-all border text-left flex items-start gap-2 ${
+                                className={`p-3 rounded-xl text-xs font-bold transition-all border text-left ${
                                   isSelected ? 'bg-emerald-500 text-white border-emerald-600 shadow-md' : isMaxed ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-emerald-50'
                                 }`}>
-                                <span className="text-base shrink-0">{field.emoji}</span>
-                                <span className="leading-tight">{field.label}</span>
+                                <span className="leading-tight">{field}</span>
                               </button>
                             );
                           })}
@@ -1210,15 +1332,28 @@ export default function GlobalStudentDatabase() {
                         <div className="border-b border-slate-100 pb-3 mb-4">
                           <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest">Primary Post-Graduation Career Goal</h4>
                         </div>
+                        <p className="text-xs text-slate-500 mb-2">Select up to 2 goals.</p>
                         <div className="flex flex-wrap gap-2">
-                          {CAREER_GOALS.map(goal => (
-                            <button key={goal} type="button" onClick={() => setCareerGoal(goal)}
-                              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors ${careerGoal === goal ? 'bg-[#282860] text-white border-[#1b1b42]' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                              {goal}
-                            </button>
-                          ))}
+                          {CAREER_GOALS.map(goal => {
+                            const isSelected = careerGoals.includes(goal);
+                            const isMaxed = careerGoals.length >= 2 && !isSelected;
+                            return (
+                              <button key={goal} type="button" disabled={isMaxed && goal !== "Other"}
+                                onClick={() => {
+                                  if (isSelected) setCareerGoals(prev => prev.filter(g => g !== goal));
+                                  else if (careerGoals.length < 2) setCareerGoals(prev => [...prev, goal]);
+                                }}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors ${
+                                  isSelected ? 'bg-[#282860] text-white border-[#1b1b42] shadow-md' 
+                                  : isMaxed ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed' 
+                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}>
+                                {goal}
+                              </button>
+                            );
+                          })}
                         </div>
-                        {careerGoal === "Other" && (
+                        {careerGoals.includes("Other") && (
                           <div className="mt-3 animate-in fade-in slide-in-from-top-2">
                             <input type="text" placeholder="Please specify career goal..." className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 outline-none focus:ring-2 focus:ring-[#282860]/20" value={customCareerGoal} onChange={(e) => setCustomCareerGoal(e.target.value)}/>
                           </div>

@@ -10,7 +10,7 @@ import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
   ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe, BellRing
+  GraduationCap, Globe
 } from "lucide-react";
  
 // --- TRANSLATION DICTIONARY ---
@@ -22,7 +22,7 @@ const translations = {
     adminTools: "Admin Tools",
     mainDashboard: "Main Dashboard",
     agentManagement: "Agent",
-    globalStudents: "Student Management",
+    globalStudents: "Student",
     broadcasts: "Broadcast Hub",
     consultation: "Consultation",
     profilingTest: "Profiling Test",
@@ -52,7 +52,7 @@ const translations = {
     adminTools: "Alat Admin",
     mainDashboard: "Dasbor Utama",
     agentManagement: "Agen",
-    globalStudents: "Manajemen Siswa",
+    globalStudents: "Siswa",
     broadcasts: "Broadcast Hub",
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
@@ -358,11 +358,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               </Link>
  
               <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
- 
-              <Link href="/dashboard/broadcasts" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/broadcasts' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                <BellRing size={18} className={pathname === '/dashboard/broadcasts' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
-                {t.broadcasts}
-              </Link>
+
  
               {/* Marketing Group */}
               <p className="px-3 text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 mt-4">{t.marketing}</p>
