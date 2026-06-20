@@ -39,7 +39,7 @@ export default function AgentManagement() {
   const [isSavingUser, setIsSavingUser] = useState(false);
 
   const [selectedAgent, setSelectedAgent] = useState<any>(null); 
-  const [panelTab, setPanelTab] = useState<"overview" | "financials" | "team" | "history">("overview");
+  const [panelTab, setPanelTab] = useState<"overview" | "pipeline" | "financials" | "team" | "history">("overview");
   const [editingUser, setEditingUser] = useState<any>(null); 
 
   const [deleteFlowState, setDeleteFlowState] = useState<{agent: any, step: 'check' | 'reassign' | 'confirm' | null}>({agent: null, step: null});
@@ -372,6 +372,26 @@ const executeArchiveFlow = async () => {
       fetchData();
     } catch (err) { setNotification({type: 'error', message: "Deletion failed."}); }
     finally { setIsProcessingDelete(false); }
+  };
+
+  const handleQuickReassign = async (studentId: string, newAgentName: string) => {
+    if (!window.confirm(`Transfer student to ${newAgentName}?`)) return;
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${studentId}`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ assignees: [newAgentName] }) 
+      });
+      if (res.ok) {
+        setNotification({type: 'success', message: `Student successfully reassigned to ${newAgentName}.`});
+        fetchData(); 
+      } else {
+        setNotification({type: 'error', message: "Failed to reassign student."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error."});
+    }
   };
 
   if (loading) return (
@@ -833,6 +853,9 @@ const executeArchiveFlow = async () => {
               <button onClick={() => setPanelTab('overview')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'overview' ? 'border-b-[3px] border-[#282860] text-[#282860]' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
                 <Target size={18}/> Identity & Load
               </button>
+              <button onClick={() => setPanelTab('pipeline')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'pipeline' ? 'border-b-[3px] border-orange-600 text-orange-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+                <Briefcase size={18}/> Active Pipeline
+              </button>
               {(selectedAgent.role === "Corporate Agent" || selectedAgent.role === "Team Manager" || selectedAgent.role === "MASTER_ADMIN") && (
                 <button onClick={() => setPanelTab('team')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'team' ? 'border-b-[3px] border-indigo-600 text-indigo-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
                   <Network size={18}/> Team Network
@@ -936,6 +959,70 @@ const executeArchiveFlow = async () => {
                         <p className="text-[10px] font-bold text-blue-700 uppercase tracking-widest">Avg Velocity</p>
                         <p className="text-3xl font-black text-blue-600 mt-2">{metrics.avgVelocity ? `${metrics.avgVelocity}d` : '-'}</p>
                       </div>
+                    </div>
+                  </div>
+                );
+              })()}
+              {panelTab === 'pipeline' && (() => {
+                const agentStudents = allStudents.filter(s => {
+                   if (Array.isArray(s.assignees)) return s.assignees.includes(selectedAgent.name);
+                   if (typeof s.assignees === 'string' && s.assignees.includes(selectedAgent.name)) return true;
+                   return s.assignee === selectedAgent.name;
+                });
+                
+                const activeAgentStudents = agentStudents.filter(s => !['COMPLETED', 'REJECTED'].includes((s.status||'').toUpperCase()));
+
+                return (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                      <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
+                        <h3 className="font-black text-[#282860] flex items-center gap-2"><Briefcase size={20} className="text-orange-500"/> Pipeline & Workload</h3>
+                        <span className="bg-orange-50 text-orange-700 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-wider">{activeAgentStudents.length} Active Students</span>
+                      </div>
+
+                      {activeAgentStudents.length === 0 ? (
+                        <div className="text-center py-10">
+                          <Users size={40} className="mx-auto text-slate-200 mb-3" />
+                          <p className="text-sm font-medium text-slate-500">This agent currently has no active students.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {activeAgentStudents.map(student => (
+                            <div key={student.id} className="flex items-center justify-between p-4 rounded-xl border border-slate-100 bg-slate-50 hover:bg-white hover:border-slate-200 transition-all gap-4">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-[#282860] text-sm truncate">{student.name}</p>
+                                <p className="text-xs text-slate-500 mt-0.5 truncate">
+                                  <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded mr-1.5 text-[9px] ${
+                                    student.status === 'VISA' ? 'bg-pink-100 text-pink-700' :
+                                    student.status === 'APPLICATION' ? 'bg-orange-100 text-orange-700' :
+                                    'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {student.status || 'NEW LEAD'}
+                                  </span>
+                                  {student.program_interest || 'No Program Specified'}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <select 
+                                  className="text-xs font-bold bg-white border border-slate-200 text-slate-600 rounded-lg px-2 py-2 outline-none focus:border-blue-400 cursor-pointer w-32 truncate"
+                                  value={selectedAgent.name}
+                                  onChange={(e) => handleQuickReassign(student.id, e.target.value)}
+                                >
+                                  <option value={selectedAgent.name} disabled>Assigned to {selectedAgent.name}</option>
+                                  <option disabled>--- Transfer To ---</option>
+                                  {systemUsers.filter(u => u.name !== selectedAgent.name && u.is_active && !u.is_archived).map(u => (
+                                    <option key={u.id} value={u.name}>{u.name}</option>
+                                  ))}
+                                </select>
+                                
+                                <button onClick={() => router.push(`/dashboard/pipeline?search=${encodeURIComponent(student.name)}`)} className="px-3 py-2 text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-600 hover:text-white rounded-lg transition-colors flex items-center gap-1.5 shadow-sm">
+                                  Detail <ArrowRight size={12}/>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
