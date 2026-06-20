@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 import AssigneePicker from "@/components/AssigneePicker";
+import TeamCollabChat from "@/components/TeamCollabChat";
 import { 
   Search, Filter, GraduationCap, Building, MapPin, 
   FileText, UserMinus, RefreshCcw, Loader2, Edit2, Save,
   X, CheckCircle2, ShieldAlert, Mail, Phone, BookOpen, 
   Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
-  Eye, Trash2, Plus, MessageSquare, Send, Clock, User, Circle,
+  Eye, Trash2, Plus, MessageSquare, User, Circle,
   ChevronRight, ChevronLeft, CheckCircle, Award, Briefcase, Sparkles, Target, ChevronDown, Archive,
   Download,DollarSign
 } from "lucide-react";
@@ -190,10 +191,6 @@ export default function GlobalStudentDatabase() {
   const [customCampusEnv, setCustomCampusEnv] = useState("");
   const [countryInterest, setCountryInterest] = useState("");
 
-  const [newNote, setNewNote] = useState("");
-  const [isSendingNote, setIsSendingNote] = useState(false);
-  const notesEndRef = useRef<HTMLDivElement>(null);
-
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newStudent, setNewStudent] = useState({
     name: "", email: "", phone: "", assignee: "", program_interest: "", lead_source: "", lead_temperature: "Cold Leads", status: "NEW LEAD", budget: ""
@@ -204,11 +201,6 @@ export default function GlobalStudentDatabase() {
 
   useEffect(() => { fetchData(); }, []);
 
-  useEffect(() => {
-    if (dossierTab === 'notes') notesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [dossierTab, editingStudent?.timeline]);
-
-  // Load field_interests and profile from the student record when dossier opens
   // Load field_interests and profile from the student record when dossier opens
   useEffect(() => {
     if (!editingStudent?.id) {
@@ -249,7 +241,7 @@ export default function GlobalStudentDatabase() {
     } catch {
       setCareerGoals(editingStudent.career_goal ? [editingStudent.career_goal] : []);
     }
-        setCampusEnv(editingStudent.campus_env || "");
+    setCampusEnv(editingStudent.campus_env || "");
     setCountryInterest(editingStudent.country_interest || "");
 
     const loadSavedReport = async () => {
@@ -332,31 +324,31 @@ export default function GlobalStudentDatabase() {
   };
 
   const handleInlineReassign = async (studentId: string, newAssignees: string[]) => {
-  try {
-    const token = localStorage.getItem("fortrust_token");
-    // Use the /students endpoint which now handles `assignees` array
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${studentId}`, {
-      method: "PUT",
-      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ assignees: newAssignees }) 
-    });
-    if (res.ok) {
-      const primary = newAssignees[0] || "Unassigned";
-      const others = newAssignees.length - 1;
-      const message = newAssignees.length === 0
-        ? "Student unassigned."
-        : others > 0
-        ? `${primary} (+${others} more) now assigned.`
-        : `${primary} now assigned.`;
-      setNotification({type: 'success', message});
-      fetchData(); 
-    } else {
-      setNotification({type: 'error', message: "Failed to update assignees."});
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      // Use the /students endpoint which now handles `assignees` array
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${studentId}`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ assignees: newAssignees }) 
+      });
+      if (res.ok) {
+        const primary = newAssignees[0] || "Unassigned";
+        const others = newAssignees.length - 1;
+        const message = newAssignees.length === 0
+          ? "Student unassigned."
+          : others > 0
+          ? `${primary} (+${others} more) now assigned.`
+          : `${primary} now assigned.`;
+        setNotification({type: 'success', message});
+        fetchData(); 
+      } else {
+        setNotification({type: 'error', message: "Failed to update assignees."});
+      }
+    } catch (error) {
+      setNotification({type: 'error', message: "Network error."});
     }
-  } catch (error) {
-    setNotification({type: 'error', message: "Network error."});
-  }
-};
+  };
 
   const handleArchiveSubmit = async () => {
     if (!studentToArchive || !archiveReason) return;
@@ -381,18 +373,18 @@ export default function GlobalStudentDatabase() {
         ? `Other: ${archiveOtherText.trim()}` 
         : archiveReason;
 
-          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToArchive.id}/notes`, {
-            method: "POST",
-            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ note: `SYSTEM: Student was archived. Reason: ${finalReason}`, author: authorName })
-          });
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToArchive.id}/notes`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ note: `SYSTEM: Student was archived. Reason: ${finalReason}`, author: authorName })
+      });
 
-          // Also save the full reason text into archive_reason column
-          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToArchive.id}`, {
-            method: "PUT",
-            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ archive_reason: finalReason })
-          });
+      // Also save the full reason text into archive_reason column
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${studentToArchive.id}`, {
+        method: "PUT",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ archive_reason: finalReason })
+      });
 
       setNotification({type: 'success', message: `${studentToArchive.name} has been archived.`});
       setIsArchiveModalOpen(false);
@@ -475,6 +467,7 @@ export default function GlobalStudentDatabase() {
       setTimeout(() => setNotification(null), 3000);
     }
   };
+
   const handleDownloadPdf = async () => {
     if (!editingStudent) return;
     setIsDownloadingPdf(true);
@@ -507,6 +500,7 @@ export default function GlobalStudentDatabase() {
       setTimeout(() => setNotification(null), 3000);
     }
   };
+
   const generateAIReport = async () => {
     if (!editingStudent) return;
     setIsGeneratingAI(true);
@@ -627,46 +621,6 @@ export default function GlobalStudentDatabase() {
     }
   };
 
-  const handleSendNote = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newNote.trim() || !editingStudent) return;
-    setIsSendingNote(true);
-    try {
-      const token = localStorage.getItem("fortrust_token");
-      let authorName = "Master Admin";
-      try {
-        if (token) {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          authorName = payload.name || "Master Admin";
-        }
-      } catch (e) {}
-
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${editingStudent.id}/notes`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ note: newNote, author: authorName })
-      });
-
-      if (res.ok) {
-        const newEntry = {
-          date: new Date().toISOString().replace('T', ' ').substring(0, 16),
-          author: authorName,
-          note: newNote
-        };
-        const currentTimeline = typeof editingStudent.timeline === 'string' ? JSON.parse(editingStudent.timeline || "[]") : (editingStudent.timeline || []);
-        setEditingStudent({ ...editingStudent, timeline: [...currentTimeline, newEntry] });
-        setNewNote("");
-        fetchData();
-      } else {
-        setNotification({type: 'error', message: "Failed to save note."});
-      }
-    } catch (error) {
-      setNotification({type: 'error', message: "Network error."});
-    } finally {
-      setIsSendingNote(false);
-    }
-  };
-
   const getStatusColor = (status: string) => {
     const s = (status || "").toUpperCase();
     if (s === "NEW LEAD") return "bg-blue-50 text-blue-700 border-blue-200";
@@ -677,18 +631,6 @@ export default function GlobalStudentDatabase() {
     if (s === "COMPLETED") return "bg-emerald-50 text-emerald-700 border-emerald-200";
     if (s === "REJECTED" || s === "ARCHIVED") return "bg-red-50 text-red-700 border-red-200";
     return "bg-slate-50 text-slate-700 border-slate-200";
-  };
-
-  // Chat syntax highlighter for @mentions
-  const renderMessageText = (text: string) => {
-    if (!text) return null;
-    const words = text.split(" ");
-    return words.map((word, idx) => {
-      if (word.startsWith("@")) {
-        return <span key={idx} className="text-blue-600 font-black bg-blue-50 px-1 rounded mx-0.5">{word} </span>;
-      }
-      return <span key={idx}>{word} </span>;
-    });
   };
 
   const filteredStudents = allStudents.filter(student => {
@@ -1680,68 +1622,28 @@ export default function GlobalStudentDatabase() {
                 </div>
               )}
 
-              {/* TEAM COLLAB TAB (NOTES & CHAT) */}
-              {dossierTab === 'notes' && (
-                <div className="flex flex-col h-full animate-in fade-in">
-                  <div className="flex-1 p-6 overflow-y-auto custom-scrollbar space-y-6">
-                    {studentTimeline.length === 0 ? (
-                      <div className="text-center py-16 text-slate-400 flex flex-col items-center">
-                        <MessageSquare size={40} className="mb-3 text-slate-200" />
-                        <p className="font-medium">No notes on this student yet.</p>
-                        <p className="text-xs mt-1">Start the conversation below or type @ to mention an agent.</p>
-                      </div>
-                    ) : (
-                      studentTimeline.map((note: any, i: number) => {
-                        const isSystem = note.author === "System AI" || note.note.startsWith("SYSTEM:");
-                        return (
-                          <div key={i} className={`flex gap-4 ${isSystem ? 'opacity-80' : ''}`}>
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-bold border-2 border-white shadow-sm ${isSystem ? 'bg-slate-200 text-slate-500' : 'bg-blue-100 text-blue-700'}`}>
-                              {isSystem ? <Activity size={16} /> : (note.author || "U").charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-baseline justify-between mb-1">
-                                <span className={`font-bold text-sm ${isSystem ? 'text-slate-500' : 'text-slate-800'}`}>
-                                  {isSystem ? 'Fortrust System' : note.author || "Team Member"}
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1"><Clock size={10}/> {note.date}</span>
-                              </div>
-                              <div className={`p-4 rounded-2xl rounded-tl-none shadow-sm border text-sm whitespace-pre-wrap ${isSystem ? 'bg-slate-50 border-slate-200 text-slate-600 italic' : 'bg-white border-blue-100 text-slate-700'}`}>
-                                {isSystem ? note.note.replace("SYSTEM: ", "") : renderMessageText(note.note)}
-                              </div>
-                              
-                              {/* Read Receipts Mock Visual */}
-                              {!isSystem && (
-                                <div className="mt-1.5 flex justify-end">
-                                  <span className="text-[10px] font-bold text-blue-400 flex items-center gap-0.5"><CheckCircle2 size={10}/> Read by all</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                    <div ref={notesEndRef} />
-                  </div>
-                  <div className="p-5 bg-white border-t border-slate-200 shrink-0">
-                    <form onSubmit={handleSendNote} className="relative">
-                      <textarea value={newNote} onChange={(e) => setNewNote(e.target.value)}
-                        placeholder="Add an internal note or type @ to mention an agent..."
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 pr-16 text-sm outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-400/10 transition-all resize-none" rows={2}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSendNote(e);
-                          }
-                        }} />
-                      <button type="submit" disabled={!newNote.trim() || isSendingNote}
-                        className="absolute right-3 bottom-3 w-10 h-10 rounded-xl bg-[#282860] hover:bg-[#1b1b42] text-white flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md">
-                        {isSendingNote ? <Loader2 size={16} className="animate-spin"/> : <Send size={16} className="-ml-0.5 mt-0.5" />}
-                      </button>
-                    </form>
-                    <p className="text-[10px] text-slate-400 mt-2 font-medium text-center">Press Enter to send, Shift + Enter for new line. Mentioned agents will receive a push notification.</p>
-                  </div>
-                </div>
-              )}
+              {/* TEAM COLLAB TAB (WhatsApp-style real-time chat) */}
+                {dossierTab === 'notes' && editingStudent && (() => {
+                  // Get current user name from JWT token
+                  let currentUserName = "Master Admin";
+                  try {
+                    const token = localStorage.getItem("fortrust_token");
+                    if (token) {
+                      const payload = JSON.parse(atob(token.split('.')[1]));
+                      currentUserName = payload.name || "Master Admin";
+                    }
+                  } catch (e) {}
+
+                  return (
+                    <TeamCollabChat
+                      studentId={editingStudent.id}
+                      currentUserName={currentUserName}
+                      apiUrl={process.env.NEXT_PUBLIC_API_URL || ""}
+                      token={localStorage.getItem("fortrust_token") || ""}
+                      pollInterval={3000}
+                    />
+                  );
+                })()}
             </div>
             
             {dossierTab === 'profile' && (
