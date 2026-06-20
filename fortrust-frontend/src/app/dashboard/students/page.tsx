@@ -189,7 +189,7 @@ export default function GlobalStudentDatabase() {
   const [customFieldInterest, setCustomFieldInterest] = useState("");
   const [customCareerGoal, setCustomCareerGoal] = useState("");
   const [customCampusEnv, setCustomCampusEnv] = useState("");
-  const [countryInterest, setCountryInterest] = useState("");
+  const [countryInterests, setCountryInterests] = useState<string[]>([]);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newStudent, setNewStudent] = useState({
@@ -208,7 +208,7 @@ export default function GlobalStudentDatabase() {
       setFieldInterests([]);
       setCareerGoals([]);
       setCampusEnv("");
-      setCountryInterest("");
+      setCountryInterests([]); // <--- CHANGED HERE
       setCustomFieldInterest("");
       setCustomCareerGoal("");
       setCustomCampusEnv("");
@@ -242,7 +242,18 @@ export default function GlobalStudentDatabase() {
       setCareerGoals(editingStudent.career_goal ? [editingStudent.career_goal] : []);
     }
     setCampusEnv(editingStudent.campus_env || "");
-    setCountryInterest(editingStudent.country_interest || "");
+    try {
+      const ci = editingStudent.country_interest;
+      if (!ci) {
+        setCountryInterests([]);
+      } else if (typeof ci === "string" && ci.startsWith("[")) {
+        setCountryInterests(JSON.parse(ci));
+      } else {
+        setCountryInterests([ci]); // For older records with just one string
+      }
+    } catch {
+      setCountryInterests([]);
+    }
 
     const loadSavedReport = async () => {
       try {
@@ -440,7 +451,7 @@ export default function GlobalStudentDatabase() {
           field_interests: JSON.stringify(finalFields),
           career_goal: finalCareer,
           campus_env: finalCampus,
-          country_interest: countryInterest
+          country_interest: JSON.stringify(countryInterests)
         })
       });
 
@@ -1328,22 +1339,36 @@ export default function GlobalStudentDatabase() {
                           <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
                             <MapPin size={16} className="text-rose-500"/> Preferred Study Destination
                           </h4>
-                          <p className="text-xs text-slate-500 mt-1.5">Select one country. Used by AI for university matching.</p>
+                          <p className="text-xs text-slate-500 mt-1.5">Select up to 2 countries. Used by AI for university matching.</p>
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {FORTRUST_COUNTRIES.map(country => (
-                            <button
-                              key={country.value}
-                              type="button"
-                              onClick={() => setCountryInterest(countryInterest === country.value ? "" : country.value)}
-                              className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors text-left ${
-                                countryInterest === country.value
-                                  ? 'bg-[#BAD133] text-[#1b1b42] border-[#BAD133] shadow-md'
-                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                              }`}>
-                              {country.label}
-                            </button>
-                          ))}
+                          {FORTRUST_COUNTRIES.map(country => {
+                            const isSelected = countryInterests.includes(country.value);
+                            const isMaxed = countryInterests.length >= 2 && !isSelected;
+                            
+                            return (
+                              <button
+                                key={country.value}
+                                type="button"
+                                disabled={isMaxed}
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setCountryInterests(prev => prev.filter(c => c !== country.value));
+                                  } else if (countryInterests.length < 2) {
+                                    setCountryInterests(prev => [...prev, country.value]);
+                                  }
+                                }}
+                                className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors text-left ${
+                                  isSelected
+                                    ? 'bg-[#BAD133] text-[#1b1b42] border-[#BAD133] shadow-md'
+                                    : isMaxed 
+                                    ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}>
+                                {country.label}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
 

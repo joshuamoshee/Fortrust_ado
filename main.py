@@ -3359,33 +3359,65 @@ def delete_student(student_id: int):
 # --- MULTI-ASSIGNEE: ARCHIVE FLOW HELPERS ---
 # =====================================================================
 @app.get("/api/agents/{agent_name}/students")
-def get_agent_students(agent_name: str, user_data: dict = Depends(verify_token)):
+def get_agent_students(
+    agent_name: str, 
+    include_inactive: bool = True,
+    user_data: dict = Depends(verify_token)
+):
     """
-    Return all ACTIVE students assigned to this agent (in either single assignee or
-    multi-assignee field). Used by the agent-archive reassign modal.
+    Return all students assigned to this agent (single assignee or multi-assignee).
+    
+    - Master Admin: sees any agent's students
+    - Agents: can only see their own students (security guard)
+    - include_inactive=true (default): returns ALL students including completed/archived
+    - include_inactive=false: only active pipeline (use for reassign-on-archive modal)
     """
+    # Security: agents can only query their own name
     if user_data.get("role") != "MASTER_ADMIN":
-        raise HTTPException(status_code=403, detail="Master Admin access required.")
+        if user_data.get("name") != agent_name:
+            raise HTTPException(
+                status_code=403, 
+                detail="You can only view your own assigned students."
+            )
 
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Match either old single field OR the array contains the name
-            cur.execute("""
-                SELECT id, name, email, status, lead_temperature, assignee, assignees,
-                       program_interest, country_interest
-                FROM students
-                WHERE (
-                    assignee = %s
-                    OR assignees @> %s::jsonb
-                )
-                AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
-                ORDER BY name ASC
-            """, (agent_name, json.dumps([agent_name])))
+            if include_inactive:
+                cur.execute("""
+                    SELECT id, name, email, phone, status, lead_temperature, 
+                           assignee, assignees, program_interest, country_interest,
+                           budget, archive_reason, created_at, updated_at
+                    FROM students
+                    WHERE (
+                        assignee = %s
+                        OR assignees @> %s::jsonb
+                    )
+                    ORDER BY 
+                        CASE 
+                            WHEN UPPER(COALESCE(status, '')) IN ('COMPLETED', 'REJECTED', 'ARCHIVED') THEN 1
+                            ELSE 0
+                        END,
+                        updated_at DESC NULLS LAST
+                """, (agent_name, json.dumps([agent_name])))
+            else:
+                # Active only — used by the archive-agent reassign flow
+                cur.execute("""
+                    SELECT id, name, email, phone, status, lead_temperature,
+                           assignee, assignees, program_interest, country_interest,
+                           budget
+                    FROM students
+                    WHERE (
+                        assignee = %s
+                        OR assignees @> %s::jsonb
+                    )
+                    AND UPPER(COALESCE(status, '')) NOT IN ('COMPLETED', 'REJECTED', 'ARCHIVED')
+                    ORDER BY name ASC
+                """, (agent_name, json.dumps([agent_name])))
+            
             students = cur.fetchall()
             for s in students:
                 s['id'] = str(s['id'])
-                # Normalize assignees to a real list
                 if s.get('assignees') is None:
                     s['assignees'] = []
             return {"status": "success", "data": students, "count": len(students)}

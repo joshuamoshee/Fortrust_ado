@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import AgentStudentsList from "@/components/AgentStudentsList";
 import { 
   Users, X, ShieldAlert, CheckCircle2, Edit2, Trash2, Plus, 
   DollarSign, Activity, Target, Mail, MapPin, Clock, PhoneCall,
@@ -16,6 +17,7 @@ const ROLE_OPTIONS = ["Corporate Agent", "Individual Agent", "Student Counselor"
 export default function AgentManagement() {
   const router = useRouter();
   const [systemUsers, setSystemUsers] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +41,7 @@ export default function AgentManagement() {
   const [isSavingUser, setIsSavingUser] = useState(false);
 
   const [selectedAgent, setSelectedAgent] = useState<any>(null); 
-  const [panelTab, setPanelTab] = useState<"overview" | "pipeline" | "financials" | "team" | "history">("overview");
+  const [panelTab, setPanelTab] = useState<"overview" | "pipeline" | "students" | "financials" | "team" | "history">("overview");
   const [editingUser, setEditingUser] = useState<any>(null); 
 
   const [deleteFlowState, setDeleteFlowState] = useState<{agent: any, step: 'check' | 'reassign' | 'confirm' | null}>({agent: null, step: null});
@@ -142,7 +144,14 @@ export default function AgentManagement() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { 
+    fetchData(); 
+    // Load current user from localStorage to know their role
+    try {
+      const stored = localStorage.getItem("fortrust_user");
+      if (stored) setCurrentUser(JSON.parse(stored));
+    } catch (e) {}
+  }, []);
 
   const managerOptions = systemUsers.filter(u => u.role === "Corporate Agent" || u.role === "MASTER_ADMIN" || u.role === "Team Manager");
 
@@ -242,7 +251,7 @@ const handleEditUser = async (e: React.FormEvent) => {
   try {
     const token = localStorage.getItem("fortrust_token");
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/agents/${encodeURIComponent(agentName)}/students`,
+      `${process.env.NEXT_PUBLIC_API_URL}/api/agents/${encodeURIComponent(agentName)}/students?include_inactive=false`,
       { headers: { "Authorization": `Bearer ${token}` } }
     );
     const data = await res.json();
@@ -856,6 +865,9 @@ const executeArchiveFlow = async () => {
               <button onClick={() => setPanelTab('pipeline')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'pipeline' ? 'border-b-[3px] border-orange-600 text-orange-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
                 <Briefcase size={18}/> Active Pipeline
               </button>
+              <button onClick={() => setPanelTab('students')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'students' ? 'border-b-[3px] border-emerald-600 text-emerald-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
+                <Users size={18}/> All Students
+              </button>
               {(selectedAgent.role === "Corporate Agent" || selectedAgent.role === "Team Manager" || selectedAgent.role === "MASTER_ADMIN") && (
                 <button onClick={() => setPanelTab('team')} className={`px-2 py-5 mr-8 text-sm font-bold tracking-wide transition-colors flex items-center gap-2 whitespace-nowrap ${panelTab === 'team' ? 'border-b-[3px] border-indigo-600 text-indigo-700' : 'text-slate-400 hover:text-slate-600 border-b-[3px] border-transparent'}`}>
                   <Network size={18}/> Team Network
@@ -1027,6 +1039,16 @@ const executeArchiveFlow = async () => {
                   </div>
                 );
               })()}
+              {panelTab === 'students' && (
+                <div className="animate-in fade-in slide-in-from-bottom-2">
+                  <AgentStudentsList
+                    agentName={selectedAgent.name}
+                    apiUrl={process.env.NEXT_PUBLIC_API_URL || ""}
+                    token={localStorage.getItem("fortrust_token") || ""}
+                    currentUserRole={currentUser?.role || ""}
+                  />
+                </div>
+              )}
 
               {panelTab === 'team' && (() => {
                 const subAgents = systemUsers.filter(su => su.parent_corporate_id === selectedAgent.id);
