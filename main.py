@@ -2050,7 +2050,7 @@ def mark_chat_as_read(case_id: int, user_data: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     finally:
         conn.close()
-        
+
 @app.get("/api/pipeline/{case_id}/audit-trail")
 def get_student_audit_trail(case_id: str, user_data: dict = Depends(verify_token)):
     """
@@ -5047,5 +5047,269 @@ def sop_template_info(user_data: dict = Depends(verify_token)):
                 "uploaded_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
                 "filename": os.path.basename(row["value"])
             }
+    finally:
+        conn.close()
+
+@app.get("/api/admin/archived-analytics")
+def get_archived_analytics(user_data: dict = Depends(verify_token)):
+    """
+    Comprehensive analytics for archived (lost) students.
+    Master Admin only. Returns all the data the frontend needs in one call.
+    """
+    if user_data.get("role") != "MASTER_ADMIN":
+        raise HTTPException(status_code=403, detail="Master Admin access required.")
+    
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Get all archived students with rich data
+            cur.execute("""
+                SELECT 
+                    id, name, email, phone, status,
+                    program_interest, country_interest, budget,
+                    assignee, assignees, lead_temperature, lead_source,
+                    archive_reason, created_at, updated_at,
+                    field_interests
+                FROM students
+                WHERE UPPER(COALESCE(status, '')) = 'ARCHIVED'
+                ORDER BY updated_at DESC NULLS LAST
+            """)
+            archived = cur.fetchall()
+            
+            # Also fetch total active + completed for context
+            cur.execute("""
+                SELECT 
+                    COUNT(*) FILTER (WHERE UPPER(COALESCE(status, '')) NOT IN ('ARCHIVED', 'COMPLETED', 'REJECTED')) AS active_count,
+                    COUNT(*) FILTER (WHERE UPPER(COALESCE(status, '')) = 'COMPLETED') AS completed_count,
+                    COUNT(*) FILTER (WHERE UPPER(COALESCE(status, '')) = 'ARCHIVED') AS archived_count,
+                    COUNT(*) AS total_count
+                FROM students
+            """)
+            counts = cur.fetchone()
+        
+        # Normalize archived rows
+        for s in archived:
+            s['id'] = str(s['id'])
+            for date_field in ('created_at', 'updated_at'):
+                if s.get(date_field):
+                    s[date_field] = s[date_field].isoformat()
+            # Normalize assignees (JSONB → list)
+            if s.get('assignees') is None:
+                s['assignees'] = []
+        
+        # === REASON BREAKDOWN ===
+        # Group archive_reason into standard categories (handle "Other: ..." as Other)
+        reason_groups = {}
+        for s in archived:
+            raw_reason = (s.get('archive_reason') or 'Not specified').strip()
+            # Bucket "Other: blah" as "Other" but keep custom text in a separate field
+            if raw_reason.lower().startswith('other:'):
+                bucket = 'Other'
+            elif not raw_reason or raw_reason == 'Not specified':
+                bucket = 'Not specified'
+            else:
+                bucket = raw_reason
+            reason_groups[bucket] = reason_groups.get(bucket, 0) + 1
+        
+        reason_breakdown = [
+            {"reason": k, "count": v, "percentage": round((v / len(archived) * 100) if archived else 0, 1)}
+            for k, v in sorted(reason_groups.items(), key=lambda x: -x[1])
+        ]
+        
+        # === BY COUNTRY ===
+        country_groups = {}
+        for s in archived:
+            ci = s.get('country_interest') or 'Unknown'
+            # Handle JSON-array stored as string
+            if isinstance(ci, str) and ci.startswith('['):
+                try:
+                    parsed = json.loads(ci)
+                    if isinstance(parsed, list) and parsed:
+                        # Count each country in the array
+                        for c in parsed:
+                            country_groups[c or 'Unknown'] = country_groups.get(c or 'Unknown', 0) + 1
+                        continue
+                except Exception:
+                    pass
+            country_groups[ci] = country_groups.get(ci, 0) + 1
+        
+        by_country = [
+            {"country": k, "count": v}
+            for k, v in sorted(country_groups.items(), key=lambda x: -x[1])
+        ]
+        
+        # === BY AGENT ===
+        agent_groups = {}
+        for s in archived:
+            # Prefer primary assignee, fallback to legacy
+            assignees = s.get('assignees') or []
+            if isinstance(assignees, str):
+                try:
+                    assignees = json.loads(assignees)
+                except Exception:
+                    assignees = []
+            
+            primary = (assignees[0] if assignees else None) or s.get('assignee') or 'Unassigned'
+            agent_groups[primary] = agent_groups.get(primary, 0) + 1
+        
+        by_agent = [
+            {"agent": k, "count": v}
+            for k, v in sorted(agent_groups.items(), key=lambda x: -x[1])
+        ]
+        
+        # === MONTHLY TREND (last 12 months) ===
+        from collections import defaultdict
+        from datetime import datetime, timedelta
+        
+        monthly = defaultdict(int)
+        for s in archived:
+            if s.get('updated_at'):
+                try:
+                    d = datetime.fromisoformat(s['updated_at'].replace('Z', '+00:00')) if isinstance(s['updated_at'], str) else s['updated_at']
+                    key = d.strftime('%Y-%m')
+                    monthly[key] += 1
+                except Exception:
+                    pass
+        
+        # Fill in last 12 months even if zero
+        now = datetime.now()
+        monthly_trend = []
+        for i in range(11, -1, -1):
+            d = now.replace(day=1) - timedelta(days=i * 30)
+            key = d.strftime('%Y-%m')
+            label = d.strftime('%b %Y')
+            monthly_trend.append({"month": key, "label": label, "count": monthly.get(key, 0)})
+        
+        # === LEAD TEMPERATURE AT TIME OF LOSS ===
+        temp_groups = {}
+        for s in archived:
+            temp = s.get('lead_temperature') or 'Unknown'
+            temp_groups[temp] = temp_groups.get(temp, 0) + 1
+        by_temperature = [{"temperature": k, "count": v} for k, v in temp_groups.items()]
+        
+        # === LEAD SOURCE BREAKDOWN ===
+        source_groups = {}
+        for s in archived:
+            src = s.get('lead_source') or 'Unknown'
+            source_groups[src] = source_groups.get(src, 0) + 1
+        by_source = [
+            {"source": k, "count": v}
+            for k, v in sorted(source_groups.items(), key=lambda x: -x[1])
+        ][:10]  # top 10
+        
+        # === LOST REVENUE ESTIMATE ===
+        # Parse "USD 50000" or "USD 30000-50000" format
+        import re
+        
+        def parse_budget_amount(b: str):
+            if not b:
+                return None
+            # Strip currency prefix
+            cleaned = re.sub(r'^[A-Z]{3}\s+', '', b.strip())
+            # Range like "30000-50000" → take midpoint
+            range_match = re.match(r'^([\d,\.]+)\s*-\s*([\d,\.]+)', cleaned)
+            if range_match:
+                try:
+                    low = float(range_match.group(1).replace(',', ''))
+                    high = float(range_match.group(2).replace(',', ''))
+                    return (low + high) / 2
+                except Exception:
+                    return None
+            # Single number
+            num_match = re.match(r'^([\d,\.]+)', cleaned)
+            if num_match:
+                try:
+                    return float(num_match.group(1).replace(',', ''))
+                except Exception:
+                    return None
+            return None
+        
+        total_estimated_revenue = 0
+        revenue_by_country = {}
+        budgets_found = 0
+        for s in archived:
+            amt = parse_budget_amount(s.get('budget') or '')
+            if amt is not None:
+                total_estimated_revenue += amt
+                budgets_found += 1
+                country = s.get('country_interest') or 'Unknown'
+                if isinstance(country, str) and country.startswith('['):
+                    try:
+                        parsed = json.loads(country)
+                        country = parsed[0] if parsed else 'Unknown'
+                    except Exception:
+                        pass
+                revenue_by_country[country] = revenue_by_country.get(country, 0) + amt
+        
+        # Average days from creation to archive
+        total_days = 0
+        days_counted = 0
+        for s in archived:
+            if s.get('created_at') and s.get('updated_at'):
+                try:
+                    created = datetime.fromisoformat(s['created_at'].replace('Z', '+00:00')) if isinstance(s['created_at'], str) else s['created_at']
+                    updated = datetime.fromisoformat(s['updated_at'].replace('Z', '+00:00')) if isinstance(s['updated_at'], str) else s['updated_at']
+                    delta_days = (updated - created).days
+                    if delta_days >= 0:
+                        total_days += delta_days
+                        days_counted += 1
+                except Exception:
+                    pass
+        
+        avg_days_to_archive = round(total_days / days_counted) if days_counted > 0 else 0
+        
+        # === HIGH-VALUE LOSSES (top 10 by budget) ===
+        high_value_losses = []
+        for s in archived:
+            amt = parse_budget_amount(s.get('budget') or '')
+            if amt is not None:
+                high_value_losses.append({
+                    "id": s['id'],
+                    "name": s['name'],
+                    "budget_amount": amt,
+                    "budget_raw": s.get('budget'),
+                    "country_interest": s.get('country_interest'),
+                    "archive_reason": s.get('archive_reason'),
+                    "updated_at": s.get('updated_at')
+                })
+        high_value_losses.sort(key=lambda x: -(x['budget_amount'] or 0))
+        high_value_losses = high_value_losses[:10]
+        
+        # === CONVERSION RATE CONTEXT ===
+        total_resolved = (counts['completed_count'] or 0) + (counts['archived_count'] or 0)
+        loss_rate = round((counts['archived_count'] / total_resolved * 100), 1) if total_resolved > 0 else 0
+        
+        return {
+            "status": "success",
+            "data": {
+                "summary": {
+                    "total_archived": len(archived),
+                    "total_active": counts['active_count'] or 0,
+                    "total_completed": counts['completed_count'] or 0,
+                    "total_all_students": counts['total_count'] or 0,
+                    "loss_rate_pct": loss_rate,
+                    "avg_days_to_archive": avg_days_to_archive,
+                    "estimated_lost_revenue": round(total_estimated_revenue, 2),
+                    "budgets_recorded": budgets_found,
+                },
+                "reason_breakdown": reason_breakdown,
+                "by_country": by_country,
+                "by_agent": by_agent,
+                "monthly_trend": monthly_trend,
+                "by_temperature": by_temperature,
+                "by_source": by_source,
+                "revenue_by_country": [
+                    {"country": k, "amount": round(v, 2)} 
+                    for k, v in sorted(revenue_by_country.items(), key=lambda x: -x[1])
+                ],
+                "high_value_losses": high_value_losses,
+                "archived_students": archived,  # Full list for the table
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
