@@ -21,6 +21,347 @@ from google import genai
 from supabase import create_client, Client
 import traceback
 
+# ============================================================
+# RBAC — Role-Based Access Control Permission Engine
+# ============================================================
+
+class Roles:
+    """Centralised role constants. Use these instead of magic strings."""
+    MASTER_ADMIN = "MASTER_ADMIN"
+    TEAM_MANAGER = "Team Manager"
+    CORPORATE_AGENT = "Corporate Agent"
+    INDIVIDUAL_AGENT = "Individual Agent"
+    STUDENT_COUNSELOR = "Student Counselor"
+    
+    SOLO_ROLES = {INDIVIDUAL_AGENT, STUDENT_COUNSELOR}
+    MANAGER_ROLES = {TEAM_MANAGER, CORPORATE_AGENT}
+    ADMIN_ROLES = {MASTER_ADMIN}
+
+
+def _get_user_id(user_data: dict) -> int | None:
+    """Extract user ID from JWT payload safely."""
+    try:
+        return int(user_data.get("user_id") or user_data.get("id") or 0) or None
+    except (ValueError, TypeError):
+        return None
+
+
+def _get_subordinate_ids(conn, manager_id: int) -> set:
+    """
+    Returns IDs of all users who report to the given manager
+    (direct + indirect, walking the corporate hierarchy).
+    """
+    if not manager_id:
+        return set()
+    
+    subordinates = set()
+    to_check = [manager_id]
+    visited = set()
+    
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        while to_check:
+            parent_id = to_check.pop()
+            if parent_id in visited:
+                continue
+            visited.add(parent_id)
+            
+            cur.execute(
+                "SELECT id FROM users WHERE parent_corporate_id = %s",
+                (parent_id,)
+            )
+            for row in cur.fetchall():
+                child_id = row["id"]
+                if child_id not in subordinates:
+                    subordinates.add(child_id)
+                    to_check.append(child_id)
+    
+    return subordinates
+
+
+def _get_subordinate_names(conn, manager_id: int) -> set:
+    """Same as above but returns names (for matching against student.assignee)."""
+    if not manager_id:
+        return set()
+    
+    sub_ids = _get_subordinate_ids(conn, manager_id)
+    if not sub_ids:
+        return set()
+    
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            "SELECT name FROM users WHERE id = ANY(%s)",
+            (list(sub_ids),)
+        )
+        return {row["name"] for row in cur.fetchall() if row.get("name")}
+
+
+def is_master_admin(user_data: dict) -> bool:
+    return user_data.get("role") == Roles.MASTER_ADMIN
+
+
+def is_manager_role(user_data: dict) -> bool:
+    return user_data.get("role") in Roles.MANAGER_ROLES
+
+
+def is_solo_role(user_data: dict) -> bool:
+    return user_data.get("role") in Roles.SOLO_ROLES
+
+
+def can_view_student(conn, student_id, user_data: dict) -> bool:
+    """
+    Returns True if this user can VIEW the student.
+    Rules:
+    - Master Admin: yes
+    - Solo agent: only if they're in assignees array or legacy assignee
+    - Manager: if assigned to themselves OR to any of their subordinates
+    """
+    if is_master_admin(user_data):
+        return True
+    
+    user_name = user_data.get("name", "")
+    user_id = _get_user_id(user_data)
+    if not user_name:
+        return False
+    
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            "SELECT assignee, assignees FROM students WHERE id = %s",
+            (student_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        
+        # Build set of names with access: self + any subordinates (for managers)
+        allowed_names = {user_name}
+        if is_manager_role(user_data) and user_id:
+            allowed_names |= _get_subordinate_names(conn, user_id)
+        
+        # Check legacy single assignee
+        if row.get("assignee") in allowed_names:
+            return True
+        
+        # Check assignees JSONB array
+        assignees = row.get("assignees") or []
+        if isinstance(assignees, str):
+            try:
+                assignees = json.loads(assignees)
+            except Exception:
+                assignees = []
+        
+        return bool(set(assignees) & allowed_names)
+
+
+def can_edit_student(conn, student_id, user_data: dict) -> bool:
+    """Edit = same as view permission (anyone who can see can edit)."""
+    return can_view_student(conn, student_id, user_data)
+
+
+def can_reassign_student(conn, student_id, user_data: dict) -> bool:
+    """
+    Reassignment (changing who's assigned) is more restrictive than editing.
+    - Master Admin: yes
+    - Manager: only for students currently in their team
+    - Solo agent: NO — they can't move students elsewhere
+    """
+    if is_master_admin(user_data):
+        return True
+    if is_solo_role(user_data):
+        return False
+    return can_view_student(conn, student_id, user_data)
+
+
+def can_manage_agent(conn, target_agent_id, user_data: dict) -> dict:
+    """
+    Returns a dict describing what the user can do to this agent.
+    {
+        can_view: bool,
+        can_edit: bool,        # edit profile, capacity, etc.
+        can_archive: bool,
+        can_delete: bool,      # permanent
+        can_change_role: bool,
+    }
+    """
+    base = {
+        "can_view": False, "can_edit": False, "can_archive": False,
+        "can_delete": False, "can_change_role": False,
+    }
+    
+    if is_master_admin(user_data):
+        return {k: True for k in base}
+    
+    user_id = _get_user_id(user_data)
+    if not user_id:
+        return base
+    
+    # Editing yourself
+    if int(target_agent_id) == user_id:
+        return {
+            "can_view": True, "can_edit": True,  # own profile only
+            "can_archive": False, "can_delete": False, "can_change_role": False,
+        }
+    
+    # Manager editing subordinates
+    if is_manager_role(user_data):
+        subs = _get_subordinate_ids(conn, user_id)
+        if int(target_agent_id) in subs:
+            user_role = user_data.get("role")
+            return {
+                "can_view": True,
+                "can_edit": True,
+                "can_archive": user_role == Roles.CORPORATE_AGENT,
+                "can_delete": False,  # Master Admin only
+                "can_change_role": False,
+            }
+    
+    return base
+
+
+def get_visible_student_filter(user_data: dict, conn) -> tuple:
+    """
+    Returns (sql_fragment, params) to add to a WHERE clause to scope students
+    visible to this user. For Master Admin, returns ("TRUE", []).
+    
+    Usage:
+        clause, params = get_visible_student_filter(user_data, conn)
+        cur.execute(f"SELECT * FROM students WHERE {clause}", params)
+    """
+    if is_master_admin(user_data):
+        return ("TRUE", [])
+    
+    user_name = user_data.get("name", "")
+    user_id = _get_user_id(user_data)
+    
+    allowed_names = [user_name] if user_name else []
+    if is_manager_role(user_data) and user_id:
+        allowed_names.extend(_get_subordinate_names(conn, user_id))
+    
+    if not allowed_names:
+        return ("FALSE", [])
+    
+    # Build SQL: matches if assignee = ANY name OR assignees array contains ANY name
+    placeholders = ",".join(["%s"] * len(allowed_names))
+    
+    # JSONB containment check — assignees @> '["name"]'::jsonb for each name
+    # We use OR semantics: "any name in the allowed list appears in assignees"
+    or_clauses = " OR ".join([f"assignees @> %s::jsonb" for _ in allowed_names])
+    
+    clause = f"(assignee IN ({placeholders}) OR {or_clauses})"
+    params = list(allowed_names) + [json.dumps([n]) for n in allowed_names]
+    
+    return (clause, params)
+
+
+def get_visible_agent_filter(user_data: dict, conn) -> tuple:
+    """Returns (clause, params) to scope visible agents in /api/users."""
+    if is_master_admin(user_data):
+        return ("TRUE", [])
+    
+    user_id = _get_user_id(user_data)
+    if not user_id:
+        return ("FALSE", [])
+    
+    # Manager sees self + subordinates
+    if is_manager_role(user_data):
+        sub_ids = _get_subordinate_ids(conn, user_id)
+        all_ids = [user_id] + list(sub_ids)
+        placeholders = ",".join(["%s"] * len(all_ids))
+        return (f"id IN ({placeholders})", all_ids)
+    
+    # Solo: only self
+    return ("id = %s", [user_id])
+
+
+def require_master_admin(user_data: dict):
+    """Raise 403 unless user is Master Admin."""
+    if not is_master_admin(user_data):
+        raise HTTPException(
+            status_code=403,
+            detail="Master Admin access required for this action."
+        )
+
+
+def require_can_view_student(conn, student_id, user_data: dict):
+    """Raise 403 unless user can view this student."""
+    if not can_view_student(conn, student_id, user_data):
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have access to this student."
+        )
+
+
+def require_can_edit_student(conn, student_id, user_data: dict):
+    """Raise 403 unless user can edit this student."""
+    if not can_edit_student(conn, student_id, user_data):
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to edit this student."
+        )
+
+
+def require_can_reassign_student(conn, student_id, user_data: dict):
+    """Raise 403 unless user can reassign this student."""
+    if not can_reassign_student(conn, student_id, user_data):
+        raise HTTPException(
+            status_code=403,
+            detail="Only Master Admin or Managers can reassign students."
+        )
+
+
+def get_user_permissions(user_data: dict) -> dict:
+    """
+    Returns a dict of all permission flags for the frontend.
+    Called by /api/me/permissions endpoint.
+    """
+    role = user_data.get("role", "")
+    is_admin = role == Roles.MASTER_ADMIN
+    is_manager = role in Roles.MANAGER_ROLES
+    is_corporate = role == Roles.CORPORATE_AGENT
+    is_team_mgr = role == Roles.TEAM_MANAGER
+    is_solo = role in Roles.SOLO_ROLES
+    
+    return {
+        "role": role,
+        "is_master_admin": is_admin,
+        "is_manager": is_manager,
+        "is_solo": is_solo,
+        
+        # Navigation visibility
+        "can_view_main_dashboard": is_admin or is_manager,
+        "can_view_student_database": is_admin or is_manager,  # full database (with scope)
+        "can_view_archived_analytics": is_admin or is_manager,
+        "can_view_agent_management": is_admin or is_manager,
+        "can_view_marketing": is_admin or is_manager,
+        "can_view_budget_roi": is_admin or is_manager,
+        "can_view_strategy_intel": True,  # Everyone
+        "can_view_broadcast_hub": is_admin or is_manager,
+        
+        # Student actions
+        "can_create_student": True,  # Everyone with login
+        "can_reassign_students": is_admin or is_manager,
+        "can_multi_assign": is_admin or is_manager,
+        "can_archive_students_in_team": is_admin or is_manager,
+        "can_restore_archived": is_admin or is_manager,
+        "can_change_pipeline_status": True,  # but scoped
+        
+        # Agent management
+        "can_create_agent": is_admin or is_corporate,
+        "can_edit_team_agents": is_admin or is_manager,
+        "can_archive_agents": is_admin or is_corporate,
+        "can_delete_agents_permanent": is_admin,
+        "can_change_agent_roles": is_admin,
+        "can_set_agent_capacity": is_admin or is_manager,
+        
+        # System
+        "can_upload_sop_template": is_admin,
+        "can_download_sop_template": True,
+        "can_edit_institution_partners": is_admin,
+        "can_edit_commission_structure": is_admin,
+        "can_view_all_audit_logs": is_admin,
+        "can_view_team_audit_logs": is_manager,
+        "can_view_others_bank_details": is_admin,
+    }
+
 load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -717,7 +1058,13 @@ def login_user(req: LoginRequest):
 # --- 1. USER MANAGEMENT ---
 # =====================================================================
 @app.post("/api/users")
-def create_user_legacy(req: NewUserRequest):
+def create_user_legacy(req: NewUserRequest, user_data: dict = Depends(verify_token)):
+    # ⬇️ RBAC GUARD — only Master Admin and Corporate Agents can create new users
+    role = user_data.get("role")
+    if role not in (Roles.MASTER_ADMIN, Roles.CORPORATE_AGENT):
+        raise HTTPException(status_code=403, detail="Only Master Admin or Corporate Agents can create agents.")
+    # ⬆️ END GUARD
+    
     hashed_password = bcrypt.hashpw(req.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     conn = get_db_connection()
     try:
@@ -750,32 +1097,47 @@ def create_user_legacy(req: NewUserRequest):
 
 
 @app.get("/api/users")
-def get_all_users_legacy():
+def get_all_users_legacy(user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
     try:
+        # ⬇️ RBAC SCOPING — only show agents this user is allowed to see
+        clause, params = get_visible_agent_filter(user_data, conn)
+        # ⬆️ END SCOPING
+        
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT id, name, email, role, branch, phone, agent_type, corporation_name,
                        office_address, bank_name, bank_branch, bank_address, bank_account,
                        swift_code, max_capacity, commission_rate, parent_corporate_id,
                        emergency_contact, training_points,
                        COALESCE(is_active, true) as is_active,
                        COALESCE(is_archived, false) as is_archived
-                FROM users ORDER BY id DESC
-            """)
+                FROM users 
+                WHERE {clause}
+                ORDER BY id DESC
+            """, params)
             return {"status": "success", "data": cur.fetchall()}
     finally:
         conn.close()
 
 
 @app.put("/api/users/{user_id}")
-def update_system_user(user_id: int, req: UpdateSystemUser):
+def update_system_user(user_id: int, req: UpdateSystemUser, user_data: dict = Depends(verify_token)):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             data = req.dict(exclude_unset=True)
             if not data:
                 return {"status": "success"}
+            
+            # ⬇️ RBAC GUARD
+            perms = can_manage_agent(conn, user_id, user_data)
+            if not perms["can_edit"]:
+                raise HTTPException(status_code=403, detail="You cannot edit this agent's profile.")
+            if "role" in data and not perms["can_change_role"]:
+                raise HTTPException(status_code=403, detail="Only Master Admin can change agent roles.")
+            # ⬆️ END GUARD
+            
             if "password" in data and data["password"]:
                 data["password"] = bcrypt.hashpw(data["password"].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             updates = [f"{k} = %s" for k in data]
@@ -783,6 +1145,8 @@ def update_system_user(user_id: int, req: UpdateSystemUser):
             cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", tuple(params))
             conn.commit()
             return {"status": "success", "message": "User updated"}
+    except HTTPException:
+        raise
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -791,7 +1155,11 @@ def update_system_user(user_id: int, req: UpdateSystemUser):
 
 
 @app.delete("/api/users/{user_id}")
-def delete_system_user(user_id: int):
+def delete_system_user(user_id: int, user_data: dict = Depends(verify_token)):
+    # ⬇️ RBAC GUARD — only Master Admin can permanently delete users
+    require_master_admin(user_data)
+    # ⬆️ END GUARD
+    
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -1473,6 +1841,13 @@ def update_lead(case_id: str, req: UpdateLeadRequest, user_data: dict = Depends(
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            # ⬇️ RBAC GUARD — check if reassigning vs editing
+            is_reassign = req.assignee is not None or req.assigned_to is not None
+            if is_reassign:
+                require_can_reassign_student(conn, case_id, user_data)
+            else:
+                require_can_edit_student(conn, case_id, user_data)
+            # ⬆️ END GUARD
             updates = []
             params = []
             audit_details = {}
@@ -3350,6 +3725,14 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+             # ⬇️ RBAC GUARD — check permission based on what's being edited
+            incoming = student.dict(exclude_unset=True)
+            is_reassign = "assignee" in incoming or "assignees" in incoming
+            if is_reassign:
+                require_can_reassign_student(conn, student_id, current_user)
+            else:
+                require_can_edit_student(conn, student_id, current_user)
+            # ⬆️ END GUARD
             # 1. Fetch old values for comparison
             cur.execute("""
                 SELECT academic_field, career_goal, campus_env, country_interest,
@@ -5054,16 +5437,20 @@ def sop_template_info(user_data: dict = Depends(verify_token)):
 def get_archived_analytics(user_data: dict = Depends(verify_token)):
     """
     Comprehensive analytics for archived (lost) students.
-    Master Admin only. Returns all the data the frontend needs in one call.
+    Master Admin sees all. Team Managers / Corporate Agents see only their team's archived students.
     """
-    if user_data.get("role") != "MASTER_ADMIN":
-        raise HTTPException(status_code=403, detail="Master Admin access required.")
+    if not (is_master_admin(user_data) or is_manager_role(user_data)):
+        raise HTTPException(status_code=403, detail="Manager or Master Admin access required.")
     
     conn = get_db_connection()
     try:
+        # ⬇️ RBAC SCOPING — Master Admin sees all, Managers see their team only
+        scope_clause, scope_params = get_visible_student_filter(user_data, conn)
+        # ⬆️ END SCOPING
+        
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Get all archived students with rich data
-            cur.execute("""
+            # Get all archived students within scope
+            cur.execute(f"""
                 SELECT 
                     id, name, email, phone, status,
                     program_interest, country_interest, budget,
@@ -5072,19 +5459,21 @@ def get_archived_analytics(user_data: dict = Depends(verify_token)):
                     field_interests
                 FROM students
                 WHERE UPPER(COALESCE(status, '')) = 'ARCHIVED'
+                AND {scope_clause}
                 ORDER BY updated_at DESC NULLS LAST
-            """)
+            """, scope_params)
             archived = cur.fetchall()
             
-            # Also fetch total active + completed for context
-            cur.execute("""
+            # Also fetch total active + completed for context (within scope)
+            cur.execute(f"""
                 SELECT 
                     COUNT(*) FILTER (WHERE UPPER(COALESCE(status, '')) NOT IN ('ARCHIVED', 'COMPLETED', 'REJECTED')) AS active_count,
                     COUNT(*) FILTER (WHERE UPPER(COALESCE(status, '')) = 'COMPLETED') AS completed_count,
                     COUNT(*) FILTER (WHERE UPPER(COALESCE(status, '')) = 'ARCHIVED') AS archived_count,
                     COUNT(*) AS total_count
                 FROM students
-            """)
+                WHERE {scope_clause}
+            """, scope_params)
             counts = cur.fetchone()
         
         # Normalize archived rows
@@ -5313,3 +5702,11 @@ def get_archived_analytics(user_data: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
+
+@app.get("/api/me/permissions")
+def get_my_permissions(user_data: dict = Depends(verify_token)):
+    """Returns the current user's permission flags for the frontend."""
+    return {
+        "status": "success",
+        "data": get_user_permissions(user_data)
+    }
