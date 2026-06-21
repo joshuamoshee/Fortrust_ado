@@ -17,13 +17,13 @@ import {
 const translations = {
   EN: {
     agentWorkspace: "Agent Workspace",
-    archivedStudents: "Archived Analysis",
     studentPipeline: "Student Pipeline",
     programFinder: "Program Finder",
     adminTools: "Admin Tools",
     mainDashboard: "Main Dashboard",
     agentManagement: "Agent",
     globalStudents: "Student",
+    archivedStudents: "Archived Analysis",
     broadcasts: "Broadcast Hub",
     consultation: "Consultation",
     profilingTest: "Profiling Test",
@@ -48,13 +48,13 @@ const translations = {
   },
   ID: {
     agentWorkspace: "Ruang Kerja Agen",
-    archivedStudents: "Analisis Terarsip",
     studentPipeline: "Data Siswa",
     programFinder: "Pencari Program",
     adminTools: "Alat Admin",
     mainDashboard: "Dasbor Utama",
     agentManagement: "Agen",
     globalStudents: "Siswa",
+    archivedStudents: "Analisa Arsip",
     broadcasts: "Broadcast Hub",
     consultation: "Konsultasi",
     profilingTest: "Tes Profiling",
@@ -423,7 +423,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 {t.globalStudents}
               </Link>
 
-              
+              <Link href="/dashboard/archived-students" className={`flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 group ${pathname === '/dashboard/archived-students' ? 'bg-white/10 text-white font-semibold shadow-inner ring-1 ring-white/5' : 'font-medium text-slate-400 hover:bg-white/5 hover:text-white'}`}>
+                <Archive size={18} className={pathname === '/dashboard/archived-students' ? 'text-red-400' : 'text-slate-500 group-hover:text-white transition-colors'} />
+                {t.archivedStudents}
+              </Link>
  
               <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
 
