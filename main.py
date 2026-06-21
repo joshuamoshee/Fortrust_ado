@@ -4753,3 +4753,130 @@ async def delete_document(
             cur.close()
         if conn:
             conn.close()
+# ============================================================
+# SOP TEMPLATE — Master Admin uploads once, everyone downloads
+# ============================================================
+
+@app.post("/api/templates/sop")
+async def upload_sop_template(
+    file: UploadFile = File(...),
+    user_data: dict = Depends(verify_token)
+):
+    """Master Admin only — upload/replace the global SOP template."""
+    if user_data.get("role") != "MASTER_ADMIN":
+        raise HTTPException(status_code=403, detail="Only Master Admin can upload templates.")
+    
+    allowed_extensions = ['.pdf', '.docx', '.doc']
+    file_ext = os.path.splitext(file.filename or "")[1].lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Only PDF, DOC, or DOCX files allowed.")
+    
+    try:
+        contents = await file.read()
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File too large. Max 10MB.")
+        
+        storage_path = f"templates/sop_template{file_ext}"
+        
+        # Remove existing file if any
+        try:
+            supabase.storage.from_("student-documents").remove([storage_path])
+        except Exception:
+            pass
+        
+        supabase.storage.from_("student-documents").upload(
+            path=storage_path,
+            file=contents,
+            file_options={"content-type": file.content_type or "application/pdf"}
+        )
+        
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO app_settings (key, value, updated_by, updated_at)
+                    VALUES ('sop_template_path', %s, %s, NOW())
+                    ON CONFLICT (key) DO UPDATE SET 
+                        value = EXCLUDED.value, 
+                        updated_by = EXCLUDED.updated_by, 
+                        updated_at = NOW()
+                """, (storage_path, user_data.get("name", "Master Admin")))
+                conn.commit()
+        finally:
+            conn.close()
+        
+        return {
+            "status": "success",
+            "message": "SOP template uploaded successfully.",
+            "filename": file.filename,
+            "storage_path": storage_path
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.get("/api/templates/sop")
+def download_sop_template(user_data: dict = Depends(verify_token)):
+    """Any authenticated user can download the SOP template."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT value FROM app_settings WHERE key = 'sop_template_path'")
+            row = cur.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="SOP template not yet uploaded.")
+            
+            storage_path = row["value"]
+        
+        file_bytes = supabase.storage.from_("student-documents").download(storage_path)
+        
+        ext = os.path.splitext(storage_path)[1].lower()
+        media_type = "application/pdf"
+        if ext in [".docx", ".doc"]:
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        
+        return Response(
+            content=file_bytes,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="Fortrust_SOP_Template{ext}"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
+    finally:
+        conn.close()
+
+
+@app.get("/api/templates/sop/info")
+def sop_template_info(user_data: dict = Depends(verify_token)):
+    """Check if SOP template exists + metadata."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT value, updated_by, updated_at 
+                FROM app_settings 
+                WHERE key = 'sop_template_path'
+            """)
+            row = cur.fetchone()
+            
+            if not row:
+                return {"status": "success", "exists": False}
+            
+            return {
+                "status": "success",
+                "exists": True,
+                "uploaded_by": row.get("updated_by"),
+                "uploaded_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+                "filename": os.path.basename(row["value"])
+            }
+    finally:
+        conn.close()
