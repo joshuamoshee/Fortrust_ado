@@ -372,6 +372,43 @@ def get_current_master_admin(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Token has expired. Please log in again.")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token.")
+    
+def can_access_student_chat(conn, student_id, user_data: dict) -> bool:
+    """
+    Returns True if user can view/post in this student's chat.
+    Rules:
+    - Master Admin: always yes
+    - Other users: must be in the student's `assignees` array OR be the legacy `assignee`
+    """
+    if user_data.get("role") == "MASTER_ADMIN":
+        return True
+    
+    user_name = user_data.get("name", "")
+    if not user_name:
+        return False
+    
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            "SELECT assignee, assignees FROM students WHERE id = %s",
+            (student_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return False
+        
+        # Check legacy single assignee
+        if row.get("assignee") == user_name:
+            return True
+        
+        # Check assignees array
+        assignees = row.get("assignees") or []
+        if isinstance(assignees, str):
+            try:
+                assignees = json.loads(assignees)
+            except Exception:
+                assignees = []
+        
+        return user_name in assignees
 
 
 # =====================================================================
@@ -1870,71 +1907,115 @@ def extract_mentions(message_text: str, conn):
 
 
 @app.get("/api/pipeline/{case_id}/chat")
-def get_chat_messages(case_id: int, user_data: dict = Depends(verify_token)):
+def get_chat_messages(case_id: str, user_data: dict = Depends(verify_token)):
+    """
+    Returns ONLY real team messages (no SYSTEM events).
+    Restricted to assignees + Master Admin.
+    """
     conn = get_db_connection()
     try:
+        # Access check
+        if not can_access_student_chat(conn, case_id, user_data):
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have access to this student's chat."
+            )
+        
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Filter out SYSTEM messages — they belong in audit, not chat
             cur.execute("""
-                SELECT id, student_id, sender, message, mentioned_users, read_by, is_system, 
-                       to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') as created_at
-                FROM chat_messages 
-                WHERE student_id = %s 
+                SELECT id, student_id, sender, message, mentioned_users, 
+                       read_by, is_system, created_at
+                FROM chat_messages
+                WHERE student_id = %s
+                AND is_system = FALSE
+                AND sender NOT IN ('System', 'System AI', 'SYSTEM')
+                AND message NOT LIKE 'SYSTEM:%%'
                 ORDER BY created_at ASC
             """, (case_id,))
-            return {"status": "success", "data": cur.fetchall()}
+            messages = cur.fetchall()
+            
+            # Normalize for frontend
+            for m in messages:
+                m['id'] = str(m['id'])
+                if m.get('created_at'):
+                    m['created_at'] = m['created_at'].isoformat()
+                if m.get('mentioned_users') is None:
+                    m['mentioned_users'] = []
+                if m.get('read_by') is None:
+                    m['read_by'] = []
+            
+            return {"status": "success", "data": messages}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
 
 @app.post("/api/pipeline/{case_id}/chat")
-def create_chat_message(case_id: int, req: ChatMessageCreate, user_data: dict = Depends(verify_token)):
-    sender_name = user_data.get("name", "Unknown")
+def post_chat_message(
+    case_id: str,
+    body: dict,
+    user_data: dict = Depends(verify_token)
+):
+    """
+    Post a NEW human message. Restricted to assignees + Master Admin.
+    Reject any attempt to post SYSTEM messages here.
+    """
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    
+    # Safety: prevent users from impersonating the system
+    if message.upper().startswith("SYSTEM:"):
+        raise HTTPException(
+            status_code=400,
+            detail="Messages cannot start with 'SYSTEM:'. That's reserved for audit events."
+        )
+    
     conn = get_db_connection()
     try:
-        # Parse mentions
-        mentions = extract_mentions(req.message, conn)
+        # Access check
+        if not can_access_student_chat(conn, case_id, user_data):
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have access to post in this student's chat."
+            )
         
-        with conn.cursor() as cur:
-            # Insert message
+        sender_name = user_data.get("name", "Unknown User")
+        
+        # Extract @mentions
+        import re
+        mentions = re.findall(r'@(\w+)', message)
+        
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                INSERT INTO chat_messages (student_id, sender, message, mentioned_users, read_by, is_system)
-                VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, FALSE)
-                RETURNING id, created_at
-            """, (
-                case_id, sender_name, req.message, 
-                json.dumps(mentions), json.dumps([{"user": sender_name, "read_at": datetime.now().strftime("%Y-%m-%d %H:%M")}])
-            ))
-            row = cur.fetchone()
-            msg_id = row[0]
-            created_at = row[1]
-            
-            # Create notifications for mentioned users
-            for user in mentions:
-                if user != sender_name:
-                    cur.execute("""
-                        INSERT INTO notifications (recipient_username, sender, message)
-                        VALUES (%s, %s, %s)
-                    """, (user, sender_name, f"You were mentioned by {sender_name} in chat: \"{req.message[:50]}...\""))
-            
+                INSERT INTO chat_messages 
+                    (student_id, sender, message, mentioned_users, is_system, created_at)
+                VALUES (%s, %s, %s, %s, FALSE, NOW())
+                RETURNING id, student_id, sender, message, mentioned_users, 
+                          is_system, created_at
+            """, (case_id, sender_name, message, json.dumps(mentions)))
+            new_message = cur.fetchone()
             conn.commit()
-            return {
-                "status": "success",
-                "data": {
-                    "id": msg_id,
-                    "student_id": case_id,
-                    "sender": sender_name,
-                    "message": req.message,
-                    "mentioned_users": mentions,
-                    "read_by": [{"user": sender_name, "read_at": datetime.now().strftime("%Y-%m-%d %H:%M")}],
-                    "is_system": False,
-                    "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S")
-                }
-            }
+            
+            # Normalize
+            new_message['id'] = str(new_message['id'])
+            if new_message.get('created_at'):
+                new_message['created_at'] = new_message['created_at'].isoformat()
+            new_message['read_by'] = []
+            if new_message.get('mentioned_users') is None:
+                new_message['mentioned_users'] = []
+            
+            return {"status": "success", "data": new_message}
+    except HTTPException:
+        raise
     except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
@@ -1967,6 +2048,94 @@ def mark_chat_as_read(case_id: int, user_data: dict = Depends(verify_token)):
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    finally:
+        conn.close()
+        
+@app.get("/api/pipeline/{case_id}/audit-trail")
+def get_student_audit_trail(case_id: str, user_data: dict = Depends(verify_token)):
+    """
+    Returns the audit trail for a single student — SYSTEM events extracted from
+    both chat_messages (legacy) and timeline column.
+    Same access rule as chat.
+    """
+    conn = get_db_connection()
+    try:
+        # Access check (same as chat)
+        if not can_access_student_chat(conn, case_id, user_data):
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have access to this student's audit trail."
+            )
+        
+        events = []
+        
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # 1) Pull SYSTEM messages from chat_messages
+            cur.execute("""
+                SELECT id, sender, message, created_at
+                FROM chat_messages
+                WHERE student_id = %s
+                AND (
+                    is_system = TRUE
+                    OR sender IN ('System', 'System AI', 'SYSTEM')
+                    OR message LIKE 'SYSTEM:%%'
+                )
+                ORDER BY created_at DESC
+            """, (case_id,))
+            sys_msgs = cur.fetchall()
+            
+            for m in sys_msgs:
+                # Strip "SYSTEM:" prefix for cleaner display
+                msg_text = m['message'] or ''
+                if msg_text.upper().startswith("SYSTEM:"):
+                    msg_text = msg_text[7:].strip()
+                
+                events.append({
+                    "id": f"chat-{m['id']}",
+                    "type": "system_event",
+                    "actor": m['sender'] if m['sender'] not in ('System', 'System AI', 'SYSTEM') else None,
+                    "message": msg_text,
+                    "timestamp": m['created_at'].isoformat() if m['created_at'] else None
+                })
+            
+            # 2) Also pull from timeline JSONB column (legacy notes that have SYSTEM)
+            cur.execute("""
+                SELECT timeline
+                FROM students
+                WHERE id = %s
+            """, (case_id,))
+            row = cur.fetchone()
+            
+            if row and row.get('timeline'):
+                timeline = row['timeline']
+                if isinstance(timeline, str):
+                    try:
+                        timeline = json.loads(timeline)
+                    except Exception:
+                        timeline = []
+                
+                if isinstance(timeline, list):
+                    for entry in timeline:
+                        note = entry.get('note', '') or ''
+                        if note.upper().startswith("SYSTEM:") or entry.get('author') in ('System', 'System AI'):
+                            cleaned = note[7:].strip() if note.upper().startswith("SYSTEM:") else note
+                            events.append({
+                                "id": f"timeline-{entry.get('date', '')}",
+                                "type": "system_event",
+                                "actor": entry.get('author') if entry.get('author') not in ('System', 'System AI') else None,
+                                "message": cleaned,
+                                "timestamp": entry.get('date')
+                            })
+        
+        # Sort by timestamp descending (newest first)
+        events.sort(key=lambda e: e.get('timestamp') or '', reverse=True)
+        
+        return {"status": "success", "data": events, "count": len(events)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
 
