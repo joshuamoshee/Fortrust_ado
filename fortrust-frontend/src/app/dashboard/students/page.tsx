@@ -631,6 +631,44 @@ export default function GlobalStudentDatabase() {
       setTimeout(() => setNotification(null), 4000);
     }
   };
+  const handleDownloadSopTemplate = async () => {
+  try {
+    const token = localStorage.getItem("fortrust_token");
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/templates/sop`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      if (res.status === 404) {
+        setNotification({type: 'error', message: "SOP template not uploaded yet. Ask Master Admin to upload it via Settings → Templates."});
+      } else {
+        setNotification({type: 'error', message: errData.detail || "Could not download template."});
+      }
+      setTimeout(() => setNotification(null), 5000);
+      return;
+    }
+    
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    // Detect extension from response headers
+    const cd = res.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="?([^";]+)"?/);
+    link.download = match ? match[1] : 'Fortrust_SOP_Template.pdf';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    setNotification({type: 'success', message: "SOP template downloaded."});
+    setTimeout(() => setNotification(null), 3000);
+  } catch (e) {
+    setNotification({type: 'error', message: "Network error while downloading template."});
+    setTimeout(() => setNotification(null), 4000);
+  }
+};
 
   const getStatusColor = (status: string) => {
     const s = (status || "").toUpperCase();
@@ -1458,8 +1496,12 @@ export default function GlobalStudentDatabase() {
                                 </div>
                                 <p className="text-xs text-slate-500 mt-0.5">{cat.description}</p>
                                 {cat.type === "SOP" && (
-                                  <button onClick={() => alert("Downloading SOP Template... (To be linked to backend)")} className="text-[10px] font-bold text-blue-600 hover:text-blue-800 mt-1 flex items-center gap-1 transition-colors">
-                                    <Download size={10}/> Download Sample SOP Template
+                                  <button 
+                                    type="button"
+                                    onClick={handleDownloadSopTemplate} 
+                                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800 mt-1 flex items-center gap-1 transition-colors hover:underline"
+                                  >
+                                    <Download size={10}/> Download SOP Template
                                   </button>
                                 )}
                               </div>

@@ -10,7 +10,7 @@ import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
   ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe
+  GraduationCap, Globe, FileText, Upload, Download, Loader2
 } from "lucide-react";
  
 // --- TRANSLATION DICTIONARY ---
@@ -91,7 +91,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   // Tutorial & Settings States
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
-  const [settingsTab, setSettingsTab] = useState<"preferences" | "security" | "bank">("preferences");
+  const [settingsTab, setSettingsTab] = useState<"preferences" | "security" | "bank" | "templates">("preferences");
+  const [sopTemplateInfo, setSopTemplateInfo] = useState<{exists: boolean; uploaded_by?: string; uploaded_at?: string; filename?: string} | null>(null);
+  const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
+  const [templateMessage, setTemplateMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
   
   // Language State
   const [language, setLanguage] = useState<"EN" | "ID">("EN");
@@ -168,6 +171,32 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       return () => clearInterval(interval);
     }
   }, [isLoaded, user]);
+  useEffect(() => {
+  if (!showSettings || user?.role !== "MASTER_ADMIN" || settingsTab !== "templates") return;
+  
+  const fetchTemplateInfo = async () => {
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/templates/sop/info`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        setSopTemplateInfo({
+          exists: data.exists,
+          uploaded_by: data.uploaded_by,
+          uploaded_at: data.uploaded_at,
+          filename: data.filename
+        });
+      }
+    } catch (e) {
+      console.error("Failed to fetch template info");
+    }
+  };
+  fetchTemplateInfo();
+}, [showSettings, user, settingsTab]);
+
+
  
   const handleLogout = () => {
     localStorage.removeItem("fortrust_user");
@@ -205,6 +234,41 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setPasswordMessage({ type: 'error', text: "Network Error." });
     } finally {
       setIsChangingPassword(false);
+    }
+  };
+
+    const handleTemplateUpload = async (file: File) => {
+    setIsUploadingTemplate(true);
+    setTemplateMessage(null);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const formData = new FormData();
+      formData.append("file", file);
+      
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/templates/sop`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        setTemplateMessage({ type: 'success', text: "SOP template uploaded successfully!" });
+        // Refresh info
+        setSopTemplateInfo({
+          exists: true,
+          uploaded_by: user.name,
+          uploaded_at: new Date().toISOString(),
+          filename: file.name
+        });
+      } else {
+        setTemplateMessage({ type: 'error', text: data.detail || "Upload failed." });
+      }
+    } catch (err) {
+      setTemplateMessage({ type: 'error', text: "Network error during upload." });
+    } finally {
+      setIsUploadingTemplate(false);
+      setTimeout(() => setTemplateMessage(null), 4000);
     }
   };
  
@@ -605,6 +669,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   <Landmark size={16}/> Bank & Commissions
                 </button>
               )}
+              {user.role === "MASTER_ADMIN" && (
+                <button onClick={() => setSettingsTab('templates')} className={`flex-1 py-3 text-sm font-bold transition-colors flex items-center justify-center gap-2 ${settingsTab === 'templates' ? 'text-[#282860] border-b-2 border-[#282860] bg-white' : 'text-slate-400'}`}>
+                  <FileText size={16}/> Templates
+                </button>
+              )}
             </div>
  
             <div className="p-5 lg:p-6 overflow-y-auto flex-1">
@@ -709,6 +778,104 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                     </button>
                   </div>
                 </form>
+              )}
+              {/* TAB 4: TEMPLATES (Master Admin only) */}
+              {settingsTab === 'templates' && user.role === "MASTER_ADMIN" && (
+                <div className="space-y-5 animate-in fade-in">
+                  <h3 className="text-sm font-black text-slate-800 border-b border-slate-100 pb-2 flex items-center gap-2">
+                    <FileText size={16} className="text-slate-400" /> Document Templates
+                  </h3>
+                  
+                  {templateMessage && (
+                    <div className={`p-3 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                      templateMessage.type === 'success' 
+                        ? 'bg-green-50 text-green-700 border border-green-200' 
+                        : 'bg-red-50 text-red-700 border border-red-200'
+                    }`}>
+                      {templateMessage.type === 'success' ? <CheckCircle size={14}/> : <ShieldAlert size={14}/>}
+                      {templateMessage.text}
+                    </div>
+                  )}
+                  
+                  {/* SOP TEMPLATE CARD */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                          <FileText size={20} className="text-blue-600"/>
+                        </div>
+                        <div>
+                          <h4 className="font-black text-[#282860]">Statement of Purpose (SOP) Template</h4>
+                          <p className="text-xs text-slate-500 mt-0.5">Shared template — students and agents can download from doc vault.</p>
+                        </div>
+                      </div>
+                      {sopTemplateInfo?.exists && (
+                        <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider rounded-full">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    
+                    {sopTemplateInfo?.exists ? (
+                      <div className="bg-white rounded-lg p-3 border border-slate-200 mb-3 text-xs">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <CheckCircle size={12} className="text-emerald-500"/>
+                          <span className="font-bold">{sopTemplateInfo.filename}</span>
+                        </div>
+                        {sopTemplateInfo.uploaded_by && (
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            Uploaded by {sopTemplateInfo.uploaded_by}
+                            {sopTemplateInfo.uploaded_at && ` • ${new Date(sopTemplateInfo.uploaded_at).toLocaleDateString()}`}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-xs text-amber-700 font-bold">
+                        ⚠️ No template uploaded yet. Students will see an error if they try to download.
+                      </div>
+                    )}
+                    
+                    <label className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold cursor-pointer transition-all shadow-md active:scale-95 ${
+                      isUploadingTemplate 
+                        ? 'bg-slate-200 text-slate-500 cursor-not-allowed' 
+                        : 'bg-[#282860] hover:bg-[#1b1b42] text-white'
+                    }`}>
+                      {isUploadingTemplate ? (
+                        <><Loader2 size={16} className="animate-spin"/> Uploading...</>
+                      ) : (
+                        <><Upload size={16}/> {sopTemplateInfo?.exists ? "Replace Template" : "Upload Template"}</>
+                      )}
+                      <input 
+                        type="file" 
+                        accept=".pdf,.doc,.docx"
+                        className="hidden" 
+                        disabled={isUploadingTemplate}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleTemplateUpload(e.target.files[0]);
+                          }
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <p className="text-[10px] text-slate-400 text-center mt-2">Accepts PDF, DOC, DOCX • Max 10MB</p>
+                    
+                    {sopTemplateInfo?.exists && (
+                      <a 
+                        href={`${process.env.NEXT_PUBLIC_API_URL}/api/templates/sop`}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="block text-center mt-3 text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                      >
+                        Preview current template →
+                      </a>
+                    )}
+                  </div>
+                  
+                  <p className="text-[10px] text-slate-400">
+                    Templates are shared across the entire network. Once uploaded, all agents and students will see the template in their document vault under the SOP category.
+                  </p>
+                </div>
               )}
             </div>
           </div>
