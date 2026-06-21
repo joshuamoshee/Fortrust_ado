@@ -1690,27 +1690,49 @@ export default function GlobalStudentDatabase() {
               )}
 
               {/* TEAM COLLAB TAB (WhatsApp-style real-time chat) */}
-                {dossierTab === 'notes' && editingStudent && (() => {
-                  // Get current user name from JWT token
-                  let currentUserName = "Master Admin";
-                  try {
-                    const token = localStorage.getItem("fortrust_token");
-                    if (token) {
-                      const payload = JSON.parse(atob(token.split('.')[1]));
-                      currentUserName = payload.name || "Master Admin";
-                    }
-                  } catch (e) {}
+              {dossierTab === 'notes' && editingStudent && (() => {
+                // Get current user info from JWT token
+                let currentUserName = "Master Admin";
+                let currentUserRole = "MASTER_ADMIN";
+                try {
+                  const token = localStorage.getItem("fortrust_token");
+                  if (token) {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    currentUserName = payload.name || "Master Admin";
+                    currentUserRole = payload.role || "";
+                  }
+                } catch (e) {}
 
-                  return (
-                    <TeamCollabChat
-                      studentId={editingStudent.id}
-                      currentUserName={currentUserName}
-                      apiUrl={process.env.NEXT_PUBLIC_API_URL || ""}
-                      token={localStorage.getItem("fortrust_token") || ""}
-                      pollInterval={3000}
-                    />
-                  );
-                })()}
+                // Build the list of who's in the conversation (assignees array, with legacy fallback)
+                let studentAssignees: string[] = [];
+                try {
+                  const raw = editingStudent.assignees;
+                  if (Array.isArray(raw)) {
+                    studentAssignees = raw.filter(Boolean);
+                  } else if (typeof raw === "string" && raw.startsWith("[")) {
+                    const parsed = JSON.parse(raw);
+                    studentAssignees = Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+                  }
+                } catch {
+                  studentAssignees = [];
+                }
+                // Fall back to legacy single assignee if the array is empty
+                if (studentAssignees.length === 0 && editingStudent.assignee && editingStudent.assignee !== "Unassigned") {
+                  studentAssignees = [editingStudent.assignee];
+                }
+
+                return (
+                  <TeamCollabChat
+                    studentId={editingStudent.id}
+                    currentUserName={currentUserName}
+                    currentUserRole={currentUserRole}
+                    studentAssignees={studentAssignees}
+                    apiUrl={process.env.NEXT_PUBLIC_API_URL || ""}
+                    token={localStorage.getItem("fortrust_token") || ""}
+                    pollInterval={3000}
+                  />
+                );
+              })()}
             </div>
             
             {dossierTab === 'profile' && (

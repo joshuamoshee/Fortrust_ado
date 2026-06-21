@@ -10,13 +10,14 @@ import {
   LayoutDashboard, ShieldAlert, LogOut, Bell, Settings, Users, BookOpen, 
   Megaphone, X, Lock, CheckCircle, Menu, Building2, DollarSign, Landmark, 
   ChevronDown, HelpCircle, ChevronRight, ChevronLeft, BrainCircuit, 
-  GraduationCap, Globe, FileText, Upload, Download, Loader2
+  GraduationCap, Globe, FileText, Upload, Download, Loader2, Archive
 } from "lucide-react";
  
 // --- TRANSLATION DICTIONARY ---
 const translations = {
   EN: {
     agentWorkspace: "Agent Workspace",
+    archivedStudents: "Archived Analysis",
     studentPipeline: "Student Pipeline",
     programFinder: "Program Finder",
     adminTools: "Admin Tools",
@@ -47,6 +48,7 @@ const translations = {
   },
   ID: {
     agentWorkspace: "Ruang Kerja Agen",
+    archivedStudents: "Analisis Terarsip",
     studentPipeline: "Data Siswa",
     programFinder: "Pencari Program",
     adminTools: "Alat Admin",
@@ -420,6 +422,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <GraduationCap size={18} className={pathname === '/dashboard/students' ? 'text-[#BAD133]' : 'text-slate-500 group-hover:text-white transition-colors'} />
                 {t.globalStudents}
               </Link>
+
+              
  
               <SidebarMenu label={t.institutionPartners} icon={<Building2 size={18} />} activePath={pathname} menuItems={[ { label: t.agreement, href: '/dashboard/network' }, { label: t.contactPerson, href: '/dashboard/contact-person' }, { label: t.commissionStructure, href: '/dashboard/commission-structure' } ]} />
 
