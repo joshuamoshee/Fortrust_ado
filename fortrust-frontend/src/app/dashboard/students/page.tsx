@@ -1,7 +1,8 @@
 "use client";
-
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import AssigneePicker from "@/components/AssigneePicker";
+
 import TeamCollabChat from "@/components/TeamCollabChat";
 import { 
   Search, Filter, GraduationCap, Building, MapPin, 
@@ -153,6 +154,8 @@ function getOtherDocs(allDocs: any[]): any[] {
 }
 
 export default function GlobalStudentDatabase() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -200,6 +203,20 @@ export default function GlobalStudentDatabase() {
   const [notification, setNotification] = useState<{type: 'success'|'error', message: string} | null>(null);
 
   useEffect(() => { fetchData(); }, []);
+
+  // Auto-open dossier when arriving from Kanban with ?openId=...
+  useEffect(() => {
+    const openId = searchParams.get("openId");
+    if (!openId || allStudents.length === 0) return;
+    
+    const target = allStudents.find(s => String(s.id) === String(openId));
+    if (target) {
+      setEditingStudent(target);
+      setDossierTab("profile");
+      // Clean URL — remove the param so refresh doesn't reopen
+      router.replace("/dashboard/students", { scroll: false });
+    }
+  }, [searchParams, allStudents, router]);
 
   // Load field_interests and profile from the student record when dossier opens
   useEffect(() => {
@@ -1320,10 +1337,41 @@ export default function GlobalStudentDatabase() {
 
                       {/* CAREER GOAL */}
                       <div>
-                        <div className="border-b border-slate-100 pb-3 mb-4">
-                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest">Primary Post-Graduation Career Goal</h4>
+                        <div className="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
+                          <div>
+                            <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest">Primary Post-Graduation Career Goal</h4>
+                            <p className="text-xs text-slate-500 mt-1.5">Select up to <strong className="text-[#282860]">2 career goals</strong>.</p>
+                          </div>
+                          <span className={`text-xs font-black px-3 py-1.5 rounded-lg shrink-0 ${
+                            careerGoals.length === 0 
+                              ? 'bg-slate-100 text-slate-400' 
+                              : careerGoals.length === 2 
+                              ? 'bg-emerald-100 text-emerald-700' 
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {careerGoals.length} / 2 selected
+                          </span>
                         </div>
-                        <p className="text-xs text-slate-500 mb-2">Select up to 2 goals.</p>
+                        
+                        {/* Selected chips preview */}
+                        {careerGoals.length > 0 && (
+                          <div className="mb-3 flex flex-wrap gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 self-center">Selected:</span>
+                            {careerGoals.map(g => (
+                              <span key={`chip-${g}`} className="bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                                {g}
+                                <button 
+                                  type="button"
+                                  onClick={() => setCareerGoals(prev => prev.filter(item => item !== g))}
+                                  className="hover:bg-emerald-700 rounded-full p-0.5 transition-colors"
+                                >
+                                  <X size={10}/>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        
                         <div className="flex flex-wrap gap-2">
                           {CAREER_GOALS.map(goal => {
                             const isSelected = careerGoals.includes(goal);
@@ -1331,14 +1379,20 @@ export default function GlobalStudentDatabase() {
                             return (
                               <button key={goal} type="button" disabled={isMaxed && goal !== "Other"}
                                 onClick={() => {
-                                  if (isSelected) setCareerGoals(prev => prev.filter(g => g !== goal));
-                                  else if (careerGoals.length < 2) setCareerGoals(prev => [...prev, goal]);
+                                  if (isSelected) {
+                                    setCareerGoals(prev => prev.filter(g => g !== goal));
+                                  } else if (careerGoals.length < 2) {
+                                    setCareerGoals(prev => [...prev, goal]);
+                                  }
                                 }}
-                                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-colors ${
-                                  isSelected ? 'bg-[#282860] text-white border-[#1b1b42] shadow-md' 
-                                  : isMaxed ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed' 
-                                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                className={`px-4 py-2.5 rounded-xl text-xs font-bold border-2 transition-all flex items-center gap-1.5 ${
+                                  isSelected 
+                                    ? 'bg-[#282860] text-white border-[#BAD133] shadow-md ring-2 ring-[#BAD133]/30' 
+                                    : isMaxed 
+                                    ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed' 
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-[#282860] active:scale-95'
                                 }`}>
+                                {isSelected && <CheckCircle2 size={12} className="text-[#BAD133]"/>}
                                 {goal}
                               </button>
                             );
@@ -1373,12 +1427,46 @@ export default function GlobalStudentDatabase() {
 
                       {/* PREFERRED STUDY DESTINATION */}
                       <div>
-                        <div className="border-b border-slate-100 pb-3 mb-4">
-                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
-                            <MapPin size={16} className="text-rose-500"/> Preferred Study Destination
-                          </h4>
-                          <p className="text-xs text-slate-500 mt-1.5">Select up to 2 countries. Used by AI for university matching.</p>
+                        <div className="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
+                          <div>
+                            <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
+                              <MapPin size={16} className="text-rose-500"/> Preferred Study Destination
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-1.5">Select up to <strong className="text-[#282860]">2 countries</strong>. Used by AI for matching.</p>
+                          </div>
+                          <span className={`text-xs font-black px-3 py-1.5 rounded-lg shrink-0 ${
+                            countryInterests.length === 0 
+                              ? 'bg-slate-100 text-slate-400' 
+                              : countryInterests.length === 2 
+                              ? 'bg-emerald-100 text-emerald-700' 
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {countryInterests.length} / 2 selected
+                          </span>
                         </div>
+                        
+                        {/* Selected countries preview */}
+                        {countryInterests.length > 0 && (
+                          <div className="mb-3 flex flex-wrap gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-rose-700 self-center">Selected:</span>
+                            {countryInterests.map(cv => {
+                              const country = FORTRUST_COUNTRIES.find(c => c.value === cv);
+                              return (
+                                <span key={`chip-${cv}`} className="bg-rose-600 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                                  {country?.label || cv}
+                                  <button 
+                                    type="button"
+                                    onClick={() => setCountryInterests(prev => prev.filter(c => c !== cv))}
+                                    className="hover:bg-rose-700 rounded-full p-0.5 transition-colors"
+                                  >
+                                    <X size={10}/>
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           {FORTRUST_COUNTRIES.map(country => {
                             const isSelected = countryInterests.includes(country.value);
@@ -1396,13 +1484,14 @@ export default function GlobalStudentDatabase() {
                                     setCountryInterests(prev => [...prev, country.value]);
                                   }
                                 }}
-                                className={`px-4 py-2.5 rounded-xl text-xs font-bold border transition-colors text-left ${
+                                className={`px-4 py-2.5 rounded-xl text-xs font-bold border-2 transition-all flex items-center gap-1.5 text-left ${
                                   isSelected
-                                    ? 'bg-[#BAD133] text-[#1b1b42] border-[#BAD133] shadow-md'
+                                    ? 'bg-[#BAD133] text-[#1b1b42] border-[#1b1b42] shadow-md ring-2 ring-[#1b1b42]/20'
                                     : isMaxed 
                                     ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
-                                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-rose-300 active:scale-95'
                                 }`}>
+                                {isSelected && <CheckCircle2 size={12} className="text-[#1b1b42]"/>}
                                 {country.label}
                               </button>
                             );

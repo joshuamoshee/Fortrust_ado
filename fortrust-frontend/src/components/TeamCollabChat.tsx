@@ -27,6 +27,12 @@ interface AuditEvent {
   timestamp: string | null;
 }
 
+interface Agent {
+  id: number | string;
+  name: string;
+  role?: string;
+}
+
 interface TeamCollabChatProps {
   studentId: number | string;
   currentUserName: string;
@@ -34,10 +40,10 @@ interface TeamCollabChatProps {
   token: string;
   pollInterval?: number;
   className?: string;
-  /** Array of assignee names + Master Admin is always allowed */
   studentAssignees?: string[];
-  /** Current user's role — Master Admin always has access */
   currentUserRole?: string;
+  /** Optional: pre-loaded list of agents. If not provided, component will fetch them. */
+  allAgents?: Agent[];
 }
 
 export default function TeamCollabChat({
@@ -49,17 +55,25 @@ export default function TeamCollabChat({
   className = "",
   studentAssignees = [],
   currentUserRole = "",
+  allAgents: passedAgents,
 }: TeamCollabChatProps) {
   // Sub-tab state: "chat" or "audit"
   const [activeSubtab, setActiveSubtab] = useState<"chat" | "audit">("chat");
   
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
+  
+  // @mention dropdown state
+  const [allAgents, setAllAgents] = useState<Agent[]>(passedAgents || []);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionStartIdx, setMentionStartIdx] = useState<number | null>(null);
+  const [mentionActiveIdx, setMentionActiveIdx] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -162,6 +176,34 @@ export default function TeamCollabChat({
     }
   }, [apiUrl, studentId, token]);
 
+
+  // ============================================================
+  // FETCH AGENTS (for @mention dropdown)
+  // ============================================================
+  useEffect(() => {
+    if (passedAgents && passedAgents.length > 0) {
+      setAllAgents(passedAgents);
+      return;
+    }
+    // Otherwise fetch
+    const fetchAgents = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/users`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.status === "success" && Array.isArray(data.data)) {
+          setAllAgents(data.data.filter((u: any) => u.name && !u.is_archived));
+        }
+      } catch (e) {
+        console.warn("Could not load agents for @mention");
+      }
+    };
+    fetchAgents();
+  }, [apiUrl, token, passedAgents]);
+
+
+
   // ============================================================
   // POLLING — only when on chat tab
   // ============================================================
@@ -194,6 +236,32 @@ export default function TeamCollabChat({
       scrollToBottom("smooth");
     }
   }, [messages.length, isInitialLoad, scrollToBottom]);
+
+  // ============================================================
+  // INSERT @MENTION
+  // ============================================================
+  const insertMention = (name: string) => {
+    if (!name || mentionStartIdx === null) return;
+    
+    const before = inputText.substring(0, mentionStartIdx);
+    const cursorPos = inputRef.current?.selectionStart || inputText.length;
+    const after = inputText.substring(cursorPos);
+    const newText = `${before}@${name} ${after}`;
+    
+    setInputText(newText);
+    setMentionOpen(false);
+    setMentionQuery("");
+    setMentionStartIdx(null);
+    
+    // Restore focus and position cursor after the inserted name
+    setTimeout(() => {
+      if (inputRef.current) {
+        const newCursorPos = before.length + name.length + 2; // +1 for @, +1 for space
+        inputRef.current.focus();
+        inputRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    }, 10);
+  };
 
   // ============================================================
   // SEND MESSAGE (optimistic)
@@ -561,17 +629,147 @@ export default function TeamCollabChat({
           </div>
 
           {/* INPUT BAR */}
-          <div className="p-4 bg-white border-t border-slate-200 shrink-0">
+          <div className="p-4 bg-white border-t border-slate-200 shrink-0 relative">
+            
+            {/* @MENTION DROPDOWN */}
+            {mentionOpen && allAgents.length > 0 && (() => {
+              const filtered = allAgents.filter(a => 
+                !mentionQuery || a.name.toLowerCase().includes(mentionQuery.toLowerCase())
+              );
+              if (filtered.length === 0) return null;
+              
+              return (
+                <div className="absolute bottom-full left-4 right-4 mb-2 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Mention an agent {mentionQuery && <span className="text-[#282860]">— "{mentionQuery}"</span>}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-bold">
+                      ↑↓ navigate · ↵ select · Esc close
+                    </span>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto custom-scrollbar">
+                    {filtered.slice(0, 8).map((agent, idx) => {
+                      const isActive = idx === mentionActiveIdx;
+                      const isAssignee = studentAssignees.includes(agent.name);
+                      // Avatar color hash (matches getAvatarColor)
+                      const colors = [
+                        "bg-blue-500", "bg-emerald-500", "bg-purple-500", "bg-amber-500",
+                        "bg-rose-500", "bg-indigo-500", "bg-teal-500", "bg-orange-500",
+                      ];
+                      let hash = 0;
+                      for (let i = 0; i < agent.name.length; i++) {
+                        hash = agent.name.charCodeAt(i) + ((hash << 5) - hash);
+                      }
+                      const avatarColor = colors[Math.abs(hash) % colors.length];
+                      
+                      return (
+                        <button
+                          key={agent.id}
+                          type="button"
+                          onMouseEnter={() => setMentionActiveIdx(idx)}
+                          onClick={() => insertMention(agent.name)}
+                          className={`w-full px-4 py-2.5 text-left transition-colors flex items-center gap-3 ${
+                            isActive ? "bg-emerald-50" : "bg-white hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className={`w-8 h-8 rounded-full ${avatarColor} text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm`}>
+                            {agent.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-[#282860] truncate">
+                                {agent.name}
+                              </span>
+                              {isAssignee && (
+                                <span className="text-[9px] font-black text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                  In chat
+                                </span>
+                              )}
+                            </div>
+                            {agent.role && (
+                              <p className="text-[10px] text-slate-400 font-medium truncate">{agent.role}</p>
+                            )}
+                          </div>
+                          {isActive && (
+                            <span className="text-[10px] font-bold text-emerald-600 shrink-0">↵</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {filtered.length > 8 && (
+                    <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-center">
+                      <span className="text-[10px] font-bold text-slate-400">
+                        Keep typing to narrow {filtered.length - 8} more...
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            
             <form onSubmit={handleSend} className="relative">
               <textarea
                 ref={inputRef}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={(e) => {
+                  const newText = e.target.value;
+                  setInputText(newText);
+                  
+                  // @mention detection
+                  const cursorPos = e.target.selectionStart || newText.length;
+                  const textBeforeCursor = newText.substring(0, cursorPos);
+                  
+                  // Find last @ that's either at start or after whitespace
+                  const atMatch = textBeforeCursor.match(/(?:^|\s)@(\S*)$/);
+                  if (atMatch) {
+                    const queryStart = cursorPos - atMatch[1].length - 1; // -1 for the @
+                    setMentionStartIdx(queryStart);
+                    setMentionQuery(atMatch[1]);
+                    setMentionOpen(true);
+                    setMentionActiveIdx(0);
+                  } else {
+                    setMentionOpen(false);
+                    setMentionStartIdx(null);
+                    setMentionQuery("");
+                  }
+                }}
                 placeholder="Type a message... use @ to mention an agent"
                 rows={1}
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 pr-14 text-sm outline-none focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 transition-all resize-none max-h-32"
                 style={{ minHeight: "44px" }}
                 onKeyDown={(e) => {
+                  // Mention dropdown navigation
+                  if (mentionOpen) {
+                    const filtered = allAgents.filter(a => 
+                      !mentionQuery || a.name.toLowerCase().includes(mentionQuery.toLowerCase())
+                    );
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setMentionActiveIdx(idx => Math.min(idx + 1, filtered.length - 1));
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setMentionActiveIdx(idx => Math.max(idx - 1, 0));
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      if (filtered.length > 0) {
+                        e.preventDefault();
+                        insertMention(filtered[mentionActiveIdx]?.name || "");
+                        return;
+                      }
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setMentionOpen(false);
+                      return;
+                    }
+                  }
+                  
+                  // Normal send
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSend();

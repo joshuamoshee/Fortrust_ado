@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, AlertTriangle, Loader2, ArrowRight, User, Mail, Thermometer, MapPin, Target, Trophy, Medal, TrendingUp } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { X, AlertTriangle, Loader2, ArrowRight, User, Mail, Thermometer, MapPin, Target, Trophy, Medal, TrendingUp, Eye } from "lucide-react";
 
 // Pipeline Configuration
 const PIPELINE_STAGES = ["NEW LEAD", "QUALIFIED", "CONSULTING", "APPLICATION", "VISA", "COMPLETED", "DROPPED"];
@@ -18,6 +19,7 @@ const STAGE_COLORS: Record<string, string> = {
 };
 
 export default function StudentPipeline() {
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,10 +214,22 @@ export default function StudentPipeline() {
                     draggable
                     onDragStart={(e) => handleDragStart(e, s.id)}
                     onDragEnd={handleDragEnd}
-                    className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-[#BAD133] hover:shadow-md transition-all cursor-grab active:cursor-grabbing group relative overflow-hidden"
+                    onClick={(e) => {
+                      // Don't navigate if user is dragging
+                      if ((e.target as HTMLElement).closest('[data-drag-handle]')) return;
+                      router.push(`/dashboard/students?openId=${s.id}`);
+                    }}
+                    className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-[#BAD133] hover:shadow-lg transition-all cursor-pointer group relative overflow-hidden"
                   >
                     {/* Status accent line */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1 ${STAGE_COLORS[stage].split(' ')[1]}`}></div>
+                    
+                    {/* View affordance (appears on hover) */}
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="bg-[#282860] text-white text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-md shadow-md flex items-center gap-1">
+                        <Eye size={10}/> Open
+                      </span>
+                    </div>
                     
                     <div className="pl-2">
                       <p className="font-bold text-[#282860] text-sm group-hover:text-blue-600 transition-colors">{s.name}</p>
@@ -234,6 +248,13 @@ export default function StudentPipeline() {
                           <span className="flex items-center gap-1"><MapPin size={12}/> {s.country_interest}</span>
                         )}
                       </div>
+                    </div>
+                    
+                    {/* Drag handle hint at bottom — keeps drag-and-drop working */}
+                    <div data-drag-handle className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-center gap-1 text-[9px] font-bold text-slate-300 hover:text-slate-500 transition-colors">
+                      <div className="w-4 h-0.5 bg-current rounded"></div>
+                      <div className="w-4 h-0.5 bg-current rounded"></div>
+                      <div className="w-4 h-0.5 bg-current rounded"></div>
                     </div>
                   </div>
                 ))}
