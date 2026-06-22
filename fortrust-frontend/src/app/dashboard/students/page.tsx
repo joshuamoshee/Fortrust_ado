@@ -11,7 +11,7 @@ import {
   Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
   Eye, Trash2, Plus, MessageSquare, User, Circle,
   ChevronRight, ChevronLeft, CheckCircle, Award, Briefcase, Sparkles, Target, ChevronDown, Archive,
-  Download,DollarSign
+  Download,DollarSign, School
 } from "lucide-react";
 
 const DOC_TYPES = [
@@ -468,7 +468,8 @@ export default function GlobalStudentDatabase() {
           field_interests: JSON.stringify(finalFields),
           career_goal: finalCareer,
           campus_env: finalCampus,
-          country_interest: JSON.stringify(countryInterests)
+          country_interest: JSON.stringify(countryInterests),
+          high_school: editingStudent.high_school || ""
         })
       });
 
@@ -1301,6 +1302,27 @@ export default function GlobalStudentDatabase() {
 
                     {/* EXPANDED ACADEMIC PROFILE */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-8">
+
+                      {/* HIGH SCHOOL / EDUCATION BACKGROUND */}
+                      <div>
+                        <div className="border-b border-slate-100 pb-3 mb-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
+                            <School size={16} className="text-indigo-500"/> Education Background
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1.5">Track which schools our students come from — helps marketing target high-yield institutions.</p>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">High School Name</label>
+                          <input 
+                            type="text" 
+                            placeholder="e.g. SMAK Penabur Bintaro Jaya, SMA Pelita Harapan, etc."
+                            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 transition-all" 
+                            value={editingStudent.high_school || ""} 
+                            onChange={e => setEditingStudent({...editingStudent, high_school: e.target.value})} 
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1.5">💡 Consistent naming helps build school analytics. Try to match common variations.</p>
+                        </div>
+                      </div>
                       
                       {/* FIELD OF INTEREST */}
                       <div>

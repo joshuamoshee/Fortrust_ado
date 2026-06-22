@@ -924,6 +924,7 @@ class StudentUpdate(BaseModel):
     commission_earned: Optional[float] = None
     loss_reason: Optional[str] = None
     field_interests: Optional[str] = None
+    high_school: Optional[str] = None   
     budget: Optional[str] = None
     father_name: Optional[str] = None
     father_email: Optional[str] = None
