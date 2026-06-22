@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { 
   Building2, UploadCloud, Plus, 
   Sparkles, X, Loader2, Trash2, Building, FileText, Phone, Calculator,
-  Search, Filter, Globe, AlertCircle, DollarSign, Percent, CheckCircle2
+  Search, Filter, Globe, AlertCircle, DollarSign, Percent, CheckCircle2,
+  Link2, Eye, Download
 } from "lucide-react";
 
 // --- AGREEMENT EXPIRY HELPERS ---
@@ -79,8 +80,18 @@ export default function InstitutionPartners() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const agreementFileInputRef = useRef<HTMLInputElement>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Multi-agreement state
+  const [isAddAgreementOpen, setIsAddAgreementOpen] = useState(false);
+  const [agreementMode, setAgreementMode] = useState<"choose" | "file" | "link">("choose");
+  const [agreementLinkUrl, setAgreementLinkUrl] = useState("");
+  const [agreementLinkName, setAgreementLinkName] = useState("");
+  const [isUploadingAgreement, setIsUploadingAgreement] = useState(false);
+
+  // Calc tab state (per-student commission calculator)
 
   // Calc tab state (per-student commission calculator)
   const [calcProgramIdx, setCalcProgramIdx] = useState<number | null>(null);
@@ -94,6 +105,7 @@ export default function InstitutionPartners() {
     agreement_id: "", agreement_date: "", agreement_type: "Commission-based",
     base_commission: "", performance_bonus: "", tiered_levels: "",
     duration_start: "", duration_end: "", terms_conditions: "", document_link: "",
+    agreements: [] as any[],   // ⬅️ NEW
     contacts: [] as any[],
     commission_programs: [] as CommissionProgram[],
     total_referrals: "", total_enrollment: "", base_amount: "", calc_bonus: "",
@@ -118,6 +130,123 @@ export default function InstitutionPartners() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ============================================================
+  // AGREEMENT HANDLERS (multi-file + link support)
+  // ============================================================
+  
+  const handleAddAgreementFile = async (file: File) => {
+    if (!formData.id) {
+      alert("Please save the institution first before adding agreements.");
+      return;
+    }
+    setIsUploadingAgreement(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const payload = new FormData();
+      payload.append("file", file);
+      
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${formData.id}/agreements/file`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: payload
+        }
+      );
+      
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        // Append to local state
+        const currentAgreements = formData.agreements || [];
+        setFormData({ ...formData, agreements: [...currentAgreements, data.agreement] });
+        setIsAddAgreementOpen(false);
+        setAgreementMode("choose");
+      } else {
+        alert(data.detail || "Upload failed.");
+      }
+    } catch (e) {
+      alert("Network error during upload.");
+    } finally {
+      setIsUploadingAgreement(false);
+    }
+  };
+
+  const handleAddAgreementLink = async () => {
+    if (!formData.id) {
+      alert("Please save the institution first before adding agreements.");
+      return;
+    }
+    if (!agreementLinkUrl.trim()) {
+      alert("Please enter a URL.");
+      return;
+    }
+    setIsUploadingAgreement(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${formData.id}/agreements/link`,
+        {
+          method: "POST",
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            url: agreementLinkUrl.trim(),
+            name: agreementLinkName.trim() || "External Agreement Link"
+          })
+        }
+      );
+      
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        const currentAgreements = formData.agreements || [];
+        setFormData({ ...formData, agreements: [...currentAgreements, data.agreement] });
+        setIsAddAgreementOpen(false);
+        setAgreementMode("choose");
+        setAgreementLinkUrl("");
+        setAgreementLinkName("");
+      } else {
+        alert(data.detail || "Failed to add link.");
+      }
+    } catch (e) {
+      alert("Network error.");
+    } finally {
+      setIsUploadingAgreement(false);
+    }
+  };
+
+  const handleDeleteAgreement = async (agreementId: string) => {
+    if (!window.confirm("Remove this agreement? This action cannot be undone.")) return;
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${formData.id}/agreements/${agreementId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      if (res.ok) {
+        setFormData({
+          ...formData,
+          agreements: (formData.agreements || []).filter((a: any) => a.id !== agreementId)
+        });
+      } else {
+        alert("Could not delete agreement.");
+      }
+    } catch (e) {
+      alert("Network error.");
+    }
+  };
+
+  const closeAgreementModal = () => {
+    setIsAddAgreementOpen(false);
+    setAgreementMode("choose");
+    setAgreementLinkUrl("");
+    setAgreementLinkName("");
   };
 
   const handleSaveInstitution = async () => {
@@ -510,6 +639,7 @@ const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                             institution_type: inst.type || "University",
                             contacts: inst.contacts || [],
                             commission_programs: inst.commission_programs || [],
+                            agreements: inst.agreements || [],   // ⬅️ NEW
                           });
                           setIsEditModalOpen(true);
                           setModalTab("profile");
@@ -665,10 +795,6 @@ const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                       <option>Active</option><option>Inactive</option>
                     </select>
                   </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-bold text-slate-500 uppercase">Programs Offered</label>
-                    <textarea rows={3} className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.programs_offered} onChange={e => setFormData({ ...formData, programs_offered: e.target.value })} />
-                  </div>
                 </div>
               )}
 
@@ -711,23 +837,94 @@ const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     <input type="date" className="w-full mt-1 p-3 border border-slate-200 rounded-xl outline-none focus:border-[#BAD133]" value={formData.duration_end} onChange={e => setFormData({ ...formData, duration_end: e.target.value })} />
                   </div>
 
-                  {/* MoU UPLOAD SECTION */}
-                  <div className="col-span-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-dashed border-blue-200 p-5 rounded-2xl">
-                    <div className="flex items-center justify-between gap-4 mb-3">
-                      <div>
-                        <h4 className="text-sm font-black text-[#282860] flex items-center gap-2">
-                          <UploadCloud size={16} className="text-blue-600"/> Signed MoU Document
-                        </h4>
-                        <p className="text-xs text-slate-500 mt-0.5">Paste a Drive/Dropbox share link to the signed PDF.</p>
+                  {/* SIGNED MOU DOCUMENTS — multi-file + link support */}
+                  <div className="col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 border-b border-blue-100 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
+                          <FileText size={18}/>
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black text-[#282860]">Signed MoU Documents</h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {(formData.agreements || []).length === 0 
+                              ? "No agreements uploaded yet."
+                              : `${(formData.agreements || []).length} document${(formData.agreements || []).length === 1 ? '' : 's'} on file.`}
+                          </p>
+                        </div>
                       </div>
-                      {formData.document_link && (
-                        <a href={formData.document_link} target="_blank" rel="noopener noreferrer"
-                          className="bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 shrink-0">
-                          <FileText size={14}/> View Current PDF
-                        </a>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!formData.id) {
+                            alert("Please save the institution first (click 'Save Institution Data' below), then come back to add agreements.");
+                            return;
+                          }
+                          setIsAddAgreementOpen(true);
+                          setAgreementMode("choose");
+                        }}
+                        className="bg-[#282860] hover:bg-[#1b1b42] text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0"
+                      >
+                        <Plus size={14}/> New Agreement
+                      </button>
                     </div>
-                    <input type="url" className="w-full p-3 border border-slate-200 rounded-xl text-blue-600 bg-white outline-none focus:border-[#BAD133] focus:ring-2 focus:ring-[#BAD133]/20 transition-all" placeholder="https://drive.google.com/..." value={formData.document_link} onChange={e => setFormData({ ...formData, document_link: e.target.value })} />
+                    
+                    {/* List of agreements */}
+                    {(!formData.agreements || formData.agreements.length === 0) ? (
+                      <div className="p-12 text-center">
+                        <FileText size={40} className="text-slate-200 mx-auto mb-3"/>
+                        <p className="text-sm font-bold text-slate-500">No agreements yet</p>
+                        <p className="text-xs text-slate-400 mt-1">Click "+ New Agreement" above to upload a file or paste a link.</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {(formData.agreements || []).map((agr: any) => (
+                          <div key={agr.id} className="p-4 flex items-center gap-4 hover:bg-slate-50 transition-colors">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                              agr.type === "file" 
+                                ? "bg-blue-100 text-blue-600" 
+                                : "bg-purple-100 text-purple-600"
+                            }`}>
+                              {agr.type === "file" ? <FileText size={18}/> : <Link2 size={18}/>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="font-bold text-[#282860] text-sm truncate">{agr.name}</p>
+                                <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
+                                  agr.type === "file" 
+                                    ? "bg-blue-100 text-blue-700" 
+                                    : "bg-purple-100 text-purple-700"
+                                }`}>
+                                  {agr.type === "file" ? "📎 File" : "🔗 Link"}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                {agr.uploaded_by && <span>Added by <strong>{agr.uploaded_by}</strong></span>}
+                                {agr.uploaded_at && <span> · {new Date(agr.uploaded_at).toLocaleDateString()}</span>}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <a
+                                href={agr.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+                              >
+                                <Eye size={12}/> View
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAgreement(agr.id)}
+                                className="bg-white hover:bg-red-50 text-red-500 border border-red-200 p-2 rounded-lg transition-colors shadow-sm"
+                                title="Remove"
+                              >
+                                <Trash2 size={14}/>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="col-span-2">
@@ -1065,6 +1262,163 @@ const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
               <button onClick={handleSaveInstitution} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md transition-all">Save Institution Data</button>
             </div>
 
+          </div>
+        </div>
+      )}
+      {/* ADD AGREEMENT PICKER MODAL */}
+      {isAddAgreementOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200">
+            
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 bg-[#f8fafc] flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-black text-[#282860] flex items-center gap-2">
+                  <Plus size={22} className="text-[#BAD133]"/> New Agreement
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  {agreementMode === "choose" && "How do you want to add this agreement?"}
+                  {agreementMode === "file" && "Upload a signed agreement file"}
+                  {agreementMode === "link" && "Paste a link to the agreement document"}
+                </p>
+              </div>
+              <button onClick={closeAgreementModal} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full">
+                <X size={20}/>
+              </button>
+            </div>
+
+            {/* CHOOSE MODE */}
+            {agreementMode === "choose" && (
+              <div className="p-6 grid grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setAgreementMode("file")}
+                  className="p-6 rounded-2xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <UploadCloud size={28}/>
+                  </div>
+                  <h3 className="font-black text-[#282860] text-lg mb-1">Upload File</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Upload a PDF, image, or document. Stored securely in our vault.
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-3 font-bold">PDF · DOC · DOCX · PNG · JPG · max 20MB</p>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => setAgreementMode("link")}
+                  className="p-6 rounded-2xl border-2 border-slate-200 hover:border-purple-400 hover:bg-purple-50 transition-all text-left group"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                    <Link2 size={28}/>
+                  </div>
+                  <h3 className="font-black text-[#282860] text-lg mb-1">Paste Link</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Link to a Google Drive, Dropbox, or any external document URL.
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-3 font-bold">Drive · Dropbox · OneDrive · any URL</p>
+                </button>
+              </div>
+            )}
+
+            {/* FILE UPLOAD MODE */}
+            {agreementMode === "file" && (
+              <div className="p-6">
+                <button
+                  type="button"
+                  onClick={() => setAgreementMode("choose")}
+                  className="text-xs font-bold text-slate-500 hover:text-[#282860] mb-4 flex items-center gap-1"
+                >
+                  ← Back to options
+                </button>
+                
+                {isUploadingAgreement ? (
+                  <div className="p-12 text-center">
+                    <Loader2 size={32} className="animate-spin text-blue-500 mx-auto mb-3"/>
+                    <p className="text-sm font-bold text-[#282860]">Uploading agreement...</p>
+                  </div>
+                ) : (
+                  <label className="block border-2 border-dashed border-blue-300 hover:border-blue-500 hover:bg-blue-50 rounded-2xl p-12 text-center cursor-pointer transition-all">
+                    <UploadCloud size={40} className="text-blue-500 mx-auto mb-3"/>
+                    <p className="text-sm font-black text-[#282860] mb-1">Click to choose a file</p>
+                    <p className="text-xs text-slate-500">PDF, DOC, DOCX, PNG, JPG · Max 20MB</p>
+                    <input 
+                      ref={agreementFileInputRef}
+                      type="file" 
+                      accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleAddAgreementFile(e.target.files[0]);
+                        }
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            )}
+
+            {/* LINK MODE */}
+            {agreementMode === "link" && (
+              <div className="p-6 space-y-4">
+                <button
+                  type="button"
+                  onClick={() => setAgreementMode("choose")}
+                  className="text-xs font-bold text-slate-500 hover:text-[#282860] flex items-center gap-1"
+                >
+                  ← Back to options
+                </button>
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                    Document Name <span className="text-slate-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. MOU - Penabur University 2024"
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 transition-all"
+                    value={agreementLinkName}
+                    onChange={(e) => setAgreementLinkName(e.target.value)}
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                    Agreement URL <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://drive.google.com/file/d/..."
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 transition-all font-mono"
+                    value={agreementLinkUrl}
+                    onChange={(e) => setAgreementLinkUrl(e.target.value)}
+                    autoFocus
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1.5">Make sure the link is shareable (view access for anyone with the link).</p>
+                </div>
+                
+                <div className="pt-2 flex justify-end gap-3">
+                  <button 
+                    onClick={closeAgreementModal}
+                    type="button"
+                    className="px-5 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddAgreementLink}
+                    disabled={!agreementLinkUrl.trim() || isUploadingAgreement}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-2.5 rounded-xl transition-all disabled:opacity-50 shadow-md flex items-center gap-2"
+                  >
+                    {isUploadingAgreement 
+                      ? <><Loader2 size={16} className="animate-spin"/> Adding...</>
+                      : <><Link2 size={16}/> Add Link</>}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
