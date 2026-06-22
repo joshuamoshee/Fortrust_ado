@@ -4148,6 +4148,178 @@ def create_institution(inst: dict, user_data: dict = Depends(verify_token)):
     finally:
         conn.close()
 
+# ============================================================
+# INSTITUTION AGREEMENTS (multi-document with File + Link support)
+# ============================================================
+
+@app.post("/api/institutions/{institution_id}/agreements/file")
+async def upload_agreement_file(
+    institution_id: str,
+    file: UploadFile = File(...),
+    user_data: dict = Depends(verify_token)
+):
+    """Upload an agreement file (PDF, image, doc) for an institution."""
+    if not (is_master_admin(user_data) or is_manager_role(user_data)):
+        raise HTTPException(status_code=403, detail="Only Master Admin or Managers can upload agreements.")
+    
+    # File size check
+    contents = await file.read()
+    if len(contents) > 20 * 1024 * 1024:  # 20MB
+        raise HTTPException(status_code=400, detail="File too large. Max 20MB.")
+    
+    # Extension check
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    allowed_extensions = ['.pdf', '.doc', '.docx', '.png', '.jpg', '.jpeg']
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Only {', '.join(allowed_extensions)} allowed.")
+    
+    try:
+        # Upload to Supabase Storage
+        import uuid
+        unique_id = uuid.uuid4().hex[:8]
+        safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in (file.filename or "agreement"))
+        storage_path = f"agreements/inst_{institution_id}/{unique_id}_{safe_name}"
+        
+        supabase.storage.from_("student-documents").upload(
+            path=storage_path,
+            file=contents,
+            file_options={"content-type": file.content_type or "application/pdf"}
+        )
+        
+        # Get public URL
+        public_url_resp = supabase.storage.from_("student-documents").get_public_url(storage_path)
+        public_url = public_url_resp if isinstance(public_url_resp, str) else str(public_url_resp)
+        
+        # Build agreement entry
+        from datetime import datetime as dt
+        new_agreement = {
+            "id": f"agr-{int(dt.now().timestamp())}-{unique_id}",
+            "type": "file",
+            "name": file.filename or "Untitled Agreement",
+            "filename": storage_path,
+            "url": public_url,
+            "uploaded_by": user_data.get("name", "Unknown"),
+            "uploaded_at": dt.now().isoformat()
+        }
+        
+        # Append to institution.agreements array
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE institutions 
+                    SET agreements = COALESCE(agreements, '[]'::jsonb) || %s::jsonb
+                    WHERE id = %s
+                """, (json.dumps([new_agreement]), institution_id))
+                conn.commit()
+            
+            return {"status": "success", "agreement": new_agreement}
+        finally:
+            conn.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.post("/api/institutions/{institution_id}/agreements/link")
+def add_agreement_link(
+    institution_id: str,
+    body: dict,
+    user_data: dict = Depends(verify_token)
+):
+    """Add an agreement via external link (Drive, Dropbox, etc.)."""
+    if not (is_master_admin(user_data) or is_manager_role(user_data)):
+        raise HTTPException(status_code=403, detail="Only Master Admin or Managers can add agreements.")
+    
+    url = (body.get("url") or "").strip()
+    name = (body.get("name") or "").strip() or "External Agreement Link"
+    
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required.")
+    if not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    
+    from datetime import datetime as dt
+    import uuid
+    new_agreement = {
+        "id": f"agr-{int(dt.now().timestamp())}-{uuid.uuid4().hex[:8]}",
+        "type": "link",
+        "name": name,
+        "url": url,
+        "uploaded_by": user_data.get("name", "Unknown"),
+        "uploaded_at": dt.now().isoformat()
+    }
+    
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE institutions 
+                SET agreements = COALESCE(agreements, '[]'::jsonb) || %s::jsonb
+                WHERE id = %s
+            """, (json.dumps([new_agreement]), institution_id))
+            conn.commit()
+        
+        return {"status": "success", "agreement": new_agreement}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/institutions/{institution_id}/agreements/{agreement_id}")
+def delete_agreement(
+    institution_id: str,
+    agreement_id: str,
+    user_data: dict = Depends(verify_token)
+):
+    """Remove an agreement from an institution. Also deletes file from storage if it was uploaded."""
+    if not (is_master_admin(user_data) or is_manager_role(user_data)):
+        raise HTTPException(status_code=403, detail="Only Master Admin or Managers can delete agreements.")
+    
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Get current agreements
+            cur.execute("SELECT agreements FROM institutions WHERE id = %s", (institution_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Institution not found.")
+            
+            agreements = row.get("agreements") or []
+            if isinstance(agreements, str):
+                try: agreements = json.loads(agreements)
+                except: agreements = []
+            
+            # Find and remove the agreement
+            target = next((a for a in agreements if a.get("id") == agreement_id), None)
+            if not target:
+                raise HTTPException(status_code=404, detail="Agreement not found.")
+            
+            # Delete file from storage if it's a file type
+            if target.get("type") == "file" and target.get("filename"):
+                try:
+                    supabase.storage.from_("student-documents").remove([target["filename"]])
+                except Exception as e:
+                    print(f"[Warning] Could not delete file from storage: {e}")
+            
+            # Remove from array
+            new_agreements = [a for a in agreements if a.get("id") != agreement_id]
+            cur.execute(
+                "UPDATE institutions SET agreements = %s::jsonb WHERE id = %s",
+                (json.dumps(new_agreements), institution_id)
+            )
+            conn.commit()
+            
+            return {"status": "success", "message": "Agreement removed."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 @app.put("/api/institutions/{inst_id}")
 def update_institution(inst_id: int, inst: InstitutionUpdate, user_data: dict = Depends(verify_token)):
