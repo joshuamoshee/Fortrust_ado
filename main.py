@@ -936,6 +936,8 @@ class StudentUpdate(BaseModel):
     career_goal: Optional[str] = None
     campus_env: Optional[str] = None
     country_interest: Optional[str] = None
+    counsellor_notes: Optional[str] = None
+    emergency_contact_parent: Optional[str] = None
 
 
 class InstitutionUpdate(BaseModel):
