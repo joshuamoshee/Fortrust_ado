@@ -1286,6 +1286,9 @@ export default function GlobalStudentDatabase() {
                         </div>
                       </div>
 
+                    </div>
+                    {/* end of PARENTS SECTION */}
+
                     {/* PIPELINE DATA */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
                       <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3"><BookOpen size={16} className="text-emerald-500"/> Pipeline Data</h4>
