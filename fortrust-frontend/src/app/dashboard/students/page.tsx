@@ -16,8 +16,8 @@ import {
 
 const DOC_TYPES = [
   "Passport",
-  "Report Card",
-  "English Test",
+  "Academic Transcript",
+  "Language Test",
   "SOP",
   "Profiling Test",
   "Other"
@@ -26,8 +26,8 @@ const DOC_TYPES = [
 // Standard categories shown in the checklist (each can hold multiple files).
 const STANDARD_CATEGORIES = [
   { type: "Passport", description: "Valid international passport (bio page)" },
-  { type: "Report Card", description: "Academic transcripts - usually 6+ files across semesters" },
-  { type: "English Test", description: "IELTS / TOEFL / PTE certificate" },
+  { type: "Academic Transcript", description: "In original language & translated into English — usually 6+ files across semesters" },
+  { type: "Language Test", description: "IELTS / TOEFL / PTE / HSK Certificate" },
   { type: "SOP", description: "Statement of Purpose" },
   { type: "Profiling Test", description: "Profiling test results (HCC or any provider)" }
 ];
@@ -123,12 +123,17 @@ const MAX_FIELD_INTERESTS = 3;
 // Category matchers - used to group existing docs into the right buckets.
 const CATEGORY_MATCHERS: Record<string, (t: string, f: string) => boolean> = {
   "Passport": (t, f) => t.includes("PASSPORT") || f.includes("PASSPORT"),
-  "Report Card": (t, f) =>
+  "Academic Transcript": (t, f) =>
+    // Match new + legacy names so old uploads stay grouped correctly
+    t.includes("TRANSCRIPT") || t.includes("ACADEMIC TRANSCRIPT") || 
     t.includes("REPORT CARD") || t.includes("REPORT_CARD") || t.includes("RAPOT") ||
-    f.includes("REPORT_CARD") || f.includes("RAPOT"),
-  "English Test": (t, f) =>
-    t.includes("ENGLISH") || t.includes("IELTS") || t.includes("TOEFL") || t.includes("PTE") ||
-    f.includes("ENGLISH") || f.includes("IELTS") || f.includes("TOEFL"),
+    f.includes("TRANSCRIPT") || f.includes("REPORT_CARD") || f.includes("RAPOT"),
+  "Language Test": (t, f) =>
+    // Match new + legacy names (English Test was old name, now includes HSK for Chinese)
+    t.includes("LANGUAGE TEST") || t.includes("ENGLISH") || 
+    t.includes("IELTS") || t.includes("TOEFL") || t.includes("PTE") || t.includes("HSK") ||
+    f.includes("LANGUAGE") || f.includes("ENGLISH") || f.includes("IELTS") || 
+    f.includes("TOEFL") || f.includes("HSK"),
   "SOP": (t, f) =>
     t.includes("SOP") || t.includes("STATEMENT OF PURPOSE") ||
     f.includes("SOP") || f.includes("STATEMENT_OF_PURPOSE"),
@@ -469,7 +474,9 @@ export default function GlobalStudentDatabase() {
           career_goal: finalCareer,
           campus_env: finalCampus,
           country_interest: JSON.stringify(countryInterests),
-          high_school: editingStudent.high_school || ""
+          high_school: editingStudent.high_school || "",
+          counsellor_notes: editingStudent.counsellor_notes || "",
+          emergency_contact_parent: editingStudent.emergency_contact_parent || ""   
         })
       });
 
@@ -995,9 +1002,9 @@ export default function GlobalStudentDatabase() {
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Lead Temperature</label>
                       <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={newStudent.lead_temperature} onChange={e => setNewStudent({...newStudent, lead_temperature: e.target.value})}>
-                        <option value="Hot Leads">Hot Lead</option>
-                        <option value="Warm Leads">Warm Lead</option>
-                        <option value="Cold Leads">Cold Lead</option>
+                        <option value="Hot Leads">🔥 Hot Leads — berangkat tahun ini</option>
+                        <option value="Warm Leads">🌤️ Warm Leads — berangkat tahun depan</option>
+                        <option value="Cold Leads">❄️ Cold Leads — masih ragu-ragu</option>
                       </select>
                     </div>
                     <div>
@@ -1205,7 +1212,26 @@ export default function GlobalStudentDatabase() {
                       
                       {/* FATHER */}
                       <div className="space-y-4">
-                        <p className="text-xs font-black text-slate-700">Father's Information</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-black text-slate-700">Father's Information</p>
+                          <label className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border transition-all ${
+                            editingStudent.emergency_contact_parent === "father"
+                              ? 'bg-red-50 border-red-300 text-red-700'
+                              : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={editingStudent.emergency_contact_parent === "father"}
+                              onChange={(e) => setEditingStudent({
+                                ...editingStudent,
+                                emergency_contact_parent: e.target.checked ? "father" : ""
+                              })}
+                              className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                            />
+                            <ShieldAlert size={12}/>
+                            <span className="text-[10px] font-black uppercase tracking-widest">Emergency Contact</span>
+                          </label>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Name</label>
@@ -1224,7 +1250,26 @@ export default function GlobalStudentDatabase() {
 
                       {/* MOTHER */}
                       <div className="space-y-4 border-t border-slate-100 pt-4">
-                        <p className="text-xs font-black text-slate-700">Mother's Information</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-black text-slate-700">Mother's Information</p>
+                          <label className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-lg border transition-all ${
+                            editingStudent.emergency_contact_parent === "mother"
+                              ? 'bg-red-50 border-red-300 text-red-700'
+                              : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={editingStudent.emergency_contact_parent === "mother"}
+                              onChange={(e) => setEditingStudent({
+                                ...editingStudent,
+                                emergency_contact_parent: e.target.checked ? "mother" : ""
+                              })}
+                              className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                            />
+                            <ShieldAlert size={12}/>
+                            <span className="text-[10px] font-black uppercase tracking-widest">Emergency Contact</span>
+                          </label>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div>
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">Name</label>
@@ -1240,7 +1285,6 @@ export default function GlobalStudentDatabase() {
                           </div>
                         </div>
                       </div>
-                    </div>
 
                     {/* PIPELINE DATA */}
                     <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
@@ -1279,10 +1323,13 @@ export default function GlobalStudentDatabase() {
                         <div>
                           <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Thermometer size={12}/> Lead Temp</label>
                           <select className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.lead_temperature || "Cold Leads"} onChange={e => setEditingStudent({...editingStudent, lead_temperature: e.target.value})}>
-                            <option value="Hot Leads">Hot Leads</option>
-                            <option value="Warm Leads">Warm Leads</option>
-                            <option value="Cold Leads">Cold Leads</option>
+                            <option value="Hot Leads">🔥 Hot Leads — berangkat tahun ini</option>
+                            <option value="Warm Leads">🌤️ Warm Leads — berangkat tahun depan</option>
+                            <option value="Cold Leads">❄️ Cold Leads — masih ragu-ragu</option>
                           </select>
+                          <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                            <strong className="text-orange-500">Hot</strong>: berangkat th ini · <strong className="text-amber-500">Warm</strong>: berangkat th depan · <strong className="text-blue-400">Cold</strong>: masih ragu-ragu
+                          </p>
                         </div>
                         <div>
                           <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Pipeline Status</label>
@@ -1519,6 +1566,24 @@ export default function GlobalStudentDatabase() {
                             );
                           })}
                         </div>
+                      </div>
+                      
+
+                    {/* COUNSELLOR NOTES */}
+                      <div>
+                        <div className="border-b border-slate-100 pb-3 mb-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
+                            <MessageSquare size={16} className="text-amber-500"/> Counsellor Notes
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1.5">Private notes from the counsellor — context, observations, special considerations.</p>
+                        </div>
+                        <textarea 
+                          rows={4}
+                          placeholder="e.g. Strong interest in CS but mother wants Business. Family budget tight, look for scholarships. Has anxiety around interviews..."
+                          className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-all resize-none"
+                          value={editingStudent.counsellor_notes || ""}
+                          onChange={e => setEditingStudent({...editingStudent, counsellor_notes: e.target.value})}
+                        />
                       </div>
 
                     </div>
