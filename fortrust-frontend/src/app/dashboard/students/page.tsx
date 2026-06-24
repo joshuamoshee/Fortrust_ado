@@ -16,20 +16,126 @@ import {
 
 const DOC_TYPES = [
   "Passport",
+  "High School Certificate",
   "Academic Transcript",
   "Language Test",
   "SOP",
   "Profiling Test",
+  "Resume / CV",
+  "Reference Letter",
+  "Portfolio",
+  "CSCA Result",
   "Other"
 ];
 
+// ----------------------------------------------------------------------------
+// CONDITIONAL VISIBILITY HELPERS
+// ----------------------------------------------------------------------------
+
+// Detect if the program is postgraduate level (Master / PhD / Doctorate / etc.)
+// Used to conditionally show Resume/CV section.
+function isPostgradProgram(programInterest: string | undefined | null): boolean {
+  if (!programInterest) return false;
+  const p = programInterest.toUpperCase();
+  return (
+    p.includes("MASTER") || p.includes("MSC") || p.includes("MS ") || p.includes("M.S") ||
+    p.includes("MBA") || p.includes("MA ") || p.includes("M.A") ||
+    p.includes("PHD") || p.includes("PH.D") || p.includes("DOCTORATE") || p.includes("DOCTORAL") ||
+    p.includes("POSTGRAD") || p.includes("POST-GRAD") || p.includes("GRADUATE PROGRAM") ||
+    p.includes("S2") || p.includes("S3") || // Indonesian education levels
+    p.includes("PASCASARJANA") // Indonesian "postgraduate"
+  );
+}
+
+// Detect program level for reference letter hint text
+function detectProgramLevel(programInterest: string | undefined | null): "undergrad" | "grad" | "doctorate" {
+  if (!programInterest) return "undergrad";
+  const p = programInterest.toUpperCase();
+  if (p.includes("PHD") || p.includes("PH.D") || p.includes("DOCTORATE") || p.includes("DOCTORAL") || p.includes("S3")) {
+    return "doctorate";
+  }
+  if (isPostgradProgram(programInterest)) {
+    return "grad";
+  }
+  return "undergrad";
+}
+
+// Detect if student has China in their country_interest
+function hasChinaInterest(countryInterest: string | undefined | null): boolean {
+  if (!countryInterest) return false;
+  try {
+    const parsed = typeof countryInterest === "string" && countryInterest.startsWith("[")
+      ? JSON.parse(countryInterest)
+      : [countryInterest];
+    return Array.isArray(parsed) && parsed.some((c: string) => 
+      (c || "").toLowerCase() === "china"
+    );
+  } catch {
+    return (countryInterest || "").toLowerCase().includes("china");
+  }
+}
+
 // Standard categories shown in the checklist (each can hold multiple files).
-const STANDARD_CATEGORIES = [
-  { type: "Passport", description: "Valid international passport (bio page)" },
-  { type: "Academic Transcript", description: "In original language & translated into English — usually 6+ files across semesters" },
-  { type: "Language Test", description: "IELTS / TOEFL / PTE / HSK Certificate" },
-  { type: "SOP", description: "Statement of Purpose" },
-  { type: "Profiling Test", description: "Profiling test results (HCC or any provider)" }
+type CategoryDef = {
+  type: string;
+  description: string;
+  visible?: (student: any) => boolean;
+  dynamicDescription?: (student: any) => string;
+};
+
+const STANDARD_CATEGORIES: CategoryDef[] = [
+  { 
+    type: "Passport", 
+    description: "Valid international passport (bio page)" 
+  },
+  { 
+    type: "High School Certificate", 
+    description: "High School Certificate, Diploma, or Certificate of Graduation — in original language & translated into English" 
+  },
+  { 
+    type: "Academic Transcript", 
+    description: "In original language & translated into English — usually 6+ files across semesters" 
+  },
+  { 
+    type: "Language Test", 
+    description: "IELTS / TOEFL / PTE / HSK Certificate" 
+  },
+  { 
+    type: "SOP", 
+    description: "Statement of Purpose" 
+  },
+  { 
+    type: "Profiling Test", 
+    description: "Profiling test results (HCC or any provider)" 
+  },
+  { 
+    type: "Resume / CV", 
+    description: "Curriculum Vitae — for postgraduate applications", 
+    visible: (s: any) => isPostgradProgram(s?.program_interest)
+  },
+  { 
+    type: "Reference Letter", 
+    description: "Recommendation letters from teachers, professors, or supervisors",
+    dynamicDescription: (s: any) => {
+      const level = detectProgramLevel(s?.program_interest);
+      if (level === "doctorate") {
+        return "Doctorate applicants need 2-3 reference letters from professors, thesis advisors, or research supervisors.";
+      }
+      if (level === "grad") {
+        return "Graduate applicants need 2 reference letters — from university professors / academic advisors, OR from a work manager / supervisor.";
+      }
+      return "Undergraduate applicants need 0-2 reference letters from high school teachers or school counselors.";
+    }
+  },
+  { 
+    type: "Portfolio", 
+    description: "Portfolios or work samples — if applicable (typically for design, arts, architecture programs)" 
+  },
+  { 
+    type: "CSCA Result", 
+    description: "CSCA (Chinese Standardized College Admission) Result — required for China applications",
+    visible: (s: any) => hasChinaInterest(s?.country_interest)
+  }
 ];
 
 // Academic fields for the "Field of Interest" selector - 3rd AI variable
@@ -122,24 +228,50 @@ const MAX_FIELD_INTERESTS = 3;
 
 // Category matchers - used to group existing docs into the right buckets.
 const CATEGORY_MATCHERS: Record<string, (t: string, f: string) => boolean> = {
-  "Passport": (t, f) => t.includes("PASSPORT") || f.includes("PASSPORT"),
+  "Passport": (t, f) => 
+    t.includes("PASSPORT") || f.includes("PASSPORT"),
+  
+  "High School Certificate": (t, f) =>
+    t.includes("HIGH SCHOOL CERT") || t.includes("HIGHSCHOOL") || 
+    t.includes("HS CERT") || t.includes("DIPLOMA") || t.includes("GRADUATION CERT") ||
+    t.includes("IJAZAH") || t.includes("SMA CERT") ||
+    f.includes("HIGHSCHOOL") || f.includes("DIPLOMA") || f.includes("IJAZAH"),
+  
   "Academic Transcript": (t, f) =>
-    // Match new + legacy names so old uploads stay grouped correctly
+    // New + legacy matchers
     t.includes("TRANSCRIPT") || t.includes("ACADEMIC TRANSCRIPT") || 
     t.includes("REPORT CARD") || t.includes("REPORT_CARD") || t.includes("RAPOT") ||
     f.includes("TRANSCRIPT") || f.includes("REPORT_CARD") || f.includes("RAPOT"),
+  
   "Language Test": (t, f) =>
-    // Match new + legacy names (English Test was old name, now includes HSK for Chinese)
     t.includes("LANGUAGE TEST") || t.includes("ENGLISH") || 
     t.includes("IELTS") || t.includes("TOEFL") || t.includes("PTE") || t.includes("HSK") ||
     f.includes("LANGUAGE") || f.includes("ENGLISH") || f.includes("IELTS") || 
     f.includes("TOEFL") || f.includes("HSK"),
+  
   "SOP": (t, f) =>
     t.includes("SOP") || t.includes("STATEMENT OF PURPOSE") ||
     f.includes("SOP") || f.includes("STATEMENT_OF_PURPOSE"),
+  
   "Profiling Test": (t, f) =>
     t.includes("PROFILING") || t.includes("PSYCHOLOGY") || t.includes("PSIKOLOG") || t.includes("HCC") ||
-    f.includes("PROFILING") || f.includes("PSYCHOLOGY")
+    f.includes("PROFILING") || f.includes("PSYCHOLOGY"),
+  
+  "Resume / CV": (t, f) =>
+    t.includes("RESUME") || t.includes("CV") || t.includes("CURRICULUM VITAE") ||
+    f.includes("RESUME") || f.includes("CV_") || f.startsWith("CV") || f.includes("CURRICULUM"),
+  
+  "Reference Letter": (t, f) =>
+    t.includes("REFERENCE") || t.includes("RECOMMENDATION") || t.includes("REFEREE") ||
+    f.includes("REFERENCE") || f.includes("RECOMMENDATION") || f.includes("REFEREE"),
+  
+  "Portfolio": (t, f) =>
+    t.includes("PORTFOLIO") || t.includes("WORK SAMPLE") || t.includes("DESIGN SAMPLE") ||
+    f.includes("PORTFOLIO") || f.includes("WORK_SAMPLE"),
+  
+  "CSCA Result": (t, f) =>
+    t.includes("CSCA") || t.includes("CHINA STANDARDIZED") || t.includes("HANYU") || t.includes("CHINESE COLLEGE") ||
+    f.includes("CSCA") || f.includes("HANYU")
 };
 
 function getDocsInCategory(category: string, allDocs: any[]): any[] {
@@ -186,7 +318,7 @@ export default function GlobalStudentDatabase() {
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
-  const [selectedDocType, setSelectedDocType] = useState("Report Card");
+  const [selectedDocType, setSelectedDocType] = useState("Passport");
   const [loadingDocFilename, setLoadingDocFilename] = useState<string | null>(null);
   const [deletingDocFilename, setDeletingDocFilename] = useState<string | null>(null);
 
@@ -732,7 +864,11 @@ export default function GlobalStudentDatabase() {
   }
 
   const totalDocCount = studentDocs.length;
-  const categoriesWithDocs = STANDARD_CATEGORIES.filter(c => getDocsInCategory(c.type, studentDocs).length > 0).length;
+  // Only count categories that are visible for THIS student (so denominator reflects what's actually shown)
+  const visibleCategories = editingStudent 
+    ? STANDARD_CATEGORIES.filter(c => !c.visible || c.visible(editingStudent))
+    : STANDARD_CATEGORIES;
+  const categoriesWithDocs = visibleCategories.filter(c => getDocsInCategory(c.type, studentDocs).length > 0).length;
   const otherDocs = getOtherDocs(studentDocs);
 
   return (
@@ -1640,16 +1776,20 @@ export default function GlobalStudentDatabase() {
                     </div>
                     <div className="bg-slate-50 text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 flex items-center gap-2 shrink-0">
                       <UploadCloud size={16} className="text-blue-500"/> 
-                      <span><strong className="text-[#282860]">{totalDocCount}</strong> file{totalDocCount === 1 ? '' : 's'} - <strong className="text-[#282860]">{categoriesWithDocs}</strong>/{STANDARD_CATEGORIES.length} categories</span>
+                      <span><strong className="text-[#282860]">{totalDocCount}</strong> file{totalDocCount === 1 ? '' : 's'} - <strong className="text-[#282860]">{categoriesWithDocs}</strong>/{visibleCategories.length} categories</span>
                     </div>
                   </div>
 
                   {/* CATEGORY CARDS - each holds 0..N files */}
+                  {/* CATEGORY CARDS - each holds 0..N files */}
                   <div className="space-y-3">
-                    {STANDARD_CATEGORIES.map((cat) => {
+                    {STANDARD_CATEGORIES.filter(cat => !cat.visible || cat.visible(editingStudent)).map((cat) => {
                       const filesInCat = getDocsInCategory(cat.type, studentDocs);
                       const count = filesInCat.length;
                       const isEmpty = count === 0;
+                      const description = cat.dynamicDescription 
+                        ? cat.dynamicDescription(editingStudent) 
+                        : cat.description;
 
                       return (
                         <div key={cat.type} className={`rounded-2xl border shadow-sm transition-all ${
@@ -1673,7 +1813,7 @@ export default function GlobalStudentDatabase() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-xs text-slate-500 mt-0.5">{cat.description}</p>
+                                <p className="text-xs text-slate-500 mt-0.5">{description}</p>
                                 {cat.type === "SOP" && (
                                   <button 
                                     type="button"
