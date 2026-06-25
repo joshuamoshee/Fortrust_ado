@@ -310,7 +310,7 @@ export default function GlobalStudentDatabase() {
   const [isArchiving, setIsArchiving] = useState(false);
 
   const [editingStudent, setEditingStudent] = useState<any>(null);
-  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai" | "notes">("profile");
+  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai" | "notes" | "appform">("profile");
   const [isSavingStudent, setIsSavingStudent] = useState(false);
   
   const [aiReport, setAiReport] = useState("");
@@ -367,6 +367,17 @@ export default function GlobalStudentDatabase() {
       setCustomCareerGoal("");
       setCustomCampusEnv("");
       return;
+    }
+    // Auto-split name into first/family if app form fields are empty (Phase 1a)
+    if (editingStudent.name && !editingStudent.first_name && !editingStudent.family_name) {
+      const parts = editingStudent.name.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        const first = parts.slice(0, -1).join(" ");
+        const family = parts[parts.length - 1];
+        setEditingStudent((prev: any) => prev ? {...prev, first_name: first, family_name: family} : prev);
+      } else if (parts.length === 1) {
+        setEditingStudent((prev: any) => prev ? {...prev, first_name: parts[0]} : prev);
+      }
     }
 
     // Populate academic profile fields from student data
@@ -608,7 +619,28 @@ export default function GlobalStudentDatabase() {
           country_interest: JSON.stringify(countryInterests),
           high_school: editingStudent.high_school || "",
           counsellor_notes: editingStudent.counsellor_notes || "",
-          emergency_contact_parent: editingStudent.emergency_contact_parent || ""   
+          emergency_contact_parent: editingStudent.emergency_contact_parent || "",
+          // === APPLICATION FORM FIELDS (Phase 1a) ===
+          title: editingStudent.title || "",
+          gender: editingStudent.gender || "",
+          date_of_birth: editingStudent.date_of_birth || null,
+          first_name: editingStudent.first_name || "",
+          family_name: editingStudent.family_name || "",
+          nationality: editingStudent.nationality || "",
+          country_of_residence: editingStudent.country_of_residence || "",
+          passport_no: editingStudent.passport_no || "",
+          home_address: editingStudent.home_address || "",
+          postcode: editingStudent.postcode || "",
+          tel_1: editingStudent.tel_1 || "",
+          tel_2: editingStudent.tel_2 || "",
+          fax: editingStudent.fax || "",
+          entry_month_year: editingStudent.entry_month_year || "",
+          entry_level: editingStudent.entry_level || "",
+          program_preferences: editingStudent.program_preferences || [],
+          previous_studies: editingStudent.previous_studies || [],
+          work_experiences: editingStudent.work_experiences || [],
+          language_tests: editingStudent.language_tests || [],
+          referees: editingStudent.referees || []
         })
       });
 
@@ -1385,6 +1417,9 @@ export default function GlobalStudentDatabase() {
               <button onClick={() => setDossierTab('notes')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'notes' ? 'border-b-2 border-blue-600 text-blue-700 bg-white' : 'text-slate-400 hover:text-blue-600'}`}>
                 <MessageSquare size={16} /> Team Collab
               </button>
+              <button onClick={() => setDossierTab('appform')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'appform' ? 'border-b-2 border-purple-600 text-purple-700 bg-white' : 'text-slate-400 hover:text-purple-600'}`}>
+                <FileText size={16} /> Application Form
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
@@ -2122,12 +2157,387 @@ export default function GlobalStudentDatabase() {
                   />
                 );
               })()}
+              {/* APPLICATION FORM TAB (Phase 1a) */}
+              {dossierTab === 'appform' && (
+                <div className="p-6 space-y-6 animate-in fade-in bg-slate-50/30">
+                  
+                  {/* Header banner */}
+                  <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-2xl p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="bg-purple-100 p-2 rounded-lg">
+                        <FileText size={20} className="text-purple-600"/>
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-sm font-black text-purple-900">Fortrust Application Form Data</h3>
+                        <p className="text-xs text-purple-700 mt-1">Fill in these fields to generate the official Fortrust Application Form PDF for the student to sign. All fields can be edited later.</p>
+                        <p className="text-[10px] text-purple-600 mt-2 font-bold">📋 Coming next: One-click PDF generation from this data.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <form id="edit-student-form-appform" onSubmit={handleEditStudent} className="space-y-6">
+
+                    {/* SECTION 1: PERSONAL DETAILS */}
+                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                      <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                        <User size={16} className="text-blue-500"/> Personal Details
+                      </h4>
+                      
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Title</label>
+                          <select className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400 cursor-pointer" value={editingStudent.title || ""} onChange={e => setEditingStudent({...editingStudent, title: e.target.value})}>
+                            <option value="">--</option>
+                            <option value="Mr">Mr</option>
+                            <option value="Mrs">Mrs</option>
+                            <option value="Ms">Ms</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Gender</label>
+                          <select className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400 cursor-pointer" value={editingStudent.gender || ""} onChange={e => setEditingStudent({...editingStudent, gender: e.target.value})}>
+                            <option value="">--</option>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Date of Birth</label>
+                          <input type="date" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.date_of_birth || ""} onChange={e => setEditingStudent({...editingStudent, date_of_birth: e.target.value})}/>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">First Name (Given Name)</label>
+                          <input type="text" placeholder="e.g. Rafael Benjamin" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.first_name || ""} onChange={e => setEditingStudent({...editingStudent, first_name: e.target.value})}/>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Family Name (Surname)</label>
+                          <input type="text" placeholder="e.g. Sutanto" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.family_name || ""} onChange={e => setEditingStudent({...editingStudent, family_name: e.target.value})}/>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Nationality</label>
+                          <input type="text" placeholder="e.g. Indonesian" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.nationality || ""} onChange={e => setEditingStudent({...editingStudent, nationality: e.target.value})}/>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Country of Residence</label>
+                          <input type="text" placeholder="e.g. Indonesia" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.country_of_residence || ""} onChange={e => setEditingStudent({...editingStudent, country_of_residence: e.target.value})}/>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Passport Number</label>
+                          <input type="text" placeholder="e.g. A12345678" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400 font-mono" value={editingStudent.passport_no || ""} onChange={e => setEditingStudent({...editingStudent, passport_no: e.target.value})}/>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Permanent Home Address</label>
+                        <textarea rows={2} placeholder="Full street address..." className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400 resize-none" value={editingStudent.home_address || ""} onChange={e => setEditingStudent({...editingStudent, home_address: e.target.value})}/>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Postcode</label>
+                          <input type="text" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.postcode || ""} onChange={e => setEditingStudent({...editingStudent, postcode: e.target.value})}/>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Tel 1</label>
+                          <input type="text" placeholder="Home phone" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.tel_1 || ""} onChange={e => setEditingStudent({...editingStudent, tel_1: e.target.value})}/>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Tel 2</label>
+                          <input type="text" placeholder="Alt phone" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.tel_2 || ""} onChange={e => setEditingStudent({...editingStudent, tel_2: e.target.value})}/>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Fax</label>
+                          <input type="text" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-purple-400" value={editingStudent.fax || ""} onChange={e => setEditingStudent({...editingStudent, fax: e.target.value})}/>
+                        </div>
+                      </div>
+                      
+                      <p className="text-[10px] text-slate-400 italic">📞 HP (mobile) and Email are taken from the main Profile tab.</p>
+                    </div>
+
+                    {/* SECTION 2: PROGRAM PREFERENCES */}
+                    {(() => {
+                      const prefs = editingStudent.program_preferences || [];
+                      const addPref = () => setEditingStudent({...editingStudent, program_preferences: [...prefs, {institution: "", course: ""}]});
+                      const removePref = (idx: number) => setEditingStudent({...editingStudent, program_preferences: prefs.filter((_: any, i: number) => i !== idx)});
+                      const updatePref = (idx: number, field: string, value: string) => {
+                        const next = [...prefs];
+                        next[idx] = {...next[idx], [field]: value};
+                        setEditingStudent({...editingStudent, program_preferences: next});
+                      };
+                      return (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                            <Target size={16} className="text-emerald-500"/> Program Preferences
+                            <span className="ml-auto text-[10px] text-slate-400 font-normal normal-case tracking-normal">Up to 5 choices in order</span>
+                          </h4>
+                          
+                          {prefs.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 text-sm italic">No program preferences yet.</div>
+                          ) : (
+                            <div className="space-y-3">
+                              {prefs.map((p: any, idx: number) => (
+                                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                  <span className="col-span-1 text-xs font-black text-slate-500 text-center">{idx + 1}.</span>
+                                  <input type="text" placeholder="Institution name" className="col-span-5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:border-emerald-400" value={p.institution || ""} onChange={e => updatePref(idx, "institution", e.target.value)}/>
+                                  <input type="text" placeholder="Course / Program" className="col-span-5 px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white outline-none focus:border-emerald-400" value={p.course || ""} onChange={e => updatePref(idx, "course", e.target.value)}/>
+                                  <button type="button" onClick={() => removePref(idx)} className="col-span-1 p-2 text-red-400 hover:text-white hover:bg-red-500 border border-red-100 bg-red-50 rounded-lg transition-colors"><Trash2 size={14}/></button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {prefs.length < 5 && (
+                            <button type="button" onClick={addPref} className="w-full py-2.5 border-2 border-dashed border-emerald-300 rounded-xl text-emerald-700 font-bold text-xs hover:bg-emerald-50 transition-colors flex items-center justify-center gap-2">
+                              <Plus size={14}/> Add Program Preference ({prefs.length}/5)
+                            </button>
+                          )}
+                          
+                          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                            <div>
+                              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Month & Year of Entry</label>
+                              <input type="text" placeholder="e.g. September 2026" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-emerald-400" value={editingStudent.entry_month_year || ""} onChange={e => setEditingStudent({...editingStudent, entry_month_year: e.target.value})}/>
+                            </div>
+                            <div>
+                              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Level of Entry</label>
+                              <input type="text" placeholder="e.g. Year 1 Undergraduate" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-emerald-400" value={editingStudent.entry_level || ""} onChange={e => setEditingStudent({...editingStudent, entry_level: e.target.value})}/>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* SECTION 3: PREVIOUS STUDY */}
+                    {(() => {
+                      const studies = editingStudent.previous_studies || [];
+                      const addStudy = () => setEditingStudent({...editingStudent, previous_studies: [...studies, {from_date: "", to_date: "", qualification: "", institution: "", country: ""}]});
+                      const removeStudy = (idx: number) => setEditingStudent({...editingStudent, previous_studies: studies.filter((_: any, i: number) => i !== idx)});
+                      const updateStudy = (idx: number, field: string, value: string) => {
+                        const next = [...studies];
+                        next[idx] = {...next[idx], [field]: value};
+                        setEditingStudent({...editingStudent, previous_studies: next});
+                      };
+                      return (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                            <GraduationCap size={16} className="text-indigo-500"/> Previous Study & Qualifications
+                          </h4>
+                          
+                          {studies.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 text-sm italic">No previous studies recorded.</div>
+                          ) : (
+                            <div className="space-y-3">
+                              {studies.map((s: any, idx: number) => (
+                                <div key={idx} className="border border-slate-200 rounded-xl p-3 bg-slate-50/30 relative">
+                                  <button type="button" onClick={() => removeStudy(idx)} className="absolute top-2 right-2 p-1.5 text-red-400 hover:text-white hover:bg-red-500 rounded-lg transition-colors"><Trash2 size={12}/></button>
+                                  <div className="grid grid-cols-2 gap-2 mb-2">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">From (Month/Year)</label>
+                                      <input type="text" placeholder="e.g. 06/2020" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-indigo-400" value={s.from_date || ""} onChange={e => updateStudy(idx, "from_date", e.target.value)}/>
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">To (Month/Year)</label>
+                                      <input type="text" placeholder="e.g. 06/2023" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-indigo-400" value={s.to_date || ""} onChange={e => updateStudy(idx, "to_date", e.target.value)}/>
+                                    </div>
+                                  </div>
+                                  <input type="text" placeholder="Qualification (to be) obtained and major subject" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-indigo-400 mb-2" value={s.qualification || ""} onChange={e => updateStudy(idx, "qualification", e.target.value)}/>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <input type="text" placeholder="Institution of study" className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-indigo-400" value={s.institution || ""} onChange={e => updateStudy(idx, "institution", e.target.value)}/>
+                                    <input type="text" placeholder="Country of study" className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-indigo-400" value={s.country || ""} onChange={e => updateStudy(idx, "country", e.target.value)}/>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {studies.length < 5 && (
+                            <button type="button" onClick={addStudy} className="w-full py-2.5 border-2 border-dashed border-indigo-300 rounded-xl text-indigo-700 font-bold text-xs hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2">
+                              <Plus size={14}/> Add Previous Study ({studies.length}/5)
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* SECTION 4: WORK EXPERIENCE */}
+                    {(() => {
+                      const works = editingStudent.work_experiences || [];
+                      const addWork = () => setEditingStudent({...editingStudent, work_experiences: [...works, {from_date: "", to_date: "", organisation: "", position: "", duties: "", ft_pt: "FT"}]});
+                      const removeWork = (idx: number) => setEditingStudent({...editingStudent, work_experiences: works.filter((_: any, i: number) => i !== idx)});
+                      const updateWork = (idx: number, field: string, value: string) => {
+                        const next = [...works];
+                        next[idx] = {...next[idx], [field]: value};
+                        setEditingStudent({...editingStudent, work_experiences: next});
+                      };
+                      return (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                            <Briefcase size={16} className="text-amber-500"/> Work Experience
+                          </h4>
+                          
+                          {works.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 text-sm italic">No work experience recorded.</div>
+                          ) : (
+                            <div className="space-y-3">
+                              {works.map((w: any, idx: number) => (
+                                <div key={idx} className="border border-slate-200 rounded-xl p-3 bg-slate-50/30 relative">
+                                  <button type="button" onClick={() => removeWork(idx)} className="absolute top-2 right-2 p-1.5 text-red-400 hover:text-white hover:bg-red-500 rounded-lg transition-colors"><Trash2 size={12}/></button>
+                                  <div className="grid grid-cols-3 gap-2 mb-2">
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">From</label>
+                                      <input type="text" placeholder="MM/YYYY" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-amber-400" value={w.from_date || ""} onChange={e => updateWork(idx, "from_date", e.target.value)}/>
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">To</label>
+                                      <input type="text" placeholder="MM/YYYY" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-amber-400" value={w.to_date || ""} onChange={e => updateWork(idx, "to_date", e.target.value)}/>
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 block">FT / PT</label>
+                                      <select className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-amber-400 cursor-pointer" value={w.ft_pt || "FT"} onChange={e => updateWork(idx, "ft_pt", e.target.value)}>
+                                        <option value="FT">FT (Full Time)</option>
+                                        <option value="PT">PT (Part Time)</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <input type="text" placeholder="Name of Organisation" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-amber-400 mb-2" value={w.organisation || ""} onChange={e => updateWork(idx, "organisation", e.target.value)}/>
+                                  <input type="text" placeholder="Position / Job Title" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-amber-400 mb-2" value={w.position || ""} onChange={e => updateWork(idx, "position", e.target.value)}/>
+                                  <textarea rows={2} placeholder="Type of Work / Duties" className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-amber-400 resize-none" value={w.duties || ""} onChange={e => updateWork(idx, "duties", e.target.value)}/>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {works.length < 3 && (
+                            <button type="button" onClick={addWork} className="w-full py-2.5 border-2 border-dashed border-amber-300 rounded-xl text-amber-700 font-bold text-xs hover:bg-amber-50 transition-colors flex items-center justify-center gap-2">
+                              <Plus size={14}/> Add Work Experience ({works.length}/3)
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* SECTION 5: LANGUAGE TESTS */}
+                    {(() => {
+                      const tests = editingStudent.language_tests || [];
+                      const addTest = () => setEditingStudent({...editingStudent, language_tests: [...tests, {type: "", test_date: "", result: ""}]});
+                      const removeTest = (idx: number) => setEditingStudent({...editingStudent, language_tests: tests.filter((_: any, i: number) => i !== idx)});
+                      const updateTest = (idx: number, field: string, value: string) => {
+                        const next = [...tests];
+                        next[idx] = {...next[idx], [field]: value};
+                        setEditingStudent({...editingStudent, language_tests: next});
+                      };
+                      return (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                            <BookOpen size={16} className="text-cyan-500"/> English / Language Test Results
+                          </h4>
+                          
+                          {tests.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 text-sm italic">No test results recorded.</div>
+                          ) : (
+                            <div className="space-y-2">
+                              {tests.map((t: any, idx: number) => (
+                                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                                  <select className="col-span-4 px-2 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-cyan-400 cursor-pointer" value={t.type || ""} onChange={e => updateTest(idx, "type", e.target.value)}>
+                                    <option value="">Test type</option>
+                                    <option value="IELTS">IELTS</option>
+                                    <option value="TOEFL">TOEFL</option>
+                                    <option value="PTE">PTE</option>
+                                    <option value="HSK">HSK</option>
+                                    <option value="Other">Other</option>
+                                  </select>
+                                  <input type="text" placeholder="Test date (MM/YYYY)" className="col-span-4 px-2 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-cyan-400" value={t.test_date || ""} onChange={e => updateTest(idx, "test_date", e.target.value)}/>
+                                  <input type="text" placeholder="Result / score" className="col-span-3 px-2 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-cyan-400" value={t.result || ""} onChange={e => updateTest(idx, "result", e.target.value)}/>
+                                  <button type="button" onClick={() => removeTest(idx)} className="col-span-1 p-2 text-red-400 hover:text-white hover:bg-red-500 border border-red-100 bg-red-50 rounded-lg transition-colors"><Trash2 size={12}/></button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          <button type="button" onClick={addTest} className="w-full py-2.5 border-2 border-dashed border-cyan-300 rounded-xl text-cyan-700 font-bold text-xs hover:bg-cyan-50 transition-colors flex items-center justify-center gap-2">
+                            <Plus size={14}/> Add Language Test
+                          </button>
+                        </div>
+                      );
+                    })()}
+
+                    {/* SECTION 6: REFEREES */}
+                    {(() => {
+                      const refs = editingStudent.referees || [];
+                      const addRef = () => setEditingStudent({...editingStudent, referees: [...refs, {name: "", institution: "", position: "", address: "", tel_1: "", tel_2: "", hp: "", fax: "", email: ""}]});
+                      const removeRef = (idx: number) => setEditingStudent({...editingStudent, referees: refs.filter((_: any, i: number) => i !== idx)});
+                      const updateRef = (idx: number, field: string, value: string) => {
+                        const next = [...refs];
+                        next[idx] = {...next[idx], [field]: value};
+                        setEditingStudent({...editingStudent, referees: next});
+                      };
+                      return (
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2 border-b border-slate-100 pb-3">
+                            <Award size={16} className="text-rose-500"/> Referees
+                            <span className="ml-auto text-[10px] text-slate-400 font-normal normal-case tracking-normal">2 referees recommended</span>
+                          </h4>
+                          
+                          {refs.length === 0 ? (
+                            <div className="text-center py-6 text-slate-400 text-sm italic">No referees recorded yet.</div>
+                          ) : refs.map((r: any, idx: number) => (
+                            <div key={idx} className="border border-slate-200 rounded-xl p-4 bg-rose-50/30 relative space-y-3">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-black text-rose-700">Referee {idx + 1}</p>
+                                <button type="button" onClick={() => removeRef(idx)} className="p-1.5 text-red-400 hover:text-white hover:bg-red-500 rounded-lg transition-colors"><Trash2 size={12}/></button>
+                              </div>
+                              <input type="text" placeholder="Full name" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.name || ""} onChange={e => updateRef(idx, "name", e.target.value)}/>
+                              <div className="grid grid-cols-2 gap-2">
+                                <input type="text" placeholder="Institution / Company" className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.institution || ""} onChange={e => updateRef(idx, "institution", e.target.value)}/>
+                                <input type="text" placeholder="Position" className="px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.position || ""} onChange={e => updateRef(idx, "position", e.target.value)}/>
+                              </div>
+                              <textarea rows={2} placeholder="Address" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400 resize-none" value={r.address || ""} onChange={e => updateRef(idx, "address", e.target.value)}/>
+                              <div className="grid grid-cols-4 gap-2">
+                                <input type="text" placeholder="Tel 1" className="px-2 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.tel_1 || ""} onChange={e => updateRef(idx, "tel_1", e.target.value)}/>
+                                <input type="text" placeholder="Tel 2" className="px-2 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.tel_2 || ""} onChange={e => updateRef(idx, "tel_2", e.target.value)}/>
+                                <input type="text" placeholder="HP / Mobile" className="px-2 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.hp || ""} onChange={e => updateRef(idx, "hp", e.target.value)}/>
+                                <input type="text" placeholder="Fax" className="px-2 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.fax || ""} onChange={e => updateRef(idx, "fax", e.target.value)}/>
+                              </div>
+                              <input type="email" placeholder="Email" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs bg-white outline-none focus:border-rose-400" value={r.email || ""} onChange={e => updateRef(idx, "email", e.target.value)}/>
+                            </div>
+                          ))}
+                          
+                          {refs.length < 2 && (
+                            <button type="button" onClick={addRef} className="w-full py-2.5 border-2 border-dashed border-rose-300 rounded-xl text-rose-700 font-bold text-xs hover:bg-rose-50 transition-colors flex items-center justify-center gap-2">
+                              <Plus size={14}/> Add Referee ({refs.length}/2)
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* PHASE 1b PREVIEW (placeholder for Generate PDF button) */}
+                    <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 text-center">
+                      <FileText size={32} className="text-amber-500 mx-auto mb-2"/>
+                      <p className="text-sm font-black text-amber-900">Generate Application Form PDF</p>
+                      <p className="text-xs text-amber-700 mt-1">Coming in Phase 1b — this button will render all data above onto Mami's official Fortrust Application Form template, ready to download and send for student signature.</p>
+                      <button type="button" disabled className="mt-3 bg-slate-300 text-white px-6 py-2.5 rounded-xl text-sm font-bold cursor-not-allowed">
+                        Generate PDF (Coming Soon)
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </div>
-            
-            {dossierTab === 'profile' && (
+            {(dossierTab === 'profile' || dossierTab === 'appform') && (
               <div className="p-5 border-t border-slate-200 bg-white flex justify-end gap-3 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
                 <button onClick={() => setEditingStudent(null)} type="button" className="px-5 py-2.5 text-slate-500 font-bold text-sm hover:text-slate-800 transition-colors">Cancel</button>
-                <button form="edit-student-form" type="submit" disabled={isSavingStudent} className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 disabled:opacity-50">
+                <button 
+                  form={dossierTab === 'appform' ? 'edit-student-form-appform' : 'edit-student-form'} 
+                  type="submit" 
+                  disabled={isSavingStudent} 
+                  className="bg-[#282860] hover:bg-[#1b1b42] active:scale-95 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 disabled:opacity-50">
                   {isSavingStudent ? <><Loader2 size={16} className="animate-spin"/> Saving...</> : <><Save size={16}/> Save Changes</>}
                 </button>
               </div>
