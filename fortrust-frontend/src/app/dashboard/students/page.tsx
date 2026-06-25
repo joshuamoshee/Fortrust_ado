@@ -299,7 +299,7 @@ export default function GlobalStudentDatabase() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [agentFilter, setAgentFilter] = useState("ALL");
-  const [showArchived, setShowArchived] = useState(false);
+  const [studentTab, setStudentTab] = useState<"active" | "archived">("active");
   
   // Reassignment & Archiving States
   const [editingAgentForId, setEditingAgentForId] = useState<string | null>(null);
@@ -846,9 +846,10 @@ export default function GlobalStudentDatabase() {
     const matchesAgent = agentFilter === "ALL" || 
                         (agentFilter === "UNASSIGNED" && (!student.assignee || student.assignee === "Unassigned")) ||
                         student.assignee === agentFilter;
-    // Sprint A: hide archived students unless toggle is on
-    const matchesArchive = showArchived || (student.status || "").toUpperCase() !== "ARCHIVED";
-    return matchesSearch && matchesStatus && matchesAgent && matchesArchive;
+    // Tab-based filtering: active tab shows non-archived, archived tab shows only archived
+    const isArchived = (student.status || "").toUpperCase() === "ARCHIVED";
+    const matchesTab = studentTab === "archived" ? isArchived : !isArchived;
+    return matchesSearch && matchesStatus && matchesAgent && matchesTab;
   });
 
   const totalStudents = allStudents.length;
@@ -922,32 +923,59 @@ export default function GlobalStudentDatabase() {
         </div>
       </div>
 
-      {/* ARCHIVED STAT — shown only when archived students exist */}
+      {/* TABS: Active vs Archived */}
       {(() => {
         const archivedCount = allStudents.filter(s => (s.status || "").toUpperCase() === "ARCHIVED").length;
-        if (archivedCount === 0) return null;
+        const activeCount = allStudents.filter(s => (s.status || "").toUpperCase() !== "ARCHIVED").length;
+        
         return (
-          <div className="mb-6">
-            <button
-              onClick={() => setShowArchived(!showArchived)}
-              className={`w-full p-4 rounded-2xl border transition-all flex items-center justify-between ${
-                showArchived
-                  ? 'bg-red-50 border-red-200'
-                  : 'bg-slate-50 border-slate-200 hover:bg-red-50 hover:border-red-100'
-              }`}>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                  <Archive size={20} className="text-red-600"/>
-                </div>
-                <div className="text-left">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Archived Students</p>
-                  <p className="text-lg font-black text-[#282860]">{archivedCount} preserved</p>
-                </div>
-              </div>
-              <span className="text-xs font-bold text-slate-500">
-                {showArchived ? "Hide from list ↑" : "Show in list ↓"}
-              </span>
-            </button>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex bg-white border border-slate-200 rounded-2xl p-1 shadow-sm">
+              <button
+                onClick={() => setStudentTab("active")}
+                className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                  studentTab === "active" 
+                    ? 'bg-[#282860] text-white shadow-md' 
+                    : 'text-slate-500 hover:text-[#282860] hover:bg-slate-50'
+                }`}
+              >
+                <GraduationCap size={16}/>
+                Active Students
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  studentTab === "active" ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {activeCount}
+                </span>
+              </button>
+              <button
+                onClick={() => setStudentTab("archived")}
+                className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                  studentTab === "archived" 
+                    ? 'bg-red-600 text-white shadow-md' 
+                    : 'text-slate-500 hover:text-red-600 hover:bg-red-50'
+                }`}
+              >
+                <Archive size={16}/>
+                Archived
+                {archivedCount > 0 && (
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                    studentTab === "archived" ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600'
+                  }`}>
+                    {archivedCount}
+                  </span>
+                )}
+              </button>
+            </div>
+            
+            {/* Link to full analytics dashboard — shown only on archived tab */}
+            {studentTab === "archived" && archivedCount > 0 && (
+              <button
+                onClick={() => router.push("/dashboard/archived-students")}
+                className="bg-white hover:bg-red-50 border border-red-200 text-red-700 px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2"
+              >
+                <Activity size={16}/> Open Full Analytics →
+              </button>
+            )}
           </div>
         );
       })()}
@@ -976,18 +1004,6 @@ export default function GlobalStudentDatabase() {
               <option value="ALL">All Agents</option>
               {agents.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
             </select>
-            <label className={`flex items-center gap-2 px-4 py-2.5 rounded-xl cursor-pointer transition-all shadow-sm border ${
-              showArchived ? "bg-red-50 border-red-200 text-red-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-            }`}>
-              <input 
-                type="checkbox" 
-                checked={showArchived}
-                onChange={(e) => setShowArchived(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
-              />
-              <Archive size={14} className={showArchived ? "text-red-500" : "text-slate-400"} />
-              <span className="text-xs font-bold whitespace-nowrap">Include archived</span>
-            </label>
           </div>
         </div>
 
@@ -996,8 +1012,11 @@ export default function GlobalStudentDatabase() {
             <thead className="bg-[#f8fafc] border-b border-slate-200 text-[10px] font-black text-slate-400 tracking-widest uppercase sticky top-0 z-10">
               <tr>
                 <th className="px-6 py-5">Student Identity</th>
-                <th className="px-6 py-5">Pipeline Stage</th>
-                <th className="px-6 py-5">Budget</th>
+                <th className="px-6 py-5">{studentTab === "archived" ? "Status & Date" : "Pipeline Stage"}</th>
+                {studentTab === "archived" 
+                  ? <th className="px-6 py-5">Archive Reason</th>
+                  : <th className="px-6 py-5">Budget</th>
+                }
                 <th className="px-6 py-5">Assigned Agent</th>
                 <th className="px-6 py-5 text-right">Actions</th>
               </tr>
@@ -1006,7 +1025,11 @@ export default function GlobalStudentDatabase() {
               {loading ? (
                 <tr><td colSpan={5} className="p-16 text-center"><Loader2 size={32} className="animate-spin text-[#BAD133] mx-auto mb-4"/> Syncing Global Database...</td></tr>
               ) : filteredStudents.length === 0 ? (
-                <tr><td colSpan={5} className="p-16 text-center text-slate-400 font-medium">No students match your criteria.</td></tr>
+                <tr><td colSpan={5} className="p-16 text-center text-slate-400 font-medium">
+                  {studentTab === "archived" 
+                    ? "No archived students. When you archive a student, they'll appear here." 
+                    : "No students match your criteria."}
+                </td></tr>
               ) : (
                 filteredStudents.map((student) => (
                   <tr key={student.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => { setEditingStudent(student); setDossierTab("profile"); }}>
@@ -1028,9 +1051,21 @@ export default function GlobalStudentDatabase() {
                       </span>
                       <p className="text-[10px] text-slate-400 font-medium mt-1">Updated: {new Date(student.updated_at || student.created_at).toLocaleDateString()}</p>
                     </td>
-                    <td className="px-6 py-4 font-bold text-slate-600">
-                      {student.budget || <span className="text-slate-400 italic font-normal">TBD</span>}
-                    </td>
+                    {studentTab === "archived" ? (
+                      <td className="px-6 py-4">
+                        {student.archive_reason ? (
+                          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-xs font-bold max-w-xs">
+                            {student.archive_reason}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">No reason recorded</span>
+                        )}
+                      </td>
+                    ) : (
+                      <td className="px-6 py-4 font-bold text-slate-600">
+                        {student.budget || <span className="text-slate-400 italic font-normal">TBD</span>}
+                      </td>
+                    )}
                     <td className="px-6 py-4 min-w-[280px]" onClick={(e) => e.stopPropagation()}>
                       <AssigneePicker
                         agents={agents}
@@ -1054,10 +1089,45 @@ export default function GlobalStudentDatabase() {
                         <button onClick={() => { setEditingStudent(student); setDossierTab("profile"); }} className="p-2 bg-white text-slate-400 hover:text-[#282860] hover:bg-slate-100 border border-slate-200 rounded-lg shadow-sm transition-colors" title="View Student Dossier">
                           <FileText size={16} />
                         </button>
-                        <button onClick={() => { setStudentToArchive(student); setIsArchiveModalOpen(true); }}
-                          className="px-3 py-2 bg-white text-red-600 hover:bg-red-600 hover:text-white border border-red-200 hover:border-red-600 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5">
-                          <Archive size={14}/> Archive
-                        </button>
+                        {studentTab === "archived" ? (
+                          <button 
+                            onClick={async () => {
+                              if (!window.confirm(`Restore ${student.name} to active pipeline?`)) return;
+                              try {
+                                const token = localStorage.getItem("fortrust_token");
+                                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${student.id}`, {
+                                  method: "PUT",
+                                  headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                                  body: JSON.stringify({ status: "NEW LEAD", archive_reason: "" })
+                                });
+                                if (res.ok) {
+                                  // Log system note
+                                  let authorName = "Master Admin";
+                                  try { if (token) { const payload = JSON.parse(atob(token.split('.')[1])); authorName = payload.name || "Master Admin"; } } catch (e) {}
+                                  await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pipeline/${student.id}/notes`, {
+                                    method: "POST",
+                                    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+                                    body: JSON.stringify({ note: `SYSTEM: ${authorName} restored student from archive.`, author: "System AI" })
+                                  });
+                                  setNotification({type: 'success', message: `${student.name} restored.`});
+                                  fetchData();
+                                } else {
+                                  setNotification({type: 'error', message: "Failed to restore."});
+                                }
+                              } catch (e) {
+                                setNotification({type: 'error', message: "Network error."});
+                              }
+                              setTimeout(() => setNotification(null), 3000);
+                            }}
+                            className="px-3 py-2 bg-white text-emerald-600 hover:bg-emerald-600 hover:text-white border border-emerald-200 hover:border-emerald-600 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5">
+                            <RefreshCcw size={14}/> Restore
+                          </button>
+                        ) : (
+                          <button onClick={() => { setStudentToArchive(student); setIsArchiveModalOpen(true); }}
+                            className="px-3 py-2 bg-white text-red-600 hover:bg-red-600 hover:text-white border border-red-200 hover:border-red-600 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5">
+                            <Archive size={14}/> Archive
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
