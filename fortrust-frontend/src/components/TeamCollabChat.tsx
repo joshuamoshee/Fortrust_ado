@@ -240,6 +240,34 @@ const [messages, setMessages] = useState<ChatMessage[]>([]);
   // ============================================================
   // INSERT @MENTION
   // ============================================================
+  // Smart filtering for @mention dropdown:
+  // - Empty query → only show agents assigned to this case (avoids overwhelming UX with 100+ agents)
+  // - Has query → search ALL agents, but sort assignees to the top
+  const getFilteredMentions = (): Agent[] => {
+    const q = (mentionQuery || "").toLowerCase().trim();
+    
+    if (!q) {
+      // No search query: show only assignees of this case
+      return allAgents
+        .filter(a => studentAssignees.includes(a.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    
+    // Has query: search ALL agents
+    const matched = allAgents.filter(a => 
+      a.name.toLowerCase().includes(q)
+    );
+    
+    // Sort: assignees first, then alphabetical within each group
+    return matched.sort((a, b) => {
+      const aIsAssignee = studentAssignees.includes(a.name);
+      const bIsAssignee = studentAssignees.includes(b.name);
+      if (aIsAssignee && !bIsAssignee) return -1;
+      if (!aIsAssignee && bIsAssignee) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  };
+  
   const insertMention = (name: string) => {
     if (!name || mentionStartIdx === null) return;
     
@@ -631,25 +659,40 @@ const [messages, setMessages] = useState<ChatMessage[]>([]);
           {/* INPUT BAR */}
           <div className="p-4 bg-white border-t border-slate-200 shrink-0 relative">
             
-            {/* @MENTION DROPDOWN */}
             {mentionOpen && allAgents.length > 0 && (() => {
-              const filtered = allAgents.filter(a => 
-                !mentionQuery || a.name.toLowerCase().includes(mentionQuery.toLowerCase())
-              );
-              if (filtered.length === 0) return null;
+              const filtered = getFilteredMentions();
+              const isSearchingAll = !!mentionQuery;
+              // Don't hide dropdown when no matches — show "no results" instead
+              // (so user knows the search is working)
               
               return (
                 <div className="absolute bottom-full left-4 right-4 mb-2 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-150">
                   <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                      Mention an agent {mentionQuery && <span className="text-[#282860]">— "{mentionQuery}"</span>}
+                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
+                      {isSearchingAll 
+                        ? <>Searching all agents — <span className="text-[#282860]">"{mentionQuery}"</span></>
+                        : <>Assignees on this case <span className="text-slate-400 font-normal lowercase tracking-normal normal-case ml-1">— start typing to search all agents</span></>
+                      }
                     </span>
                     <span className="text-[10px] text-slate-400 font-bold">
                       ↑↓ navigate · ↵ select · Esc close
                     </span>
                   </div>
                   <div className="max-h-56 overflow-y-auto custom-scrollbar">
-                    {filtered.slice(0, 8).map((agent, idx) => {
+                    {filtered.length === 0 ? (
+                      <div className="px-4 py-6 text-center">
+                        <p className="text-sm font-bold text-slate-500 mb-1">
+                          {isSearchingAll 
+                            ? `No agents match "${mentionQuery}"` 
+                            : "No assignees on this case yet"}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {isSearchingAll
+                            ? "Try a different search term, or check spelling."
+                            : "Add assignees to the case to mention them here. Start typing a name to search all agents."}
+                        </p>
+                      </div>
+                    ) : filtered.map((agent, idx) => {
                       const isActive = idx === mentionActiveIdx;
                       const isAssignee = studentAssignees.includes(agent.name);
                       // Avatar color hash (matches getAvatarColor)
@@ -698,10 +741,13 @@ const [messages, setMessages] = useState<ChatMessage[]>([]);
                       );
                     })}
                   </div>
-                  {filtered.length > 8 && (
+                  {filtered.length > 0 && (
                     <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-center">
                       <span className="text-[10px] font-bold text-slate-400">
-                        Keep typing to narrow {filtered.length - 8} more...
+                        {isSearchingAll
+                          ? <>{filtered.length} of {allAgents.length} agents{filtered.length > 8 ? ' — keep typing to narrow' : ''}</>
+                          : <>{filtered.length} assignee{filtered.length === 1 ? '' : 's'} on this case — start typing to search all {allAgents.length} agents</>
+                        }
                       </span>
                     </div>
                   )}
@@ -742,9 +788,7 @@ const [messages, setMessages] = useState<ChatMessage[]>([]);
                 onKeyDown={(e) => {
                   // Mention dropdown navigation
                   if (mentionOpen) {
-                    const filtered = allAgents.filter(a => 
-                      !mentionQuery || a.name.toLowerCase().includes(mentionQuery.toLowerCase())
-                    );
+                    const filtered = getFilteredMentions();
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
                       setMentionActiveIdx(idx => Math.min(idx + 1, filtered.length - 1));
