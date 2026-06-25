@@ -939,6 +939,32 @@ class StudentUpdate(BaseModel):
     counsellor_notes: Optional[str] = None
     emergency_contact_parent: Optional[str] = None
 
+# ============================================================
+    # APPLICATION FORM FIELDS (Phase 1a)
+    # ============================================================
+    title: Optional[str] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[str] = None  # YYYY-MM-DD format
+    first_name: Optional[str] = None
+    family_name: Optional[str] = None
+    nationality: Optional[str] = None
+    country_of_residence: Optional[str] = None
+    passport_no: Optional[str] = None
+    home_address: Optional[str] = None
+    postcode: Optional[str] = None
+    tel_1: Optional[str] = None
+    tel_2: Optional[str] = None
+    fax: Optional[str] = None
+    entry_month_year: Optional[str] = None
+    entry_level: Optional[str] = None
+    
+    # JSONB arrays - accept as lists from frontend, stored as JSONB
+    program_preferences: Optional[list] = None
+    previous_studies: Optional[list] = None
+    work_experiences: Optional[list] = None
+    language_tests: Optional[list] = None
+    referees: Optional[list] = None
+
 
 class InstitutionUpdate(BaseModel):
     name: Optional[str] = None
@@ -3735,6 +3761,14 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
                 require_can_reassign_student(conn, student_id, current_user)
             else:
                 require_can_edit_student(conn, student_id, current_user)
+                # Convert lists to JSON strings for JSONB columns (Phase 1a)
+                JSONB_FIELDS = {"program_preferences", "previous_studies", "work_experiences", "language_tests", "referees"}
+                for key in list(incoming.keys()):
+                    if key in JSONB_FIELDS and incoming[key] is not None:
+                        if isinstance(incoming[key], (list, dict)):
+                            incoming[key] = json.dumps(incoming[key])
+
+            
             # ⬆️ END GUARD
             # 1. Fetch old values for comparison
             cur.execute("""
