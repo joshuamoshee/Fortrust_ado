@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg2.extras import RealDictCursor
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from ai_report import generate_strategic_report
@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from google import genai
 from supabase import create_client, Client
 import traceback
+from fortrust_form_generator import generate_application_form_pdf
 
 # ============================================================
 # RBAC — Role-Based Access Control Permission Engine
@@ -3748,6 +3749,66 @@ def get_all_students():
     finally:
         conn.close()
 
+@app.get("/api/students/{student_id}/application-form-pdf")
+def download_application_form_pdf(
+    student_id: int,
+    user_data: dict = Depends(verify_token)
+):
+    """Generate the Fortrust Application Form PDF filled with student data."""
+    # Permission check — must have view access on this student
+    require_can_view_student(user_data, student_id)
+    
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM students WHERE id = %s", (student_id,))
+            student = cur.fetchone()
+            if not student:
+                raise HTTPException(status_code=404, detail="Student not found.")
+        
+        # Convert RowDict to plain dict + parse JSONB columns
+        student_dict = dict(student)
+        JSONB_FIELDS = ["program_preferences", "previous_studies", "work_experiences", "language_tests", "referees"]
+        for field in JSONB_FIELDS:
+            raw = student_dict.get(field)
+            if isinstance(raw, str):
+                try:
+                    student_dict[field] = json.loads(raw)
+                except Exception:
+                    student_dict[field] = []
+            elif raw is None:
+                student_dict[field] = []
+        
+        # Generate PDF
+        template_path = os.path.join(os.path.dirname(__file__), "templates", "fortrust_application_form.pdf")
+        if not os.path.exists(template_path):
+            raise HTTPException(status_code=500, detail="Template PDF not found on server. Contact admin.")
+        
+        pdf_bytes = generate_application_form_pdf(student_dict, template_path)
+        
+        # Build safe filename
+        safe_name = (student_dict.get("name") or "student").replace(" ", "_").replace("/", "_")
+        safe_name = "".join(c for c in safe_name if c.isalnum() or c in "_-")
+        filename = f"Fortrust_Application_{safe_name}.pdf"
+        
+        # Log audit event
+        try:
+            log_audit_event(
+                actor=user_data.get("name", "Unknown"),
+                event_type="APPLICATION_FORM_GENERATED",
+                student_id=student_id,
+                message=f"Generated Fortrust Application Form PDF for {student_dict.get('name')}",
+            )
+        except Exception:
+            pass  # Audit failures shouldn't break PDF download
+        
+        return StreamingResponse(
+            iter([pdf_bytes]),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    finally:
+        conn.close()
 
 @app.put("/api/students/{student_id}")
 def update_student(student_id: int, student: StudentUpdate, current_user: dict = Depends(get_current_user)):

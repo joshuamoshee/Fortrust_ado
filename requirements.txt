@@ -18,3 +18,4 @@ email-validator
 passlib
 requests
 reportlab>=4.0.0
+pypdf>=4.0.0
