@@ -316,6 +316,7 @@ export default function GlobalStudentDatabase() {
   const [aiReport, setAiReport] = useState("");
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isDownloadingAppForm, setIsDownloadingAppForm] = useState(false);
 
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState("Passport");
@@ -698,6 +699,39 @@ export default function GlobalStudentDatabase() {
     } finally {
       setIsDownloadingPdf(false);
       setTimeout(() => setNotification(null), 3000);
+    }
+  };
+
+  const handleDownloadApplicationForm = async () => {
+    if (!editingStudent) return;
+    setIsDownloadingAppForm(true);
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/students/${editingStudent.id}/application-form-pdf`,
+        { headers: { "Authorization": `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setNotification({ type: 'error', message: errData.detail || "PDF generation failed." });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeName = (editingStudent.name || 'student').replace(/[^a-zA-Z0-9]/g, '_');
+      link.download = `Fortrust_Application_${safeName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification({ type: 'success', message: "Application Form PDF downloaded successfully." });
+    } catch (e) {
+      setNotification({ type: 'error', message: "Network error while generating PDF." });
+    } finally {
+      setIsDownloadingAppForm(false);
+      setTimeout(() => setNotification(null), 4000);
     }
   };
 
@@ -2517,14 +2551,28 @@ export default function GlobalStudentDatabase() {
                       );
                     })()}
 
-                    {/* PHASE 1b PREVIEW (placeholder for Generate PDF button) */}
-                    <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 text-center">
-                      <FileText size={32} className="text-amber-500 mx-auto mb-2"/>
-                      <p className="text-sm font-black text-amber-900">Generate Application Form PDF</p>
-                      <p className="text-xs text-amber-700 mt-1">Coming in Phase 1b — this button will render all data above onto Mami's official Fortrust Application Form template, ready to download and send for student signature.</p>
-                      <button type="button" disabled className="mt-3 bg-slate-300 text-white px-6 py-2.5 rounded-xl text-sm font-bold cursor-not-allowed">
-                        Generate PDF (Coming Soon)
-                      </button>
+                    {/* GENERATE APPLICATION FORM PDF */}
+                    <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-5">
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                          <Download size={24} className="text-emerald-600"/>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-black text-emerald-900">Generate Application Form PDF</p>
+                          <p className="text-xs text-emerald-700 mt-1 leading-relaxed">
+                            Save the form first (button at bottom of page), then click below to render all data onto the official Fortrust template. The PDF is ready to send for student signature.
+                          </p>
+                          <button 
+                            type="button" 
+                            onClick={handleDownloadApplicationForm}
+                            disabled={isDownloadingAppForm}
+                            className="mt-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2 disabled:opacity-50">
+                            {isDownloadingAppForm 
+                              ? <><Loader2 size={16} className="animate-spin"/> Generating PDF...</>
+                              : <><Download size={16}/> Download Application Form PDF</>}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </form>
                 </div>
