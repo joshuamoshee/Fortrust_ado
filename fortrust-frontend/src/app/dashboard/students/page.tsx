@@ -595,6 +595,12 @@ export default function GlobalStudentDatabase() {
 
     try {
       const token = localStorage.getItem("fortrust_token");
+      const toArray = (v: any) => Array.isArray(v) ? v : [];
+      const safeProgs = toArray(editingStudent.program_preferences);
+      const safeStudies = toArray(editingStudent.previous_studies);
+      const safeWorks = toArray(editingStudent.work_experiences);
+      const safeTests = toArray(editingStudent.language_tests);
+      const safeRefs = toArray(editingStudent.referees);
       
       // 1. Update Profile
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${editingStudent.id}`, {
@@ -637,11 +643,11 @@ export default function GlobalStudentDatabase() {
           fax: editingStudent.fax || "",
           entry_month_year: editingStudent.entry_month_year || "",
           entry_level: editingStudent.entry_level || "",
-          program_preferences: editingStudent.program_preferences || [],
-          previous_studies: editingStudent.previous_studies || [],
-          work_experiences: editingStudent.work_experiences || [],
-          language_tests: editingStudent.language_tests || [],
-          referees: editingStudent.referees || []
+          program_preferences: safeProgs,
+          previous_studies: safeStudies,
+          work_experiences: safeWorks,
+          language_tests: safeTests,
+          referees: safeRefs
         })
       });
 

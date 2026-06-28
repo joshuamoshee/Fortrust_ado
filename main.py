@@ -11,6 +11,7 @@ import shutil
 import bcrypt
 import json
 import io
+import base64
 import jwt
 import PyPDF2
 import pandas as pd
@@ -5980,3 +5981,173 @@ def get_my_permissions(user_data: dict = Depends(verify_token)):
         "status": "success",
         "data": get_user_permissions(user_data)
     }
+
+@app.post("/api/students/{student_id}/auto-fill-form")
+def auto_fill_application_form(
+    student_id: int,
+    user_data: dict = Depends(verify_token)
+):
+    """Use Gemini to read ALL of a student's uploaded documents and extract
+    structured fields for the Application Form."""
+    require_can_view_student(user_data, student_id)
+    
+    # 1. Get the student's documents from the vault
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, name, documents FROM students WHERE id = %s",
+                (student_id,)
+            )
+            student = cur.fetchone()
+            if not student:
+                raise HTTPException(404, "Student not found")
+    finally:
+        conn.close()
+    
+    documents = student.get("documents") or []
+    if isinstance(documents, str):
+        try: documents = json.loads(documents)
+        except: documents = []
+    
+    if not documents:
+        raise HTTPException(400, "No documents uploaded yet. Upload passport, transcripts, language tests, etc. to the Application Vault first.")
+    
+    # 2. Download each doc from Supabase Storage and prep for Gemini
+    doc_parts = []
+    successfully_processed = []
+    
+    SUPPORTED_MIMES = {
+        "pdf": "application/pdf",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+        "heic": "image/heic",
+        "heif": "image/heif",
+    }
+    
+    for doc in documents[:15]:  # cap to avoid token explosion
+        filename = doc.get("filename")
+        title = doc.get("title", filename)
+        if not filename:
+            continue
+        ext = filename.lower().split(".")[-1]
+        mime = SUPPORTED_MIMES.get(ext)
+        if not mime:
+            continue  # Skip unsupported types (doc, xlsx, txt)
+        try:
+            file_bytes = supabase.storage.from_("student-documents").download(filename)
+            if file_bytes and len(file_bytes) < 15 * 1024 * 1024:  # 15MB max per file
+                doc_parts.append({
+                    "inline_data": {
+                        "mime_type": mime,
+                        "data": base64.b64encode(file_bytes).decode()
+                    }
+                })
+                successfully_processed.append(title)
+        except Exception as e:
+            print(f"[Auto-fill] Could not download {filename}: {e}")
+            continue
+    
+    if not doc_parts:
+        raise HTTPException(400, "Could not read any supported documents (PDF, JPG, PNG, WEBP). Try uploading clearer files.")
+    
+    # 3. Build the structured extraction prompt
+    extraction_prompt = """You are an expert at extracting structured information from student application documents (passports, transcripts, language test certificates, CVs, recommendation letters).
+
+You will be given multiple documents for ONE student. Extract structured data and return ONLY a JSON object matching this exact schema:
+
+{
+  "title": "Mr" | "Mrs" | "Ms" | null,
+  "gender": "Male" | "Female" | null,
+  "date_of_birth": "YYYY-MM-DD" | null,
+  "first_name": "string" | null,
+  "family_name": "string" | null,
+  "nationality": "string" | null,
+  "country_of_residence": "string" | null,
+  "passport_no": "string" | null,
+  "home_address": "string" | null,
+  "postcode": "string" | null,
+  "tel_1": "string" | null,
+  "tel_2": "string" | null,
+  "fax": "string" | null,
+  "entry_month_year": "string" | null,
+  "entry_level": "string" | null,
+  "program_preferences": [{"institution": "string", "course": "string"}],
+  "previous_studies": [{"from_date": "MM/YYYY", "to_date": "MM/YYYY", "qualification": "string", "institution": "string", "country": "string"}],
+  "work_experiences": [{"from_date": "MM/YYYY", "to_date": "MM/YYYY", "organisation": "string", "position": "string", "duties": "string", "ft_pt": "FT" | "PT"}],
+  "language_tests": [{"type": "IELTS" | "TOEFL" | "PTE" | "HSK" | string, "test_date": "string", "result": "string"}],
+  "referees": [{"name": "string", "institution": "string", "position": "string", "address": "string", "tel_1": "string", "hp": "string", "email": "string"}]
+}
+
+CRITICAL RULES:
+1. Return ONLY the JSON. No markdown fencing (no ```), no commentary.
+2. Use null for any scalar field you cannot confidently extract. Use [] for arrays with no data.
+3. PASSPORT NUMBERS: copy character-by-character. Do not assume O vs 0. Do not infer missing characters.
+4. Dates: prefer YYYY-MM-DD for date_of_birth. Use MM/YYYY for table dates. null if uncertain.
+5. Title (Mr/Mrs/Ms): infer from gender. Use null if uncertain.
+6. previous_studies: list newest first. Include high school, secondary, college.
+7. If documents conflict: prefer official sources (passport > government ID > transcript > self-reported).
+8. Address: combine line + city + state. Don't include postcode in address (postcode is separate field).
+9. For language_tests: extract test type and overall score. IELTS = "Overall 7.5", TOEFL = "98", etc.
+10. For referees in recommendation letters: extract the writer's contact info, not the student's.
+
+Be conservative. When uncertain, use null. Mami will review your output."""
+
+    # 4. Call Gemini with multimodal input
+    try:
+        import google.generativeai as genai
+        # Assumes GEMINI_API_KEY env var is already configured (you already use this for AI Strategy)
+        if not os.getenv("GEMINI_API_KEY"):
+            raise HTTPException(500, "GEMINI_API_KEY not configured on server")
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        
+        model = genai.GenerativeModel("gemini-2.5-flash-exp")  
+        # Build content: prompt + all document parts
+        content = [extraction_prompt] + doc_parts
+        
+        response = model.generate_content(
+            content,
+            generation_config={
+                "temperature": 0.1,  # low temp for factual extraction
+                "max_output_tokens": 4096,
+                "response_mime_type": "application/json",  # Gemini will enforce JSON
+            }
+        )
+        
+        result_text = response.text.strip()
+        
+        # Strip markdown fences if present (sometimes Gemini still adds them)
+        if result_text.startswith("```"):
+            lines = result_text.split("\n")
+            result_text = "\n".join(lines[1:-1]) if lines[0].startswith("```") and lines[-1].strip() == "```" else result_text
+            result_text = result_text.strip()
+        
+        parsed = json.loads(result_text)
+        
+        # 5. Log audit event
+        try:
+            log_audit_event(
+                actor=user_data.get("name", "Unknown"),
+                event_type="AI_AUTOFILL_REQUESTED",
+                student_id=student_id,
+                message=f"AI auto-fill extracted data from {len(doc_parts)} documents",
+            )
+        except Exception:
+            pass
+        
+        return {
+            "status": "success",
+            "data": parsed,
+            "documents_processed": len(doc_parts),
+            "document_titles": successfully_processed
+        }
+    
+    except json.JSONDecodeError as e:
+        raise HTTPException(500, f"AI returned invalid JSON. Try again. Error: {str(e)[:200]}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(500, f"AI extraction failed: {str(e)[:300]}")
