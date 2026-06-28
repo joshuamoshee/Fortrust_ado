@@ -1280,9 +1280,9 @@ export default function GlobalStudentDatabase() {
                     <div>
                       <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Lead Temperature</label>
                       <select className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={newStudent.lead_temperature} onChange={e => setNewStudent({...newStudent, lead_temperature: e.target.value})}>
-                        <option value="Hot Leads">🔥 Hot Leads — berangkat tahun ini</option>
-                        <option value="Warm Leads">🌤️ Warm Leads — berangkat tahun depan</option>
-                        <option value="Cold Leads">❄️ Cold Leads — masih ragu-ragu</option>
+                        <option value="Hot Leads">Hot Leads</option>
+                        <option value="Warm Leads">Warm Leads</option>
+                        <option value="Cold Leads">Cold Leads</option>
                       </select>
                     </div>
                     <div>
@@ -1607,9 +1607,9 @@ export default function GlobalStudentDatabase() {
                         <div>
                           <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block flex items-center gap-1"><Thermometer size={12}/> Lead Temp</label>
                           <select className="w-full px-3 py-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-[#BAD133] cursor-pointer" value={editingStudent.lead_temperature || "Cold Leads"} onChange={e => setEditingStudent({...editingStudent, lead_temperature: e.target.value})}>
-                            <option value="Hot Leads">🔥 Hot Leads — berangkat tahun ini</option>
-                            <option value="Warm Leads">🌤️ Warm Leads — berangkat tahun depan</option>
-                            <option value="Cold Leads">❄️ Cold Leads — masih ragu-ragu</option>
+                            <option value="Hot Leads">Hot Leads</option>
+                            <option value="Warm Leads">Warm Leads</option>
+                            <option value="Cold Leads">Cold Leads</option>
                           </select>
                           <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
                             <strong className="text-orange-500">Hot</strong>: berangkat th ini · <strong className="text-amber-500">Warm</strong>: berangkat th depan · <strong className="text-blue-400">Cold</strong>: masih ragu-ragu

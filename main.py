@@ -2791,9 +2791,26 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
         if not supabase:
             print("[ai-strategy] WARNING: Supabase not configured; cannot extract PDFs.")
 
+        # NEW: Map of supported file extensions to Gemini-accepted MIME types
+        SUPPORTED_MEDIA = {
+            ".pdf":  "application/pdf",
+            ".jpg":  "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png":  "image/png",
+            ".webp": "image/webp",
+            ".heic": "image/heic",
+            ".heif": "image/heif",
+        }
+        
         for doc in docs:
             filename = doc.get('filename')
-            if not filename or not filename.lower().endswith('.pdf'):
+            if not filename:
+                continue
+            # Detect mime by extension
+            ext = "." + filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+            mime_type = SUPPORTED_MEDIA.get(ext)
+            if not mime_type:
+                print(f"[ai-strategy] Skipping unsupported file: {filename}")
                 continue
             if not supabase:
                 continue
@@ -2805,34 +2822,34 @@ def get_ai_strategy(req: AIRequest, user_data: dict = Depends(verify_token)):
                     continue
 
                 # === STEP 1: Save raw bytes for Gemini's native vision ===
-                # This is what fixes the scanned-rapor problem. Gemini will
-                # OCR these PDFs directly even if PyPDF2 can't read them.
+                # NOW carries mime_type so the helper knows how to send it
                 doc_label = doc.get('title') or filename
-                pdf_files_for_gemini.append((doc_label, file_bytes))
+                pdf_files_for_gemini.append((doc_label, file_bytes, mime_type))
 
-                # === STEP 2: ALSO try text extraction as supplementary context ===
-                # This still works for text-based PDFs (typed/digital documents)
-                # and helps Gemini cross-reference. For scanned rapors this
-                # returns empty string — that's fine, vision handles it.
+                # === STEP 2: Try text extraction — ONLY for actual PDFs ===
                 pdf_text = ""
-                try:
-                    reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-                    pages = []
-                    for page in reader.pages:
-                        try:
-                            t = page.extract_text() or ""
-                            if t.strip():
-                                pages.append(t)
-                        except Exception:
-                            continue
-                    pdf_text = "\n".join(pages).strip()
-                except Exception as text_err:
-                    print(f"[ai-strategy] Text extraction failed for {filename} (likely a scanned PDF — Gemini vision will handle it): {text_err}")
+                if mime_type == "application/pdf":
+                    try:
+                        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+                        pages = []
+                        for page in reader.pages:
+                            try:
+                                t = page.extract_text() or ""
+                                if t.strip():
+                                    pages.append(t)
+                            except Exception:
+                                continue
+                        pdf_text = "\n".join(pages).strip()
+                    except Exception as text_err:
+                        print(f"[ai-strategy] Text extraction failed for {filename} (likely scanned — vision will handle it): {text_err}")
 
                 if not pdf_text:
-                    print(f"[ai-strategy] {filename} had no extractable text (scanned PDF — vision will OCR it)")
-                    # Don't skip — still classify so the section headers exist
-                    pdf_text = f"[This document is a scanned PDF — see attached file '{doc_label}' for visual content]"
+                    # For images: no text extraction possible, that's expected
+                    # For scanned PDFs: vision will OCR
+                    if mime_type.startswith("image/"):
+                        pdf_text = f"[Image file '{doc_label}' — see attached image for visual content]"
+                    else:
+                        pdf_text = f"[Scanned PDF '{doc_label}' — see attached file for visual content]"
 
                 # Classify by title/filename
                 title = (doc.get('title') or '').upper()

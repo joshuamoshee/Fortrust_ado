@@ -14,7 +14,7 @@ def generate_strategic_report(
     budget=None,  # str ("USD 11,000-28,000/Year") or number or None
     notes: str = "No notes provided.",
     pdf_data: str = "",  # Optional text fallback (e.g. extracted text or document summaries)
-    pdf_files: Optional[List[Tuple[str, bytes]]] = None,  # NEW: list of (filename, raw_pdf_bytes)
+    pdf_files: Optional[List[Tuple[str, bytes, str]]] = None,  # (label, bytes, mime_type)
     field_interests: list = None,
     program_interest: str = ""
 ) -> str:
@@ -68,10 +68,11 @@ def generate_strategic_report(
 
     if has_pdf_files:
         doc_count = len(pdf_files)
-        file_names = ", ".join([fn for fn, _ in pdf_files])
+        # Tolerate both 2-tuple (legacy) and 3-tuple (new with mime_type)
+        file_names = ", ".join([item[0] for item in pdf_files])
         doc_block = f"""I have attached {doc_count} document file(s) directly to this request: {file_names}
 
-You will see them as PDF attachments in this conversation. They may include:
+You will see these as attachments (PDFs and/or images) in this conversation. They may include:
 - Indonesian high school report cards (Rapor / Rapot) — often as scanned images
 - Psychological profiling tests (HCC, MBTI, IQ, RIASEC)
 - Other supporting transcripts
@@ -339,15 +340,31 @@ Begin the report for {student_name} now.
     # [Part(text=prompt), Part(file=pdf1), Part(file=pdf2), ...]
     if has_pdf_files:
         parts = [types.Part.from_text(text=prompt_text)]
-        for filename, file_bytes in pdf_files:
+        for item in pdf_files:
+            # Defensive: handle both 2-tuple (legacy) and 3-tuple (new with mime_type)
+            if len(item) == 3:
+                filename, file_bytes, mime_type = item
+            else:
+                filename, file_bytes = item
+                # Fallback: infer from filename extension
+                ext = "." + filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+                mime_type = {
+                    ".pdf": "application/pdf",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".png": "image/png",
+                    ".webp": "image/webp",
+                    ".heic": "image/heic",
+                    ".heif": "image/heif",
+                }.get(ext, "application/pdf")
             try:
                 parts.append(
                     types.Part.from_bytes(
                         data=file_bytes,
-                        mime_type="application/pdf"
+                        mime_type=mime_type
                     )
                 )
-                print(f"[ai_report] Attached PDF to Gemini: {filename} ({len(file_bytes):,} bytes)")
+                print(f"[ai_report] Attached {mime_type} to Gemini: {filename} ({len(file_bytes):,} bytes)")
             except Exception as part_err:
                 print(f"[ai_report] Failed to attach {filename}: {part_err}")
                 continue
