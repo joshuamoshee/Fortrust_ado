@@ -356,6 +356,14 @@ export default function GlobalStudentDatabase() {
     }
   }, [searchParams, allStudents, router]);
 
+  // Auto-select the Archived tab if URL has ?tab=archived (from the old redirected route)
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "archived") {
+      setStudentTab("archived");
+    }
+  }, [searchParams]);
+
   // Load field_interests and profile from the student record when dossier opens
   useEffect(() => {
     if (!editingStudent?.id) {
@@ -1039,15 +1047,118 @@ export default function GlobalStudentDatabase() {
               </button>
             </div>
             
-            {/* Link to full analytics dashboard — shown only on archived tab */}
+            {/* NEW: cross-link to deep analytics — only on Archived tab */}
             {studentTab === "archived" && archivedCount > 0 && (
               <button
                 onClick={() => router.push("/dashboard/archived-students")}
-                className="bg-white hover:bg-red-50 border border-red-200 text-red-700 px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center gap-2"
+                className="bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 active:scale-95 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md flex items-center gap-2"
+                title="Deep-dive analytics: lost revenue, trends, by country/agent, high-value losses"
               >
-                <Activity size={16}/> Open Full Analytics →
+                <Activity size={16}/> View Lost Students Insights →
               </button>
             )}
+          </div>
+        );
+      })()}
+      {/* INLINE ANALYTICS — only on Archived tab */}
+      {studentTab === "archived" && (() => {
+        // Compute analytics from already-loaded student data — no extra API call
+        const archived = allStudents.filter(s => (s.status || "").toUpperCase() === "ARCHIVED");
+        
+        if (archived.length === 0) return null;
+        
+        // Group by archive reason
+        const reasonCounts: Record<string, number> = {};
+        archived.forEach(s => {
+          let reason = s.archive_reason || "No reason recorded";
+          // Normalize "Other: xxx" into just "Other (with notes)" for counting
+          if (reason.startsWith("Other:")) reason = "Other (with notes)";
+          reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+        });
+        const topReasons = Object.entries(reasonCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5);
+        const topReasonLabel = topReasons[0]?.[0] || "—";
+        
+        // This month
+        const now = new Date();
+        const thisMonth = archived.filter(s => {
+          try {
+            const d = new Date(s.updated_at || s.created_at);
+            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+          } catch { return false; }
+        }).length;
+        
+        // Last 30 days
+        const last30 = archived.filter(s => {
+          try {
+            const d = new Date(s.updated_at || s.created_at);
+            return (now.getTime() - d.getTime()) < 30 * 24 * 60 * 60 * 1000;
+          } catch { return false; }
+        }).length;
+        
+        // Conversion stages they archived from — based on prior status if available, else "Unknown"
+        // Note: we don't currently track prior_status. Future enhancement.
+        
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            
+            {/* Stat cards column */}
+            <div className="grid grid-cols-2 gap-3 lg:col-span-1">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p className="text-[9px] font-black uppercase tracking-widest text-red-500 mb-1">Total Archived</p>
+                <p className="text-2xl font-black text-[#282860]">{archived.length}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p className="text-[9px] font-black uppercase tracking-widest text-amber-500 mb-1">This Month</p>
+                <p className="text-2xl font-black text-[#282860]">{thisMonth}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p className="text-[9px] font-black uppercase tracking-widest text-blue-500 mb-1">Last 30 Days</p>
+                <p className="text-2xl font-black text-[#282860]">{last30}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <p className="text-[9px] font-black uppercase tracking-widest text-purple-500 mb-1">Top Reason</p>
+                <p className="text-sm font-black text-[#282860] leading-tight mt-1" title={topReasonLabel}>
+                  {topReasonLabel.length > 22 ? topReasonLabel.substring(0, 22) + "…" : topReasonLabel}
+                </p>
+              </div>
+            </div>
+            
+            {/* Reason breakdown chart */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xs font-black text-[#282860] uppercase tracking-widest flex items-center gap-2">
+                  <Activity size={14} className="text-red-500"/> Archive Reasons Breakdown
+                </h3>
+                <span className="text-[10px] font-bold text-slate-400">{archived.length} total</span>
+              </div>
+              {topReasons.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No data yet.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {topReasons.map(([reason, count]) => {
+                    const pct = (count / archived.length) * 100;
+                    return (
+                      <div key={reason}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs font-bold text-slate-700 truncate max-w-[60%]" title={reason}>{reason}</span>
+                          <span className="text-[10px] font-black text-slate-500">
+                            {count} · {pct.toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-red-400 to-rose-500 rounded-full transition-all"
+                            style={{width: `${pct}%`}}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         );
       })()}
@@ -1611,9 +1722,6 @@ export default function GlobalStudentDatabase() {
                             <option value="Warm Leads">Warm Leads</option>
                             <option value="Cold Leads">Cold Leads</option>
                           </select>
-                          <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
-                            <strong className="text-orange-500">Hot</strong>: berangkat th ini · <strong className="text-amber-500">Warm</strong>: berangkat th depan · <strong className="text-blue-400">Cold</strong>: masih ragu-ragu
-                          </p>
                         </div>
                         <div>
                           <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Pipeline Status</label>
