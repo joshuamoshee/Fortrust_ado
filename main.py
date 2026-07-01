@@ -940,8 +940,9 @@ class StudentUpdate(BaseModel):
     country_interest: Optional[str] = None
     counsellor_notes: Optional[str] = None
     emergency_contact_parent: Optional[str] = None
+    photo_hard_copies: Optional[dict] = None
 
-# ============================================================
+    # ============================================================
     # APPLICATION FORM FIELDS (Phase 1a)
     # ============================================================
     title: Optional[str] = None
@@ -3786,7 +3787,7 @@ def download_application_form_pdf(
         
         # Convert RowDict to plain dict + parse JSONB columns
         student_dict = dict(student)
-        JSONB_FIELDS = ["program_preferences", "previous_studies", "work_experiences", "language_tests", "referees"]
+        JSONB_FIELDS = ["program_preferences", "previous_studies", "work_experiences", "language_tests", "referees", "photo_hard_copies"]
         for field in JSONB_FIELDS:
             raw = student_dict.get(field)
             if isinstance(raw, str):
@@ -3841,7 +3842,7 @@ def update_student(student_id: int, student: StudentUpdate, current_user: dict =
             else:
                 require_can_edit_student(conn, student_id, current_user)
                 # Convert lists to JSON strings for JSONB columns (Phase 1a)
-                JSONB_FIELDS = {"program_preferences", "previous_studies", "work_experiences", "language_tests", "referees"}
+                JSONB_FIELDS = {"program_preferences", "previous_studies", "work_experiences", "language_tests", "referees", "photo_hard_copies"}
                 for key in list(incoming.keys()):
                     if key in JSONB_FIELDS and incoming[key] is not None:
                         if isinstance(incoming[key], (list, dict)):
@@ -6168,3 +6169,61 @@ Be conservative. When uncertain, use null. Mami will review your output."""
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(500, f"AI extraction failed: {str(e)[:300]}")
+    
+# ============================================================
+# FORM TEMPLATE DOWNLOADS — placeholder endpoints
+# These will return blank PDF forms once Mami provides them.
+# For now they return a friendly stub message.
+# ============================================================
+
+# Map form IDs to their template file paths
+FORM_TEMPLATES = {
+    # SOP — already exists, keep using your existing /api/templates/sop
+    "sop_template": "templates/sop_template.pdf",
+    
+    # China visa application forms
+    "china_visa_form": "templates/china_visa_form.pdf",
+    
+    # Compliance forms (Mami will provide these)
+    "anti_drug_commitment":           "templates/anti_drug_commitment.pdf",
+    "no_criminal_record_commitment":  "templates/no_criminal_record_commitment.pdf",
+    "physical_examination_record":    "templates/physical_examination_record.pdf",
+    
+    # Financial forms
+    "financial_support_statement":         "templates/financial_support_statement.pdf",
+    "financial_support_consent_letter":    "templates/financial_support_consent_letter.pdf",
+}
+
+@app.get("/api/templates/visa-form/{form_id}")
+def download_visa_template(form_id: str, user_data: dict = Depends(verify_token)):
+    """Download a blank form template by ID."""
+    if form_id not in FORM_TEMPLATES:
+        raise HTTPException(404, f"Unknown form ID: {form_id}")
+    
+    template_path = FORM_TEMPLATES[form_id]
+    full_path = os.path.join(os.path.dirname(__file__), template_path)
+    
+    if not os.path.exists(full_path):
+        # PLACEHOLDER MODE — return a helpful stub message
+        # Once Mami provides the actual blank PDFs, drop them into backend/templates/
+        # and this branch will stop firing.
+        return Response(
+            content=f"""Form '{form_id}' is not yet uploaded to the server.
+
+This is a placeholder response. The actual blank form will be available here once the Master Admin uploads it.
+
+For now, please contact the office to get the blank form via email or WhatsApp.
+""".encode("utf-8"),
+            media_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="{form_id}_PLACEHOLDER.txt"'}
+        )
+    
+    # Return the actual PDF when available
+    with open(full_path, "rb") as f:
+        content = f.read()
+    
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{form_id}.pdf"'}
+    )
