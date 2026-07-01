@@ -241,6 +241,46 @@ export default function InstitutionPartners() {
       alert("Network error.");
     }
   };
+  const handleViewAgreement = async (agr: any, institutionId: string) => {
+    // Link-type: open external URL directly
+    if (agr.type === "link" && agr.url) {
+      window.open(agr.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    
+    // File-type: fetch through backend proxy (private bucket)
+    try {
+      const token = localStorage.getItem("fortrust_token");
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/institutions/${institutionId}/agreements/${agr.id}/view`,
+        { headers: { "Authorization": `Bearer ${token}` } }
+      );
+      
+      if (!res.ok) {
+        alert("Could not open agreement. File may have been deleted from storage.");
+        return;
+      }
+      
+      const contentType = res.headers.get("content-type") || "";
+      
+      // If backend returned JSON (link-type stored as file? edge case), handle it
+      if (contentType.includes("application/json")) {
+        const data = await res.json();
+        if (data.url) {
+          window.open(data.url, "_blank", "noopener,noreferrer");
+          return;
+        }
+      }
+      
+      // Otherwise it's a file blob — open in new tab
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      alert("Network error while opening agreement.");
+    }
+  };
 
   const closeAgreementModal = () => {
     setIsAddAgreementOpen(false);
@@ -904,14 +944,13 @@ const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <a
-                                href={agr.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => handleViewAgreement(agr, formData.id)}
                                 className="bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
                               >
                                 <Eye size={12}/> View
-                              </a>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteAgreement(agr.id)}
