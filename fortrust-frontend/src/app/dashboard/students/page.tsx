@@ -2,7 +2,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import AssigneePicker from "@/components/AssigneePicker";
-
+import VisaComplianceTab from "@/components/VisaComplianceTab";
 import TeamCollabChat from "@/components/TeamCollabChat";
 import { 
   Search, Filter, GraduationCap, Building, MapPin, 
@@ -11,7 +11,7 @@ import {
   Thermometer, BrainCircuit, UploadCloud, Activity, AlertCircle, 
   Eye, Trash2, Plus, MessageSquare, User, Circle,
   ChevronRight, ChevronLeft, CheckCircle, Award, Briefcase, Sparkles, Target, ChevronDown, Archive,
-  Download,DollarSign, School
+  Download,DollarSign, School, ShieldCheck
 } from "lucide-react";
 
 const DOC_TYPES = [
@@ -310,7 +310,7 @@ export default function GlobalStudentDatabase() {
   const [isArchiving, setIsArchiving] = useState(false);
 
   const [editingStudent, setEditingStudent] = useState<any>(null);
-  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai" | "notes" | "appform">("profile");
+  const [dossierTab, setDossierTab] = useState<"profile" | "documents" | "ai" | "notes" | "appform" | "visa">("profile");
   const [isSavingStudent, setIsSavingStudent] = useState(false);
   
   const [aiReport, setAiReport] = useState("");
@@ -1571,6 +1571,9 @@ export default function GlobalStudentDatabase() {
               <button onClick={() => setDossierTab('appform')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'appform' ? 'border-b-2 border-purple-600 text-purple-700 bg-white' : 'text-slate-400 hover:text-purple-600'}`}>
                 <FileText size={16} /> Application Form
               </button>
+              <button onClick={() => setDossierTab('visa')} className={`px-4 py-4 text-sm font-bold tracking-wider whitespace-nowrap transition-colors flex items-center gap-2 ${dossierTab === 'visa' ? 'border-b-2 border-emerald-600 text-emerald-700 bg-white' : 'text-slate-400 hover:text-emerald-600'}`}>
+                <ShieldCheck size={16} /> Visa Compliance
+              </button>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
@@ -2691,6 +2694,71 @@ export default function GlobalStudentDatabase() {
                   </form>
                 </div>
               )}
+              {/* VISA COMPLIANCE TAB (Phase 2 — country-aware checklist) */}
+              {dossierTab === 'visa' && (
+                <VisaComplianceTab
+                  student={editingStudent}
+                  studentDocs={studentDocs}
+                  isUploadingDoc={isUploadingDoc}
+                  loadingDocFilename={loadingDocFilename}
+                  deletingDocFilename={deletingDocFilename}
+                  onUploadDocument={async (file, docId, countryCode) => {
+                    // Reuse existing upload handler. Pass docId as the doc_type
+                    // so the file gets named appropriately in storage.
+                    const docType = countryCode ? `Visa Photo (${countryCode.toUpperCase()})` : docId;
+                    await handleDocumentUpload(file, docType);
+                  }}
+                  onViewDocument={handleViewDocument}
+                  onDeleteDocument={handleDeleteDocument}
+                  onDownloadTemplate={async (formId) => {
+                    try {
+                      const token = localStorage.getItem("fortrust_token");
+                      const res = await fetch(
+                        `${process.env.NEXT_PUBLIC_API_URL}/api/templates/visa-form/${formId}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                      );
+                      if (!res.ok) {
+                        setNotification({type: 'error', message: "Template not available yet."});
+                        return;
+                      }
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      const cd = res.headers.get('Content-Disposition') || '';
+                      const match = cd.match(/filename="?([^";]+)"?/);
+                      link.download = match ? match[1] : `${formId}.pdf`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                      URL.revokeObjectURL(url);
+                      setNotification({type: 'success', message: "Template downloaded."});
+                      setTimeout(() => setNotification(null), 3000);
+                    } catch (e) {
+                      setNotification({type: 'error', message: "Network error."});
+                    }
+                  }}
+                  onUpdateHardCopyCount={async (countryCode, count) => {
+                    // Optimistic update
+                    const current = editingStudent.photo_hard_copies || {};
+                    const updated = {...current, [countryCode]: count};
+                    setEditingStudent({...editingStudent, photo_hard_copies: updated});
+                    
+                    // Persist to backend
+                    try {
+                      const token = localStorage.getItem("fortrust_token");
+                      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/students/${editingStudent.id}`, {
+                        method: "PUT",
+                        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                        body: JSON.stringify({ photo_hard_copies: updated })
+                      });
+                    } catch (e) {
+                      // Silently fail — local state is still updated
+                    }
+                  }}
+                  apiUrl={process.env.NEXT_PUBLIC_API_URL || ""}
+                />
+              )}
             </div>
             {(dossierTab === 'profile' || dossierTab === 'appform') && (
               <div className="p-5 border-t border-slate-200 bg-white flex justify-end gap-3 shrink-0 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
@@ -2703,6 +2771,8 @@ export default function GlobalStudentDatabase() {
                   {isSavingStudent ? <><Loader2 size={16} className="animate-spin"/> Saving...</> : <><Save size={16}/> Save Changes</>}
                 </button>
               </div>
+              
+              
             )}
           </div>
         </>
