@@ -4338,6 +4338,66 @@ async def upload_agreement_file(
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    
+@app.get("/api/institutions/{institution_id}/agreements/{agreement_id}/view")
+def view_agreement(
+    institution_id: str,
+    agreement_id: str,
+    user_data: dict = Depends(verify_token)
+):
+    """Fetch an institution agreement and stream it through the backend.
+    Uses service_role key to access private bucket. Auth required."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT agreements FROM institutions WHERE id = %s", (institution_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Institution not found")
+        
+        agreements = row.get("agreements") or []
+        if isinstance(agreements, str):
+            try: agreements = json.loads(agreements)
+            except: agreements = []
+        
+        target = next((a for a in agreements if a.get("id") == agreement_id), None)
+        if not target:
+            raise HTTPException(404, "Agreement not found")
+        
+        # For link-type agreements, return the URL directly
+        if target.get("type") == "link":
+            return {"type": "link", "url": target.get("url")}
+        
+        # File-type — proxy the download
+        storage_path = target.get("filename")
+        if not storage_path:
+            raise HTTPException(404, "File path missing from agreement record")
+        
+        try:
+            file_bytes = supabase.storage.from_("student-documents").download(storage_path)
+        except Exception as e:
+            raise HTTPException(404, f"File not accessible in storage: {str(e)[:200]}")
+        
+        # MIME detection
+        ext = os.path.splitext(storage_path)[1].lower()
+        mime_map = {
+            ".pdf": "application/pdf",
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".doc": "application/msword",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+        mime = mime_map.get(ext, "application/octet-stream")
+        
+        display_name = target.get("name") or f"agreement{ext}"
+        
+        return StreamingResponse(
+            iter([file_bytes]),
+            media_type=mime,
+            headers={"Content-Disposition": f'inline; filename="{display_name}"'}
+        )
+    finally:
+        conn.close()
 
 
 @app.post("/api/institutions/{institution_id}/agreements/link")
