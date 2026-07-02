@@ -4664,8 +4664,27 @@ When multiple files are provided, follow these rules:
 # DOCUMENT TEXT
     {extracted_text}
 
+# CRITICAL: VALIDITY vs EXPIRY — DO NOT CONFUSE THESE
+
+`is_valid` means WHAT the document is, NOT whether it's currently active.
+
+is_valid: true  →  ALL of the following, even if dates suggest expiry:
+  - Currently active partnership agreement
+  - EXPIRED partnership agreement (still extract for record-keeping)
+  - TERMINATED agreement
+  - Amendment / variation letter / addendum
+  - Any document with commission terms, tuition split, or agent-institution partnership language
+
+is_valid: false  →  ONLY if the document is a totally different TYPE:
+  - Invoice, receipt, purchase order
+  - Marketing brochure with no legal terms
+  - Student transcript, application form, or personal document
+  - Random unrelated document (menu, article, etc.)
+
+If the agreement is expired, STILL extract every field completely. Note the expiry in `terms_conditions` (e.g. "⚠️ Agreement expired on YYYY-MM-DD"). Never refuse to extract just because dates are in the past — Mami needs the historical data for archival and renewal reference.
+
 # FAIL-SAFE CHECK
-If NONE of the documents are partnership/commission agreements (e.g., all are invoices, brochures, transcripts), return EXACTLY:
+Only if NONE of the documents contain partnership/commission language whatsoever (all are unrelated document types), return EXACTLY:
 {{"is_valid": false, "error_message": "These documents do not appear to be partnership or commission agreements."}}
 
 # IF VALID, RETURN THIS EXACT JSON STRUCTURE
@@ -4863,6 +4882,28 @@ Begin extraction now."""
               f"({data.get('country')}) — {len(data.get('contacts', []))} contacts, "
               f"{len(data.get('commission_programs', []))} programs, "
               f"{len(data.get('amendment_history', []))} amendment(s) merged from {file_count} file(s)")
+        
+        # ============================================================
+        # EXPIRY DETECTION — flag expired agreements without blocking
+        # ============================================================
+        data["is_expired"] = False
+        data["expiry_warning"] = None
+        
+        end_date_str = data.get("duration_end")
+        if end_date_str:
+            try:
+                # Parse the YYYY-MM-DD format we asked Gemini to return
+                end_date = datetime.strptime(end_date_str[:10], "%Y-%m-%d").date()
+                today = datetime.now().date()
+                
+                if end_date < today:
+                    data["is_expired"] = True
+                    data["expiry_warning"] = f"⚠️ Agreement expired on {end_date_str}. Data has been extracted for record-keeping. Renew or replace before assigning new students under this partnership."
+                elif (end_date - today).days <= 90:
+                    # About to expire — warn early
+                    data["expiry_warning"] = f"⏰ Agreement expires soon on {end_date_str} ({(end_date - today).days} days remaining). Start renewal process."
+            except (ValueError, TypeError) as e:
+                print(f"[extract-commission] Could not parse duration_end '{end_date_str}': {e}")
 
         return {"status": "success", "data": data, "files_processed": file_count}
 
