@@ -1720,35 +1720,26 @@ def ai_program_search(query: str = "Popular business degrees in Australia"):
 # --- 4. PIPELINE ---
 # =====================================================================
 @app.get("/api/pipeline")
-def get_pipeline(role: str = None, agent_code: str = None, user_data: dict = Depends(verify_token)):
+def get_pipeline(
+    role: str = None,           # ⚠️ IGNORED — kept only for backward compat
+    agent_code: str = None,     # ⚠️ IGNORED — kept only for backward compat  
+    user_data: dict = Depends(verify_token)
+):
     """
     Return students visible to the authenticated user.
-    - Master Admin / Admin roles: sees all students
-    - Everyone else: sees students where they are the primary assignee (legacy `assignee`
-      column) OR listed in the `assignees` JSONB array (multi-assignee)
-    
-    Note: `role` and `agent_code` query params are IGNORED for authorization.
-    Authorization is always derived from the JWT. Params kept for backward compat.
+    Authorization derived from JWT — query params are ignored.
+    Uses get_visible_student_filter which correctly checks BOTH
+    the legacy `assignee` column AND the `assignees` JSONB array.
     """
     conn = get_db_connection()
     try:
-        # Get real identity from JWT (not from query params — those can be spoofed)
-        actual_role = (user_data.get("role") or "").upper()
-        actual_name = user_data.get("name") or ""
+        clause, params = get_visible_student_filter(user_data, conn)
         
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            if actual_role in ("MASTER_ADMIN", "ADMIN", "TELEMARKETER", "BRANCH_ADMIN"):
-                # Full access
-                cur.execute("SELECT * FROM students ORDER BY created_at DESC")
-            else:
-                # Agent view — check BOTH legacy field AND multi-assignee array
-                cur.execute("""
-                    SELECT * FROM students 
-                    WHERE assignee = %s 
-                       OR assignees @> %s::jsonb
-                    ORDER BY created_at DESC
-                """, (actual_name, json.dumps([actual_name])))
-            
+            cur.execute(
+                f"SELECT * FROM students WHERE {clause} ORDER BY created_at DESC",
+                params
+            )
             students = cur.fetchall()
             for s in students:
                 s['id'] = str(s['id'])
