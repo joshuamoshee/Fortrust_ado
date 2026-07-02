@@ -736,7 +736,7 @@ const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     <div className="bg-red-100 text-red-600 p-1.5 rounded-lg"><AlertCircle size={18}/></div>
                     <div className="flex-1">
                       <p className="text-sm font-black text-red-700">⚠️ This agreement has expired</p>
-                      <p className="text-xs text-red-600">End date: {formData.duration_end} ({exp.label}). Renew before continuing.</p>
+                     <p className="text-xs text-red-600">End date: {formData.duration_end} ({exp.label}). Data has been extracted for record-keeping. Renew or replace before assigning new students under this partnership.</p>
                     </div>
                   </div>
                 );
